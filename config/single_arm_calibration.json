@@ -6,11 +6,11 @@
   "home_definition": "verified folded physical home; every actuator reports raw 2048",
   "positive_direction_definition": "the previously verified M direction",
   "joints": [
-    {"id": 1, "name": "BASE",       "zero_raw": 2048, "minimum_raw": 2048, "maximum_raw": 2389, "positive_raw_direction":  1, "p_gain": 16},
-    {"id": 2, "name": "SHOULDER",   "zero_raw": 2048, "minimum_raw": 2048, "maximum_raw": 2162, "positive_raw_direction":  1, "p_gain": 16},
-    {"id": 3, "name": "ELBOW",      "zero_raw": 2048, "minimum_raw": 1934, "maximum_raw": 2048, "positive_raw_direction": -1, "p_gain": 24},
-    {"id": 4, "name": "WRIST_FLEX", "zero_raw": 2048, "minimum_raw": 1934, "maximum_raw": 2048, "positive_raw_direction": -1, "p_gain": 16},
-    {"id": 5, "name": "WRIST_ROLL", "zero_raw": 2048, "minimum_raw": 2048, "maximum_raw": 2219, "positive_raw_direction":  1, "p_gain": 16},
-    {"id": 6, "name": "GRIPPER",    "zero_raw": 2048, "minimum_raw": 1934, "maximum_raw": 2048, "positive_raw_direction": -1, "p_gain": 16}
+    {"id": 1, "name": "BASE",       "zero_raw": 2048, "minimum_raw": 2048, "maximum_raw": 2610, "positive_raw_direction":  1, "p_gain": 16},
+    {"id": 2, "name": "SHOULDER",   "zero_raw": 2048, "minimum_raw": 1988, "maximum_raw": 3766, "positive_raw_direction":  1, "p_gain": 16},
+    {"id": 3, "name": "ELBOW",      "zero_raw": 2048, "minimum_raw": 627, "maximum_raw": 2258, "positive_raw_direction": -1, "p_gain": 24},
+    {"id": 4, "name": "WRIST_FLEX", "zero_raw": 2048, "minimum_raw": 1194, "maximum_raw": 2048, "positive_raw_direction": -1, "p_gain": 16},
+    {"id": 5, "name": "WRIST_ROLL", "zero_raw": 2048, "minimum_raw": 1874, "maximum_raw": 2219, "positive_raw_direction":  1, "p_gain": 16},
+    {"id": 6, "name": "GRIPPER",    "zero_raw": 2048, "minimum_raw": 1866, "maximum_raw": 2048, "positive_raw_direction": -1, "p_gain": 16}
   ]
 }

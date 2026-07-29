@@ -8,8 +8,10 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 
 from single_arm_bridge.action_execution import (  # noqa: E402
     ExecutionError,
+    ExecutionOutcome,
     MotionExecutionCore,
     TerminalState,
+    format_execution_outcome,
 )
 from single_arm_bridge.calibration import load_calibration  # noqa: E402
 from single_arm_bridge.hardware_identity import (  # noqa: E402
@@ -32,7 +34,7 @@ class FakeExecutionTransport:
         self.drain_error = None
         self.accepted_status = 0
         self.accepted_sample_count = 1
-        self.accepted_calibration_hash = 0x3DB42B48
+        self.accepted_calibration_hash = 0x4D62F8D5
 
     def send_setpoint(self, positions_urad, duration_ms):
         if self.send_error is not None:
@@ -83,8 +85,8 @@ class SingleArmActionExecutionTests(unittest.TestCase):
 
     @staticmethod
     def hello(
-        calibration_hash=0x3DB42B48,
-        firmware_version=0x00020700,
+        calibration_hash=0x4D62F8D5,
+        firmware_version=0x00020B00,
         protocol_version=1,
         joint_count=6,
         capabilities=0x0000000F,
@@ -107,6 +109,22 @@ class SingleArmActionExecutionTests(unittest.TestCase):
             selected_transport,
             selected_hello,
             self.calibration,
+        )
+
+    def test_terminal_diagnostic_preserves_status_and_detail(self) -> None:
+        message = format_execution_outcome(
+            ExecutionOutcome(
+                TerminalState.ABORTED,
+                42,
+                6,
+                21,
+                "final error 21 exceeds 20 raw",
+            )
+        )
+        self.assertEqual(
+            message,
+            "ARM_EXECUTION_TERMINAL state=aborted sequence=42 "
+            "status=6 detail=21 reason=final error 21 exceeds 20 raw",
         )
 
     def test_identity_mismatch_blocks_before_any_setpoint(self) -> None:
@@ -147,17 +165,18 @@ class SingleArmActionExecutionTests(unittest.TestCase):
         self.assertFalse(core.active)
         self.assertFalse(core.blocked)
 
-    def test_completion_above_error_tolerance_aborts_and_blocks(self) -> None:
+    def test_completion_above_error_tolerance_soft_aborts(self) -> None:
         transport = FakeExecutionTransport()
         core = self.make_core(transport)
         sequence = core.start_goal([0.0] * 6, 1000)
         transport.queue_result(sequence, status=6, detail=21)
         outcome = core.poll()
         self.assertEqual(outcome.state, TerminalState.ABORTED)
-        self.assertTrue(core.blocked)
-        self.assertEqual(transport.safe_stop_calls, 1)
-        with self.assertRaisesRegex(ExecutionError, "explicit recovery"):
-            core.start_goal([0.0] * 6, 1000)
+        self.assertIn("soft abort without safety latch", outcome.reason)
+        self.assertFalse(core.blocked)
+        self.assertEqual(transport.safe_stop_calls, 0)
+        core.start_goal([0.0] * 6, 1000)
+        self.assertEqual(len(transport.send_calls), 2)
 
     def test_firmware_failure_status_aborts_and_requests_safe_stop(self) -> None:
         for status in (7, 8, 9):

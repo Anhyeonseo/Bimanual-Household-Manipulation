@@ -59,20 +59,62 @@ class ExternalMoveItLaunchTests(unittest.TestCase):
         }
         self.assertNotIn("backend", names)
         self.assertNotIn("allow_motion", names)
+        self.assertIn("use_rviz", names)
 
-    def test_external_move_group_uses_bounded_single_point_tolerance(self) -> None:
+    def test_rviz_include_is_conditioned_by_use_rviz(self) -> None:
+        actions = launch_module._moveit_actions()
+        self.assertIsNone(actions[0].condition)
+        self.assertIsNone(actions[1].condition)
+        self.assertIsNone(actions[2].condition)
+        self.assertIsNotNone(actions[3].condition)
+
+    def test_external_move_group_uses_bounded_registration_tolerance(self) -> None:
         config = move_group_module._moveit_config()
         tolerance = config.trajectory_execution[
             "trajectory_execution"
         ]["allowed_start_tolerance"]
-        self.assertEqual(tolerance, 0.20)
+        self.assertEqual(tolerance, 0.45)
+        self.assertGreater(
+            tolerance,
+            tool_module.PRESETS["register-base-040"].positions[0],
+        )
+        self.assertLess(tolerance, 0.50)
+        execution = config.trajectory_execution["trajectory_execution"]
+        self.assertEqual(
+            execution["allowed_execution_duration_scaling"],
+            1.2,
+        )
+        self.assertEqual(
+            execution["allowed_goal_duration_margin"],
+            1.0,
+        )
 
 
 class MoveItExecuteOnceTests(unittest.TestCase):
     def test_presets_are_fixed_single_point_safe_contracts(self) -> None:
         self.assertEqual(
             tuple(tool_module.PRESETS),
-            ("home", "representative", "visible", "gripper-safe"),
+            (
+                "home",
+                "representative",
+                "visible",
+                "register-base-002",
+                "register-base-006",
+                "register-base-010",
+                "register-base-020",
+                "register-base-030",
+                "register-base-035",
+                "register-base-040",
+                "register-pose-03",
+                "register-pose-04",
+                "register-pose-05",
+                "register-pose-05b",
+                "register-pose-05c",
+                "register-pose-05d",
+                "register-pose-05e",
+                "diagnose-shoulder-low",
+                "gripper-safe",
+            ),
         )
         representative = tool_module.PRESETS["representative"]
         self.assertEqual(representative.positions, (0.05,) * 5)
@@ -80,6 +122,122 @@ class MoveItExecuteOnceTests(unittest.TestCase):
         self.assertEqual(visible.positions, (0.10,) * 5)
         gripper = tool_module.PRESETS["gripper-safe"]
         self.assertEqual(gripper.positions, (0.08,))
+        self.assertEqual(
+            tool_module.PRESETS["register-base-002"].positions,
+            (0.02, 0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-base-006"].positions,
+            (0.06, 0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-base-010"].positions,
+            (0.10, 0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-base-020"].positions,
+            (0.20, 0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-base-030"].positions,
+            (0.30, 0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-base-035"].positions,
+            (0.35, 0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-base-040"].positions,
+            (0.40, 0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-03"].positions,
+            (0.45, 0.10, 0.05, 0.05, 0.05),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-03"].duration_s,
+            2,
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-04"].positions,
+            (0.47, 0.14, 0.04, 0.14, 0.08),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-04"].duration_s,
+            2,
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-05"].positions,
+            (0.48, 0.14, 0.14, 0.04, 0.16),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-05"].duration_s,
+            2,
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-05b"].positions,
+            (0.49, 0.04, 0.10, 0.04, 0.16),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-05b"].duration_s,
+            2,
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-05c"].positions,
+            (0.49, 0.04, 0.10, 0.04, 0.08),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-05c"].duration_s,
+            2,
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-05d"].positions,
+            (0.45, 0.08, 0.12, 0.12, 0.08),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-05d"].duration_s,
+            2,
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-05e"].positions,
+            (0.40, 0.14, 0.04, 0.14, 0.08),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["register-pose-05e"].duration_s,
+            2,
+        )
+        self.assertEqual(
+            tool_module.PRESETS["diagnose-shoulder-low"].positions,
+            (0.47, 0.05, 0.04, 0.14, 0.08),
+        )
+        self.assertEqual(
+            tool_module.PRESETS["diagnose-shoulder-low"].duration_s,
+            2,
+        )
+
+    def test_every_preset_passes_hardware_calibration_preflight(self) -> None:
+        for preset in tool_module.PRESETS.values():
+            tool_module.validate_preset_against_hardware_calibration(preset)
+
+    def test_duration_outside_bridge_contract_fails_preflight(self) -> None:
+        invalid = tool_module.Preset(
+            tool_module.ARM_CONTROLLER,
+            tool_module.ARM_JOINTS,
+            (0.45, 0.10, 0.05, 0.05, 0.05),
+            3,
+        )
+        with self.assertRaisesRegex(ValueError, "300..2000 ms"):
+            tool_module.validate_preset_against_hardware_calibration(invalid)
+
+    def test_negative_elbow_fails_hardware_calibration_preflight(self) -> None:
+        invalid = tool_module.Preset(
+            tool_module.ARM_CONTROLLER,
+            tool_module.ARM_JOINTS,
+            (0.40, 0.0, -0.35, 0.0, 0.0),
+            2,
+        )
+        with self.assertRaisesRegex(ValueError, "left_elbow_joint"):
+            tool_module.validate_preset_against_hardware_calibration(invalid)
 
     def test_goal_contains_exactly_one_point_and_one_controller(self) -> None:
         preset = tool_module.PRESETS["representative"]

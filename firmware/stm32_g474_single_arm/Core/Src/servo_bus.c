@@ -16,12 +16,12 @@ static ServoMotionSafetyDiagnostics servo_motion_safety_diagnostics = {
 };
 
 const ServoJointConfig servo_joints[SINGLE_ARM_JOINT_COUNT] = {
-    {1U, "BASE",        1U, 2048U, 2048U, 2389U, 16U,  1,  34U,  600U, 400U},
-    {2U, "SHOULDER",    1U, 2048U, 2048U, 2162U, 16U,  1,  34U, 1200U, 650U},
-    {3U, "ELBOW",       1U, 2048U, 1934U, 2048U, 24U, -1,  34U, 1000U, 550U},
-    {4U, "WRIST_FLEX",  1U, 2048U, 1934U, 2048U, 16U, -1,  34U,  800U, 400U},
-    {5U, "WRIST_ROLL",  1U, 2048U, 2048U, 2219U, 16U,  1,  34U,  500U, 250U},
-    {6U, "GRIPPER",     1U, 2048U, 1934U, 2048U, 16U, -1,  34U,  800U, 150U}
+    {1U, "BASE",        1U, 2048U, 2048U, 2610U, 16U,  1,  34U,  600U, 400U},
+    {2U, "SHOULDER",    1U, 2048U, 1988U, 3766U, 16U,  1,  34U, 1200U, 650U},
+    {3U, "ELBOW",       1U, 2048U, 627U, 2258U, 24U, -1,  34U, 1000U, 550U},
+    {4U, "WRIST_FLEX",  1U, 2048U, 1194U, 2048U, 16U, -1,  34U,  800U, 400U},
+    {5U, "WRIST_ROLL",  1U, 2048U, 1874U, 2219U, 16U,  1,  34U,  500U, 250U},
+    {6U, "GRIPPER",     1U, 2048U, 1866U, 2048U, 16U, -1,  34U,  800U, 150U}
 };
 
 const uint8_t servo_joint_count = SINGLE_ARM_JOINT_COUNT;
@@ -78,6 +78,55 @@ HAL_StatusTypeDef Servo_WriteData(
     const uint8_t *data,
     uint8_t data_length
 );
+
+HAL_StatusTypeDef Servo_DisableTorqueAll(void)
+{
+    uint8_t torque_off[1] = {0U};
+    HAL_StatusTypeDef result = HAL_OK;
+
+    /*
+     * Continue through all six IDs even after one failure.  A partial bus
+     * failure must not prevent the remaining joints from receiving the
+     * safest command available.
+     */
+    for (uint8_t i = 0U; i < servo_joint_count; i++)
+    {
+        if (Servo_WriteData(
+                servo_joints[i].id,
+                40U,
+                torque_off,
+                sizeof(torque_off)
+            ) != HAL_OK)
+        {
+            result = HAL_ERROR;
+        }
+    }
+
+    HAL_Delay(5U);
+
+    /*
+     * DISABLE may be acknowledged only after every servo reports Torque
+     * Enable register 40 as zero.  A write-only ACK previously allowed the
+     * host state machine to claim torque=DISABLED while the arm stayed stiff.
+     */
+    for (uint8_t i = 0U; i < servo_joint_count; i++)
+    {
+        uint8_t torque_readback[1] = {1U};
+
+        if ((Servo_ReadData(
+                servo_joints[i].id,
+                40U,
+                sizeof(torque_readback),
+                torque_readback
+            ) != HAL_OK) ||
+            (torque_readback[0] != 0U))
+        {
+            result = HAL_ERROR;
+        }
+    }
+
+    return result;
+}
 
 int32_t Servo_PositionError(
     uint16_t actual_position,

@@ -64,7 +64,7 @@ if ROS_AVAILABLE:
                         self.auto_detail,
                         sequence,
                         1200,
-                        0x3DB42B48,
+                        0x4D62F8D5,
                     )
                 )
             return MotionResult(
@@ -74,7 +74,7 @@ if ROS_AVAILABLE:
                 0,
                 sequence,
                 1200,
-                0x3DB42B48,
+                0x4D62F8D5,
             )
 
         def drain_motion_results(self):
@@ -108,8 +108,8 @@ class ParallelGripperRosIntegrationTests(unittest.TestCase):
             1,
             6,
             False,
-            0x00020700,
-            0x3DB42B48,
+            0x00020B00,
+            0x4D62F8D5,
             0x0000000F,
             0,
         )

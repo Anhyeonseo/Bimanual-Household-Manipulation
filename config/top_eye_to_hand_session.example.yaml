@@ -1,0 +1,19 @@
+schema_version: 1
+session_id: TOP_EYE_TO_HAND_REPLACE_ME
+status: CAPTURE_TEMPLATE
+motion_authorized: false
+robot_target_available: false
+frames:
+  robot: left_base_link
+  gripper: left_gripper_frame_link
+  camera: top_camera_optical_frame
+  target: tcp_aruco_gridboard
+target:
+  dictionary: DICT_4X4_50
+  markers_x: 2
+  markers_y: 2
+  marker_length_m: 0.020
+  marker_separation_m: 0.005
+  first_marker_id: 0
+training_captures: []
+validation_captures: []

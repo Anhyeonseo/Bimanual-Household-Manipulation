@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Static physical workcell derived from TheRobotStudio/SO-ARM100
+  Optional/Overhead_Cam_Mount_Webcam.
+
+  2026-07-28 physical configuration:
+  - the webcam hinge is broken and absent;
+  - cam_mount_top is inserted end-for-end over the bottom tower post;
+  - every workcell joint is fixed;
+  - camera optical xyz/rpy remain calibration inputs.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro
+    name="so101_overhead_webcam_mount"
+    params="prefix parent camera_xyz:='0 0.2344404 0' camera_optical_rpy:='1.5707963267948966 0 0'">
+    <xacro:property name="half_pi" value="1.5707963267948966"/>
+
+    <!--
+      The plate is aligned to the SO-101 base footprint grooves, not merely
+      centered on workcell_base_link. After the user-confirmed 180-degree
+      correction, raw STL axes map as (x,y,z)->(x,-z,y).
+    -->
+    <link name="${prefix}arm_base_link">
+      <visual>
+        <origin xyz="0.0702562210 -0.0534304657 0" rpy="${half_pi} 0 0"/>
+        <geometry>
+          <mesh
+            filename="package://so101_description/meshes/overhead_webcam_arm_base.stl"
+            scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name="3d_printed"/>
+      </visual>
+      <collision>
+        <origin xyz="0.0211353034 0 -0.0014" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.08959999 0.15903915 0.0072"/>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="${prefix}arm_base_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <parent link="${parent}"/>
+      <child link="${prefix}arm_base_link"/>
+    </joint>
+
+    <!--
+      User-confirmed side insertion: rotate the complete bottom+top assembly
+      180 degrees, then place its 37.4 mm edge in the left region seen from the
+      arm_base physical right side. The exact arm raw interval
+      x=-93.9209137..-56.5209137 mm matches the bottom raw x=0..37.4 mm edge.
+      Both floor bottoms remain at z=-5 mm.
+    -->
+    <link name="${prefix}cam_mount_bottom_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh
+            filename="package://so101_description/meshes/overhead_webcam_cam_mount_bottom.stl"
+            scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name="3d_printed"/>
+      </visual>
+      <collision>
+        <origin xyz="0.0187 0.115475 0.0365125" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.0374 0.23095 0.093025"/>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="${prefix}cam_mount_bottom_joint" type="fixed">
+      <origin xyz="0.0137353073 -0.1525445687 -0.005" rpy="${half_pi} 0 3.141592653589793"/>
+      <parent link="${prefix}arm_base_link"/>
+      <child link="${prefix}cam_mount_bottom_link"/>
+    </joint>
+
+    <!--
+      Only the small center tip beyond raw y=234.4404 mm is physically absent.
+      Both surrounding end structures remain. The reversed y=0 end overlaps
+      the bottom post from y=223.1 to 230.95 mm for a 7.85 mm insertion.
+    -->
+    <link name="${prefix}cam_mount_top_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh
+            filename="package://so101_description/meshes/overhead_webcam_cam_mount_top_hinge_removed.stl"
+            scale="0.001 0.001 0.001"/>
+        </geometry>
+        <material name="3d_printed"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0.1172202 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.0254 0.2344404 0.036625"/>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="${prefix}cam_mount_top_joint" type="fixed">
+      <origin xyz="0.0187 0.2231 0.0365125" rpy="0 0 0"/>
+      <parent link="${prefix}cam_mount_bottom_link"/>
+      <child link="${prefix}cam_mount_top_link"/>
+    </joint>
+
+    <!-- Camera body geometry was not supplied; this remains a fixed frame. -->
+    <link name="${prefix}camera_link"/>
+    <joint name="${prefix}camera_mount_joint" type="fixed">
+      <origin xyz="${camera_xyz}" rpy="0 0 0"/>
+      <parent link="${prefix}cam_mount_top_link"/>
+      <child link="${prefix}camera_link"/>
+    </joint>
+
+    <link name="${prefix}camera_optical_frame"/>
+    <joint name="${prefix}camera_optical_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="${camera_optical_rpy}"/>
+      <parent link="${prefix}camera_link"/>
+      <child link="${prefix}camera_optical_frame"/>
+    </joint>
+  </xacro:macro>
+</robot>

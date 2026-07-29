@@ -1,0 +1,50 @@
+# SO101 fixed Top camera intrinsic calibration.
+#
+# Captured: 2026-07-25
+# Resolution/format: 640x480 MJPEG
+# Pattern: 8x8 physical chessboard (7x7 inner corners)
+# Measured square size: 0.03045 m horizontally and vertically
+# The interactive intrinsic run used a nominal 0.040 m. Uniform object-point
+# scale changes only the estimated target translation, not the intrinsic or
+# distortion parameters. Worktable homography must use 0.03045 m.
+# Samples: 70 captured, 62 retained after reprojection outlier rejection
+# Reprojection: RMS 0.5300 px, per-view mean 0.5150 px,
+#               median 0.4695 px, p95 0.7201 px, max 0.9199 px
+#
+# Do not reuse this file if the Top camera, resolution, focus, or lens changes.
+# Camera mount movement does not invalidate intrinsics, but it does invalidate
+# the separate worktable homography/extrinsic calibration.
+
+image_width: 640
+image_height: 480
+camera_name: so101_top
+
+camera_matrix:
+  rows: 3
+  cols: 3
+  data:
+    [748.289657, 0.0, 300.196332,
+     0.0, 739.715161, 203.181624,
+     0.0, 0.0, 1.0]
+
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [-0.417329, 0.170066, -0.004761, 0.000486, 0.0]
+
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data:
+    [1.0, 0.0, 0.0,
+     0.0, 1.0, 0.0,
+     0.0, 0.0, 1.0]
+
+projection_matrix:
+  rows: 3
+  cols: 4
+  data:
+    [684.494080, 0.0, 296.187632, 0.0,
+     0.0, 699.590332, 197.794496, 0.0,
+     0.0, 0.0, 1.0, 0.0]

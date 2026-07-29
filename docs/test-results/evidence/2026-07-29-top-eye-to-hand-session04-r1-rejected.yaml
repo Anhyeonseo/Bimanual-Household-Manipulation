@@ -1,0 +1,198 @@
+schema_version: 1
+status: REJECTED_EYE_TO_HAND_CALIBRATION
+motion_authorized: false
+robot_target_available: false
+method: tcp_gridboard_robot_world_hand_eye
+frames:
+  robot: left_base_link
+  gripper: left_gripper_frame_link
+  camera: top_camera_optical_frame
+  target: tcp_aruco_gridboard
+target:
+  dictionary: DICT_4X4_50
+  markers_x: 2
+  markers_y: 2
+  marker_length_m: 0.02
+  marker_separation_m: 0.005
+  first_marker_id: 0
+base_to_camera:
+  rows: 4
+  cols: 4
+  data:
+  - - -0.0331505476239472
+    - -0.5855417254458296
+    - 0.8099641528821834
+    - 0.003965608746724469
+  - - -0.9992185757351878
+    - 0.03686998218409977
+    - -0.014242272272616568
+    - -0.123394474514976
+  - - -0.02152391920574838
+    - -0.8098033663647397
+    - -0.5863064290337942
+    - 0.43197195976117375
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+gripper_to_target:
+  rows: 4
+  cols: 4
+  data:
+  - - 0.05128517976697833
+    - 0.9968710935792021
+    - 0.06014859202403747
+    - -0.024179478417969642
+  - - 0.041904605137022856
+    - -0.062322816720679866
+    - 0.9971759476563354
+    - 0.012365195684162292
+  - - 0.9978045071077695
+    - -0.0486198447365469
+    - -0.04496972640805318
+    - -0.023963809050550688
+  - - 0.0
+    - 0.0
+    - 0.0
+    - 1.0
+geometry:
+  training_translation_span_mm: 157.60292229510574
+  training_rotation_span_deg: 43.91296491928216
+training_fit:
+  count: 8
+  translation_rms_mm: 3.200637866067758
+  translation_max_mm: 6.228008738573167
+  rotation_rms_deg: 1.0018831034454962
+  rotation_max_deg: 1.3717354568108537
+  pnp_rms_px_max: 1.3292600386835383
+  image_border_px_min: 52.40234375
+  captures:
+  - id: top_e2h_directional_train_01_replacement
+    translation_residual_mm: 6.228008738573167
+    rotation_residual_deg: 1.3717354568108537
+    pnp_rms_px: 1.3292600386835383
+    image_border_px: 156.01202392578125
+    detected_marker_ids:
+    - 0
+    - 1
+    - 2
+    - 3
+  - id: top_e2h_directional_train_02
+    translation_residual_mm: 1.4236697591294412
+    rotation_residual_deg: 0.48453456621727264
+    pnp_rms_px: 1.0308912766611544
+    image_border_px: 129.93748474121094
+    detected_marker_ids:
+    - 0
+    - 1
+    - 2
+    - 3
+  - id: top_e2h_directional_train_03
+    translation_residual_mm: 3.1900131092493003
+    rotation_residual_deg: 1.2193081843370315
+    pnp_rms_px: 1.0030213664338368
+    image_border_px: 93.75653076171875
+    detected_marker_ids:
+    - 0
+    - 1
+    - 2
+    - 3
+  - id: top_e2h_directional_train_04
+    translation_residual_mm: 3.7856190789833954
+    rotation_residual_deg: 0.6981243596635611
+    pnp_rms_px: 0.9010390683792725
+    image_border_px: 86.41148376464844
+    detected_marker_ids:
+    - 0
+    - 1
+    - 2
+    - 3
+  - id: top_e2h_directional_train_05
+    translation_residual_mm: 1.3578292285028413
+    rotation_residual_deg: 0.7587127938543154
+    pnp_rms_px: 0.8516954369911284
+    image_border_px: 52.602294921875
+    detected_marker_ids:
+    - 0
+    - 1
+    - 2
+    - 3
+  - id: top_e2h_directional_train_06
+    translation_residual_mm: 2.0244835015824942
+    rotation_residual_deg: 1.3424619736612116
+    pnp_rms_px: 0.7018842435733302
+    image_border_px: 73.56854248046875
+    detected_marker_ids:
+    - 0
+    - 1
+    - 2
+    - 3
+  - id: top_e2h_directional_train_07
+    translation_residual_mm: 1.790819127210603
+    rotation_residual_deg: 0.8686022740546427
+    pnp_rms_px: 0.9048972756067752
+    image_border_px: 52.40234375
+    detected_marker_ids:
+    - 0
+    - 1
+    - 2
+    - 3
+  - id: top_e2h_directional_train_08
+    translation_residual_mm: 2.7352095550735425
+    rotation_residual_deg: 0.898508141143301
+    pnp_rms_px: 1.1146974214855006
+    image_border_px: 98.47779846191406
+    detected_marker_ids:
+    - 0
+    - 1
+    - 2
+    - 3
+validation_fit:
+  count: 2
+  translation_rms_mm: 5.448134539586253
+  translation_max_mm: 6.080678468506916
+  rotation_rms_deg: 1.1294389576174262
+  rotation_max_deg: 1.4136324888752814
+  pnp_rms_px_max: 1.3697860500884536
+  image_border_px_min: 152.85198974609375
+  captures:
+  - id: top_e2h_directional_repeat_validation_01
+    translation_residual_mm: 4.731774433074955
+    rotation_residual_deg: 0.7435777729088963
+    pnp_rms_px: 0.9220135350820463
+    image_border_px: 172.92428588867188
+    detected_marker_ids:
+    - 0
+    - 1
+    - 2
+    - 3
+  - id: top_e2h_directional_repeat_validation_02
+    translation_residual_mm: 6.080678468506916
+    rotation_residual_deg: 1.4136324888752814
+    pnp_rms_px: 1.3697860500884536
+    image_border_px: 152.85198974609375
+    detected_marker_ids:
+    - 0
+    - 1
+    - 2
+    - 3
+acceptance_thresholds:
+  training_capture_count_min: 8
+  validation_capture_count_min: 2
+  training_translation_span_mm_min: 40.0
+  training_rotation_span_deg_min: 14.999999999999998
+  training_translation_rms_mm_max: 3.0
+  training_translation_max_mm_max: 5.0
+  training_rotation_rms_deg_max: 1.0
+  training_rotation_max_deg_max: 2.0
+  validation_translation_max_mm_max: 5.0
+  validation_rotation_max_deg_max: 2.0
+  pnp_rms_px_max: 1.5
+  image_border_px_min: 10.0
+failure_reasons:
+- training translation RMS exceeds threshold
+- training translation max exceeds threshold
+- training rotation RMS exceeds threshold
+required_next_gate: validate the transform with independent held-out captures and
+  then verify tabletop x/y/yaw against measured object poses; never use this file
+  alone as motion authorization

@@ -173,6 +173,21 @@ MoveIt
 - 최초 hardware goal은 verified safe range 안의 single point로 제한
 - MoveIt과 상위 task에 custom topic, raw 값 또는 binary protocol을 노출하지
   않음
+
+### 후속 firmware safe-range 확장 gate
+
+현재 arm/gripper raw 범위는 실제 mechanical range가 아니라 소각도 실기 시험을
+통과한 보수적인 operational envelope다. Top–base 등록을 진행하는 동안에는 이
+범위를 임의로 완화하지 않는다. 다음 firmware 변경 작업에 아래 항목을 함께
+포함한다.
+
+- 전원 OFF 수동 점검으로 관절별 충돌, cable tension과 기계적 끝점을 확인하고
+  끝점보다 여유를 둔 보수적인 raw minimum/maximum 측정
+- host calibration, STM32 firmware safe limit, hardware 전용 MoveIt limit을
+  같은 측정표와 calibration hash로 갱신
+- 범위 안 경계값과 범위 밖 `1 raw`에 대한 accept/reject 회귀 시험
+- 낮은 속도의 관절별 단발 왕복 후 전체 팔 대표 자세 시험
+- 자동 clamp, 자동 recovery와 기존 goal 재전송은 계속 금지
 - B안과 향후 A안을 동시에 실행하지 않음
 
 A안은 STM32 multi-sample queue/streaming, 제어 주기, 비동기 transport와
@@ -469,7 +484,14 @@ Git rollback은 파일 삭제, `git reset --hard`, `git clean`을 사용하지 �
 
 - physical E-stop 없음
 - actual mechanical range UNKNOWN
-- gripper mapping 미확정
+- physical raw-2048 Home은 2026-07-26 사진/Isaac interactive FK 기준으로
+  URDF·Isaac q0에 반영했고 자동 FK/limit/USD anchor 검증을 통과했다. 다만
+  계측 기반 실물 FK, TCP와 collision parity는 아직 미통과다.
+- gripper 좌우 개폐 방향은 확인했지만 raw 2048 개방 폭과 rad mapping은 미확정
+- q0 변경 전 Top–base 등록 결과는 무효이며 재등록 전 기하 기반 task motion 차단
+- q0 변경 후 READ_ONLY에서 arm 최대 편차 `0.02148 rad`, feedback `4.998 Hz`,
+  ROS TF와 offline actual-joint FK 차이 `0.52 µm`로 내부 파이프라인 PASS.
+  [시험 기록](../test-results/2026-07-26-left-arm-q0-realignment.md)
 - camera의 left Wrist A/B semantic mapping UNKNOWN
 - camera phase에 과거 `RIGHT` 이름이 남아 있음
 - Windows/Pi local source가 GitHub와 완전히 같은지 UNKNOWN

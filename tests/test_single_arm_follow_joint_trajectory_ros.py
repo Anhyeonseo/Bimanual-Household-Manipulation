@@ -59,7 +59,7 @@ if ROS_AVAILABLE:
                         self.auto_detail,
                         sequence,
                         1200,
-                        0x3DB42B48,
+                        0x4D62F8D5,
                     )
                 )
             return MotionResult(
@@ -69,7 +69,7 @@ if ROS_AVAILABLE:
                 0,
                 sequence,
                 1200,
-                0x3DB42B48,
+                0x4D62F8D5,
             )
 
         def drain_motion_results(self):
@@ -102,8 +102,8 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
             1,
             6,
             False,
-            0x00020700,
-            0x3DB42B48,
+            0x00020B00,
+            0x4D62F8D5,
             0x0000000F,
             0,
         )
@@ -230,7 +230,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         self.assertFalse(self.send_goal(custom_tolerance).accepted)
         self.assertEqual(self.transport.send_calls, [])
 
-    def test_boundary_feedback_only_allows_slow_q0_recovery(self) -> None:
+    def test_boundary_feedback_only_allows_bounded_inward_recovery(self) -> None:
         self.positions = tuple(
             self.calibration.raw_feedback_to_radians(
                 (2070, 2043, 2041, 2071, 2080, 1965)
@@ -244,7 +244,12 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         )
         self.assertFalse(
             self.send_goal(
-                self.goal(positions=[0.0] * 5, duration_ms=1000)
+                self.goal(positions=[0.05] * 5, duration_ms=1000)
+            ).accepted
+        )
+        self.assertFalse(
+            self.send_goal(
+                self.goal(positions=[0.10] * 5, duration_ms=2000)
             ).accepted
         )
         self.assertEqual(self.transport.send_calls, [])
@@ -252,16 +257,59 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         self.transport.auto_status = 6
         self.transport.auto_detail = 20
         goal_handle = self.send_goal(
-            self.goal(positions=[0.0] * 5, duration_ms=2000)
+            self.goal(positions=[0.05] * 5, duration_ms=2000)
         )
         self.assertTrue(goal_handle.accepted)
         response = self.wait_future(goal_handle.get_result_async())
         self.assertEqual(response.status, GoalStatus.STATUS_SUCCEEDED)
         self.assertEqual(len(self.transport.send_calls), 1)
         positions_urad, duration_ms = self.transport.send_calls[0]
-        self.assertEqual(positions_urad[:5], (0, 0, 0, 0, 0))
-        self.assertEqual(positions_urad[5], round(self.positions[5] * 1_000_000))
+        self.assertEqual(positions_urad[:5], (50_000,) * 5)
+        self.assertEqual(
+            positions_urad[5],
+            round(self.positions[5] * 1_000_000),
+        )
         self.assertEqual(duration_ms, 2000)
+
+    def test_current_elbow_residual_accepts_verified_inward_pose(self) -> None:
+        self.positions = tuple(
+            self.calibration.raw_feedback_to_radians(
+                (2279, 2051, 2069, 2048, 2054, 1959)
+            )
+        )
+        self.transport.auto_status = 6
+        self.transport.auto_detail = 20
+
+        goal_handle = self.send_goal(
+            self.goal(
+                positions=[0.45, 0.10, 0.05, 0.05, 0.05],
+                duration_ms=2000,
+            )
+        )
+        self.assertTrue(goal_handle.accepted)
+        response = self.wait_future(goal_handle.get_result_async())
+        self.assertEqual(response.status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(len(self.transport.send_calls), 1)
+        positions_urad, duration_ms = self.transport.send_calls[0]
+        self.assertEqual(
+            positions_urad[:5],
+            (450_000, 100_000, 50_000, 50_000, 50_000),
+        )
+        self.assertEqual(positions_urad[5], 136_524)
+        self.assertEqual(duration_ms, 2000)
+
+    def test_bounded_arm_recovery_rejects_out_of_range_gripper(self) -> None:
+        self.positions = tuple(
+            self.calibration.raw_feedback_to_radians(
+                (2070, 2051, 2069, 2048, 2054, 2069)
+            )
+        )
+        self.assertFalse(
+            self.send_goal(
+                self.goal(positions=[0.05] * 5, duration_ms=2000)
+            ).accepted
+        )
+        self.assertEqual(self.transport.send_calls, [])
 
     def test_final_error_residual_allows_next_strict_arm_goal(self) -> None:
         self.positions = tuple(
@@ -334,6 +382,27 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         )
         self.assertIn("status=7", response.result.error_string)
         self.assertEqual(self.transport.safe_stop_calls, 1)
+
+    def test_final_tracking_error_soft_aborts_without_safe_stop(self) -> None:
+        self.transport.auto_status = 6
+        self.transport.auto_detail = 21
+        goal_handle = self.send_goal(self.goal())
+        self.assertTrue(goal_handle.accepted)
+
+        response = self.wait_future(goal_handle.get_result_async())
+        self.assertEqual(response.status, GoalStatus.STATUS_ABORTED)
+        self.assertIn(
+            "soft abort without safety latch",
+            response.result.error_string,
+        )
+        self.assertEqual(self.transport.safe_stop_calls, 0)
+        self.assertFalse(self.core.blocked)
+
+        self.transport.auto_detail = 0
+        retry = self.send_goal(self.goal())
+        self.assertTrue(retry.accepted)
+        retry_response = self.wait_future(retry.get_result_async())
+        self.assertEqual(retry_response.status, GoalStatus.STATUS_SUCCEEDED)
 
     def test_connection_loss_aborts_without_resending_goal(self) -> None:
         goal_handle = self.send_goal(self.goal(duration_ms=1000))

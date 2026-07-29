@@ -19,6 +19,7 @@ from .action_execution import (
     ExecutionOutcome,
     MotionExecutionCore,
     TerminalState,
+    format_execution_outcome,
 )
 from .action_validation import (
     GoalValidationError,
@@ -30,7 +31,8 @@ from .motion_goal_arbiter import MotionGoalArbiter
 
 DEFAULT_ACTION_NAME = "/left_arm_controller/follow_joint_trajectory"
 RECOVERY_DURATION_MS = 2000
-Q0_TOLERANCE_RAD = 0.5e-6
+RECOVERY_TARGET_MARGIN_RAW = MAX_FINAL_ERROR_RAW
+RECOVERY_MAX_JOINT_DELTA_RAW = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +45,82 @@ class PreparedArmGoal:
 
 def _duration_ns(duration: Any) -> int:
     return int(duration.sec) * 1_000_000_000 + int(duration.nanosec)
+
+def _position_to_raw(joint: Any, position: float) -> int:
+    return round(
+        joint.zero_raw
+        + joint.direction * position * 4096.0 / (2.0 * math.pi)
+    )
+
+
+def _validate_bounded_inward_recovery(
+    calibration: ArmCalibration,
+    actual: tuple[float, ...],
+    target_arm: tuple[float, ...],
+    outside_strict: dict[str, int],
+    duration_ms: int,
+) -> None:
+    if duration_ms != RECOVERY_DURATION_MS:
+        raise GoalValidationError(
+            "bounded inward recovery duration must be exactly 2000 ms"
+        )
+
+    joint_names = tuple(calibration.ros_joint_names)
+    arm_names = joint_names[:5]
+    if any(
+        name not in arm_names and overrun > MAX_FINAL_ERROR_RAW
+        for name, overrun in outside_strict.items()
+    ):
+        raise GoalValidationError(
+            "arm recovery cannot repair out-of-range gripper feedback"
+        )
+
+    actual_arm_raw = tuple(
+        _position_to_raw(joint, position)
+        for joint, position in zip(
+            calibration.joints[:5], actual[:5], strict=True
+        )
+    )
+    target_arm_raw = tuple(
+        _position_to_raw(joint, position)
+        for joint, position in zip(
+            calibration.joints[:5], target_arm, strict=True
+        )
+    )
+
+    for name, joint, actual_raw, target_raw in zip(
+        arm_names,
+        calibration.joints[:5],
+        actual_arm_raw,
+        target_arm_raw,
+        strict=True,
+    ):
+        if abs(target_raw - actual_raw) > RECOVERY_MAX_JOINT_DELTA_RAW:
+            raise GoalValidationError(
+                f"bounded recovery {name} displacement exceeds "
+                f"{RECOVERY_MAX_JOINT_DELTA_RAW} raw"
+            )
+        inner_minimum = joint.minimum_raw + RECOVERY_TARGET_MARGIN_RAW
+        inner_maximum = joint.maximum_raw - RECOVERY_TARGET_MARGIN_RAW
+        if not inner_minimum <= target_raw <= inner_maximum:
+            raise GoalValidationError(
+                f"bounded recovery {name} target raw {target_raw} must be "
+                f"at least {RECOVERY_TARGET_MARGIN_RAW} raw inside strict "
+                f"range {joint.minimum_raw}..{joint.maximum_raw}"
+            )
+        if name not in outside_strict:
+            continue
+        if outside_strict[name] <= MAX_FINAL_ERROR_RAW:
+            continue
+        if actual_raw < joint.minimum_raw and target_raw <= actual_raw:
+            raise GoalValidationError(
+                f"bounded recovery {name} target does not move inward"
+            )
+        if actual_raw > joint.maximum_raw and target_raw >= actual_raw:
+            raise GoalValidationError(
+                f"bounded recovery {name} target does not move inward"
+            )
+
 
 
 def prepare_follow_joint_trajectory_goal(
@@ -104,22 +182,17 @@ def prepare_follow_joint_trajectory_goal(
         raise GoalValidationError(
             f"joint feedback is outside recovery range: {error}"
         ) from error
-    needs_q0_recovery = any(
+    needs_bounded_recovery = any(
         overrun > MAX_FINAL_ERROR_RAW for overrun in outside_strict.values()
     )
-    if needs_q0_recovery:
-        if any(
-            abs(position) > Q0_TOLERANCE_RAD
-            for position in validated.ordered_positions
-        ):
-            raise GoalValidationError(
-                "joint feedback is outside the strict command range; "
-                "only an all-zero q0 arm recovery goal is allowed"
-            )
-        if validated.duration_ms != RECOVERY_DURATION_MS:
-            raise GoalValidationError(
-                "q0 arm recovery duration must be exactly 2000 ms"
-            )
+    if needs_bounded_recovery:
+        _validate_bounded_inward_recovery(
+            calibration,
+            actual,
+            validated.ordered_positions,
+            outside_strict,
+            validated.duration_ms,
+        )
 
     full_positions = validated.ordered_positions + (actual[5],)
     try:
@@ -309,18 +382,22 @@ class FollowJointTrajectoryActionAdapter:
         return result
 
     def _finish_goal(self, goal_handle: Any, outcome: ExecutionOutcome):
+        terminal_log = format_execution_outcome(outcome)
         if outcome.state is TerminalState.SUCCEEDED:
+            self._node.get_logger().info(terminal_log)
             goal_handle.succeed()
             return self._result(
                 FollowJointTrajectory.Result.SUCCESSFUL,
                 outcome.reason,
             )
         if outcome.state is TerminalState.CANCELED:
+            self._node.get_logger().warning(terminal_log)
             goal_handle.canceled()
             return self._result(
                 FollowJointTrajectory.Result.SUCCESSFUL,
                 outcome.reason,
             )
+        self._node.get_logger().error(terminal_log)
         goal_handle.abort()
         return self._result(
             FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED,

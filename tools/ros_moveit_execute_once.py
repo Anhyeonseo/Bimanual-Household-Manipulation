@@ -6,9 +6,12 @@ from __future__ import annotations
 import argparse
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from action_msgs.msg import GoalStatus
+
+from ament_index_python.packages import get_package_share_directory
 
 from builtin_interfaces.msg import Duration
 
@@ -19,6 +22,9 @@ import rclpy
 from rclpy.action import ActionClient
 
 from trajectory_msgs.msg import JointTrajectoryPoint
+
+from single_arm_bridge.action_validation import MAX_DURATION_NS, MIN_DURATION_NS
+from single_arm_bridge.calibration import load_calibration
 
 
 ACTION_NAME = "/execute_trajectory"
@@ -56,6 +62,96 @@ PRESETS = {
         (0.10,) * 5,
         2,
     ),
+    "register-base-002": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.02, 0.0, 0.0, 0.0, 0.0),
+        2,
+    ),
+    "register-base-006": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.06, 0.0, 0.0, 0.0, 0.0),
+        2,
+    ),
+    "register-base-010": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.10, 0.0, 0.0, 0.0, 0.0),
+        2,
+    ),
+    "register-base-020": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.20, 0.0, 0.0, 0.0, 0.0),
+        2,
+    ),
+    "register-base-030": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.30, 0.0, 0.0, 0.0, 0.0),
+        2,
+    ),
+    "register-base-035": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.35, 0.0, 0.0, 0.0, 0.0),
+        2,
+    ),
+    "register-base-040": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.40, 0.0, 0.0, 0.0, 0.0),
+        2,
+    ),
+    "register-pose-03": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.45, 0.10, 0.05, 0.05, 0.05),
+        2,
+    ),
+    "register-pose-04": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.47, 0.14, 0.04, 0.14, 0.08),
+        2,
+    ),
+    "register-pose-05": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.48, 0.14, 0.14, 0.04, 0.16),
+        2,
+    ),
+    "register-pose-05b": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.49, 0.04, 0.10, 0.04, 0.16),
+        2,
+    ),
+    "register-pose-05c": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.49, 0.04, 0.10, 0.04, 0.08),
+        2,
+    ),
+    "register-pose-05d": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.45, 0.08, 0.12, 0.12, 0.08),
+        2,
+    ),
+    "register-pose-05e": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.40, 0.14, 0.04, 0.14, 0.08),
+        2,
+    ),
+    "diagnose-shoulder-low": Preset(
+        ARM_CONTROLLER,
+        ARM_JOINTS,
+        (0.47, 0.05, 0.04, 0.14, 0.08),
+        2,
+    ),
     "gripper-safe": Preset(
         GRIPPER_CONTROLLER,
         (GRIPPER_JOINT,),
@@ -63,6 +159,32 @@ PRESETS = {
         1,
     ),
 }
+
+
+def validate_preset_against_hardware_calibration(preset: Preset) -> None:
+    calibration_path = (
+        Path(get_package_share_directory("single_arm_bridge"))
+        / "config"
+        / "single_arm_calibration.json"
+    )
+    calibration = load_calibration(calibration_path)
+    duration_ns = preset.duration_s * 1_000_000_000
+    if not MIN_DURATION_NS <= duration_ns <= MAX_DURATION_NS:
+        raise ValueError("duration must be within bridge contract 300..2000 ms")
+    limits = calibration.ros_radian_limits
+    if len(preset.joint_names) != len(preset.positions):
+        raise ValueError("preset joint and position counts differ")
+    for name, position in zip(
+        preset.joint_names, preset.positions, strict=True
+    ):
+        if name not in limits:
+            raise ValueError(f"{name} is absent from hardware calibration")
+        lower, upper = limits[name]
+        if not lower <= position <= upper:
+            raise ValueError(
+                f"{name} target {position:.6f} is outside hardware "
+                f"calibration range {lower:.6f}..{upper:.6f}"
+            )
 
 
 def wait_future(node: Any, future: Any, timeout_s: float) -> Any:
@@ -113,6 +235,11 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     preset = PRESETS[args.target]
+    try:
+        validate_preset_against_hardware_calibration(preset)
+    except Exception as error:
+        print(f"MOVEIT_EXECUTE_PRECHECK_FAIL {error}")
+        return 1
     rclpy.init()
     node = rclpy.create_node("so101_moveit_execute_once")
     client = ActionClient(node, ExecuteTrajectory, ACTION_NAME)

@@ -911,6 +911,25 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
                     actuator_safety_request_disable(
                         &host_binary_safety
                     );
+
+                /*
+                 * The safety state and physical STS3215 torque state are one
+                 * transaction.  Do not report success until all six Torque
+                 * Enable registers have been written and read back as zero.
+                 * Mark the trajectory configuration stale so the next ARM
+                 * request must explicitly configure and re-enable servos.
+                 */
+                host_binary_servos_configured = 0U;
+                if (Servo_DisableTorqueAll() != HAL_OK)
+                {
+                    host_stop_latched = 1U;
+                    actuator_safety_report_fault(
+                        &host_binary_safety,
+                        UINT16_C(0xFF02)
+                    );
+                    disable_result = ACTUATOR_SAFETY_HEALTH_FAILED;
+                }
+
                 Host_SendBinaryState(
                     request->sequence,
                     (uint8_t)disable_result

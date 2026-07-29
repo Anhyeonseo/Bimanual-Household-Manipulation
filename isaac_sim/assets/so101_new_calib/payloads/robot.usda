@@ -32,14 +32,14 @@ over "so101_new_calib" (
         </so101_new_calib/Physics/root_joint>,
     ]
     prepend rel isaac:physics:robotLinks = [
-        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link/wrist_link/gripper_link>,
-        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link/wrist_link/gripper_link/gripper_frame_link>,
-        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link/wrist_link/gripper_link/moving_jaw_so101_v1_link>,
-        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link/wrist_link>,
-        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link>,
-        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link>,
-        </so101_new_calib/Geometry/base_link/shoulder_link>,
         </so101_new_calib/Geometry/base_link>,
+        </so101_new_calib/Geometry/base_link/shoulder_link>,
+        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link>,
+        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link>,
+        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link/wrist_link>,
+        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link/wrist_link/gripper_link>,
+        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link/wrist_link/gripper_link/moving_jaw_so101_v1_link>,
+        </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link/wrist_link/gripper_link/gripper_frame_link>,
     ]
     token isaac:robotType = "Manipulator"
 
@@ -139,4 +139,3 @@ over "so101_new_calib" (
         }
     }
 }
-

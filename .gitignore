@@ -49,4 +49,6 @@ Thumbs.db
 *.onnx
 datasets/
 artifacts/
+tmp/
+output/
 benchmark/results/raw/

@@ -2,16 +2,50 @@ default_velocity_scaling_factor: 0.5
 default_acceleration_scaling_factor: 0.5
 
 joint_limits:
-  left_base_joint: &arm_joint_limits
+  left_base_joint:
+    has_position_limits: true
+    min_position: 0.0
+    max_position: 0.862097202791730
     has_velocity_limits: true
     max_velocity: 0.5
     has_acceleration_limits: true
     max_acceleration: 1.0
-  left_shoulder_joint: *arm_joint_limits
-  left_elbow_joint: *arm_joint_limits
-  left_wrist_flex_joint: *arm_joint_limits
-  left_wrist_roll_joint: *arm_joint_limits
+  left_shoulder_joint:
+    has_position_limits: true
+    min_position: -0.092038847273138
+    max_position: 2.635378993587532
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  left_elbow_joint:
+    has_position_limits: true
+    min_position: -0.322135965455985
+    max_position: 2.179786699585496
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  left_wrist_flex_joint:
+    has_position_limits: true
+    min_position: 0.0
+    max_position: 1.310019592854338
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  left_wrist_roll_joint:
+    has_position_limits: true
+    min_position: -0.266912657092102
+    max_position: 0.262310714728445
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
   left_gripper_joint:
+    has_position_limits: true
+    min_position: 0.0
+    max_position: 0.279184503395187
     has_velocity_limits: true
     max_velocity: 1.0
     has_acceleration_limits: true

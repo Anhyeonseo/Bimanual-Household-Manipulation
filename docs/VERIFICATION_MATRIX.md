@@ -32,8 +32,9 @@
 | POL-001 | 단계 11 | structured policy 실행 | raw image 입력 없음, deadline 기록 | 미실행 |  |
 | MOT-001 | 단계 5 | 단일 시험 왼팔 trajectory | 반복 실행 성공 | 통과 | [단계 5 실기 결과](test-results/2026-07-25-phase5-stm32-read-only.md) |
 | MOT-002 | 단계 5 | 취소/정지 | 정해진 안전 상태 진입 | 통과 | [단계 5 실기 결과](test-results/2026-07-25-phase5-stm32-read-only.md) |
-| VIS-001 | 단계 6 | 작업대 위치 추정 | grasp 허용 오차 이내 | 미실행 |  |
-| TASK-001 | 단계 7 | Pick | 50회 중 90% 이상 | 미실행 |  |
+| VIS-001 | 단계 6 | 작업대 위치 추정 | 위치 최대 10 mm, yaw 최대 5 deg | 통과 | [Top 물체 실제 좌표 검증](test-results/2026-07-30-top-object-ground-truth-validation.md) |
+| VIS-002 | 단계 7 준비 | base-frame shadow target 및 table–base 등록 | 두 위치 물리 검증, freshness/workspace 검사, 실행 가능 flag false | 통과 | [현재 작업대–왼팔 base 등록](test-results/2026-07-30-current-table-base-registration.md), [Top-base shadow target](test-results/2026-07-30-top-base-shadow-target.md) |
+| TASK-001 | 단계 7 | Pick | 50회 중 90% 이상 | 차단 | [물리 범위 재검증·배포·격리 이동 PASS](test-results/2026-07-30-physical-range-revalidation.md), 분할 pregrasp·grasp·50회 반복은 미실행 |
 | TASK-002 | 단계 7 | Place | 50회 중 90% 이상 | 미실행 |  |
 | SYS-001 | 단계 9 | 부팅 | 반복 부팅 모두 무동작 STANDBY | 미실행 |  |
 | SYS-002 | 단계 9 | 장시간 시험 | 8시간 후 24시간 | 미실행 |  |

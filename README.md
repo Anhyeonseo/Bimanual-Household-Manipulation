@@ -15,16 +15,16 @@ Raspberry Pi 5, ROS 2 Jazzy, STM32G474, 두 대의 SO-ARM101과 세 대의 USB �
 
 ## 현재 상태
 
-- 완료 범위: NUCLEO-G474RE 기반 단일 팔 STS3215 6축 제어
-- 펌웨어: binary protocol v1, COBS/CRC-32C, 500ms heartbeat, SAFE_STOP, 6축 절대 위치 명령과 홈 복귀
-- 보정(calibration): 홈 raw 2048, µrad 관절 좌표 변환, hash `0x3DB42B48`
-- 검증 펌웨어: `0x00020700`, SAFE_STOP, 홈 복귀, 축별 torque·load/current 보호, 실제 위치 feedback 실기 통과
-- ROS 2: Pi host bridge의 `/joint_states`, READ_ONLY 차단, `/clear_fault`, 단일 `JointTrajectory` 이동·복귀 실기 통과
-- 카메라: 3대 MJPEG 640x480/30FPS 동시 capture, hot-plug 자동 복구, 작업 phase별 선택적 JPEG decode 실기 통과
+- 완료 범위: NUCLEO-G474RE 기반 왼팔 STS3215 6축 제어와 단계 6 Top 카메라 인식
+- 펌웨어: binary protocol v1, COBS/CRC-32C, 500ms heartbeat, SAFE_STOP, 물리 torque-disable와 6축 절대 위치 명령
+- 보정(calibration): 홈 raw 2048, µrad 관절 좌표 변환, 배포 hash `0x4D62F8D5`
+- 검증 펌웨어: `0x00020B00`, Shoulder/Elbow 확장 operational limit, identity/READ_ONLY/MOTION_ENABLED/축별 소각도 실기 통과
+- ROS 2: Pi bridge의 `/joint_states`, READ_ONLY 차단, `/clear_fault`, MoveIt single-point 실행과 fail-closed feedback 처리 통과
+- 카메라: 3대 MJPEG capture, hot-plug 복구, Top eye-to-hand·table–base 등록과 검은 펜 위치 검증 통과
 - 성능: RGB 3개 topic과 STM32 bridge 동시 부하에서 CPU 평균 6.38%, `/joint_states` 5.008Hz, heartbeat 위반 0
-- 현재 simulation: 정상인 왼팔 1대의 URDF/Xacro, MoveIt mock, Isaac Sim 6.0.1 backend와 대표 arm/gripper trajectory 검증 완료
-- 현재 단계: 단계 5 완료, MoveIt → Pi bridge → STM32 실제 arm/gripper single-point end-to-end PASS
-- 다음 단계: 단계 6 Top 카메라 인식 — intrinsic calibration, 작업대 homography와 펜 pose 추정
+- 현재 simulation: 왼팔 URDF/Xacro, 카메라 장착물, MoveIt mock, Isaac Sim 6.0.1 backend 검증 완료
+- 현재 단계: 단계 6 완료, 단계 7의 shadow target·도달영역·확장 범위 plan-only 및 제한된 축별 실기까지 통과
+- 다음 gate: 자동 실행 없이 분할한 pregrasp 접근을 검증한 뒤 grasp/place 상태 머신과 50회 반복 시험
 - 확장 방향: 동일한 µrad 관절 규격을 사용해 왼팔 실물, 향후 양팔 실물, Isaac Sim backend를 교체할 수 있게 구성
 
 ## 새 개발 환경 준비
@@ -108,7 +108,9 @@ cp bridge.local.yaml.example bridge.local.yaml
 - [단계 5 gripper mapping 측정 계획](docs/checklists/PHASE_5_GRIPPER_MAPPING_PLAN.md)
 - [단계 5 acceptance와 rollback 기준](docs/checklists/PHASE_5_ACCEPTANCE_ROLLBACK.md)
 - [단계 5 STM32 READ_ONLY 실기 결과](docs/test-results/2026-07-25-phase5-stm32-read-only.md)
-- [Windows 재개용 단계 4 인계 프롬프트](docs/handoff/PHASE_4_WINDOWS_HANDOFF_PROMPT.md)
+- [단계 6 Top 물체 좌표 검증](docs/test-results/2026-07-30-top-object-ground-truth-validation.md)
+- [단계 7 물리 범위 재검증·배포 결과](docs/test-results/2026-07-30-physical-range-revalidation.md)
+- [eye-to-hand 보정 세션 정리 기록](docs/test-results/2026-07-30-top-eye-to-hand-session-cleanup.md)
 - [로컬 하드웨어 설정](docs/LOCAL_HARDWARE_CONFIG.md)
 - [제3자 license 고지](THIRD_PARTY_NOTICES.md)
 

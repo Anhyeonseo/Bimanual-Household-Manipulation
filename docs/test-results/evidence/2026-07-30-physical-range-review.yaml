@@ -1,0 +1,43 @@
+schema_version: 1
+status: DEPLOYED_AND_BOUNDED_MOTION_PASS
+motion_authorized: false
+source_capture: physical_range_revalidation.yaml
+margin_policy:
+  endpoint_margin_raw: 64
+  endpoint_margin_deg: 5.625
+  final_error_tolerance_raw: 20
+operational_limits_raw:
+  SHOULDER: [1988, 3766]
+  ELBOW: [627, 2258]
+unchanged_observed_joints:
+  WRIST_ROLL:
+    observed_raw: [1981, 1988]
+    retained_operational_raw: [1874, 2219]
+  WRIST_FLEX:
+    observed_raw: [955, 2318]
+    retained_operational_raw: [1194, 2048]
+deployment:
+  firmware_version: "0x00020B00"
+  calibration_hash: "0x4D62F8D5"
+  hex_sha256: d1a6536c1833443629ff103ecba3452820e3880ab59f02a78d845eed4a72e405
+  openocd_program_verify_reset: PASS
+  identity_gate: PASS
+  read_only_no_motion: PASS
+  motion_enabled_no_motion: PASS
+isolated_motion:
+  SHOULDER:
+    delta_rad: 0.08
+    duration_s: 2.0
+    final_error_raw_approx: 2
+    status: PASS
+  ELBOW:
+    delta_rad: 0.08
+    duration_s: 2.0
+    final_error_raw: 19
+    status: PASS_NEAR_20_RAW_LIMIT
+plan_only:
+  status: PLAN_ONLY_PASS
+  execution_api_used: false
+  pregrasp_points: 184
+  grasp_points: 216
+required_next_gate: bounded multi-waypoint pregrasp approach; do not authorize full pick

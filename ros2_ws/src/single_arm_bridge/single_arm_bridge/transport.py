@@ -25,6 +25,10 @@ from .protocol import (
 )
 
 
+POSITION_STATE_RESPONSE_TIMEOUT_S = 0.5
+DISABLE_RESPONSE_TIMEOUT_S = 0.5
+
+
 class TransportError(RuntimeError):
     pass
 
@@ -186,6 +190,11 @@ class ActuatorTransport:
             self._receive_matching(
                 sequence,
                 MessageType.STATE_FEEDBACK,
+                timeout_s=(
+                    POSITION_STATE_RESPONSE_TIMEOUT_S
+                    if include_positions
+                    else None
+                ),
                 defer_state_after_motion_result=True,
             ).payload
         )
@@ -269,7 +278,7 @@ class ActuatorTransport:
             self._receive_matching(
                 sequence,
                 MessageType.STATE_FEEDBACK,
-                timeout_s=0.2,
+                timeout_s=DISABLE_RESPONSE_TIMEOUT_S,
             ).payload
         )
         if state.status_code != 0:

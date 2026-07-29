@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "status": "PASS_BOARD_RELATIVE_MOTION_STILL_NOT_AUTHORIZED",
+  "date": "2026-07-30",
+  "object": "rigid black pen",
+  "frame_id": "top_board",
+  "sample_count": 15,
+  "acceptance": {
+    "position_error_max_mm": 10.0,
+    "yaw_error_max_deg": 5.0
+  },
+  "registration": {
+    "method": "printed 20 mm tabletop validation grid",
+    "grid_origin_raw_px": [
+      293.0,
+      310.5
+    ],
+    "grid_origin_board_mm": [
+      103.053823,
+      103.560962
+    ],
+    "grid_plus_x_yaw_board_deg": -91.482218,
+    "representative_image_sha256": "d483ab466d419e9905437a1df72b16bb4e8739329523627470d489b5ac7f6ab6"
+  },
+  "placements": [
+    {
+      "id": "p1",
+      "grid_xy_mm": [
+        0.0,
+        0.0
+      ],
+      "expected_board_xy_mm": [
+        103.053823,
+        103.560962
+      ],
+      "expected_board_yaw_deg": 88.517782,
+      "samples": 5,
+      "mean_board_xy_mm": [
+        106.774559,
+        100.199761
+      ],
+      "position_error_mean_mm": 5.015522,
+      "position_error_max_mm": 5.065136,
+      "yaw_error_mean_deg": 0.446591,
+      "yaw_error_max_deg": 0.451728,
+      "xy_span_mm": [
+        0.006677,
+        0.385208
+      ],
+      "yaw_span_deg": 0.006421,
+      "representative_image_sha256": "dd53b94e7416d9e14974ae1d7611579df344ead859cd94a9967e98d89308a2b8"
+    },
+    {
+      "id": "p2",
+      "grid_xy_mm": [
+        20.0,
+        0.0
+      ],
+      "expected_board_xy_mm": [
+        102.536491,
+        83.567657
+      ],
+      "expected_board_yaw_deg": -46.482217,
+      "samples": 5,
+      "mean_board_xy_mm": [
+        97.194543,
+        80.518376
+      ],
+      "position_error_mean_mm": 6.154098,
+      "position_error_max_mm": 6.195887,
+      "yaw_error_mean_deg": 1.472671,
+      "yaw_error_max_deg": 1.478396,
+      "xy_span_mm": [
+        0.364549,
+        0.381352
+      ],
+      "yaw_span_deg": 0.021564,
+      "representative_image_sha256": "08f36c2427380df9eafd2728eef51d5d0bbbb005f2d589e46ebb1aa32f721a86"
+    },
+    {
+      "id": "p3",
+      "grid_xy_mm": [
+        0.0,
+        -20.0
+      ],
+      "expected_board_xy_mm": [
+        83.060515,
+        104.078296
+      ],
+      "expected_board_yaw_deg": -1.482218,
+      "samples": 5,
+      "mean_board_xy_mm": [
+        83.935596,
+        96.544217
+      ],
+      "position_error_mean_mm": 7.58473,
+      "position_error_max_mm": 7.60338,
+      "yaw_error_mean_deg": 2.906447,
+      "yaw_error_max_deg": 2.911459,
+      "xy_span_mm": [
+        0.001009,
+        0.080494
+      ],
+      "yaw_span_deg": 0.011314,
+      "representative_image_sha256": "6a041f572a1989557d7fcd1aac930f9a58dafb892ccd643ca9c7c795447428cf"
+    }
+  ],
+  "aggregate": {
+    "position_error_mean_mm": 6.25145,
+    "position_error_rmse_mm": 6.339536,
+    "position_error_max_mm": 7.60338,
+    "yaw_error_mean_deg": 1.608569,
+    "yaw_error_rmse_deg": 1.898748,
+    "yaw_error_max_deg": 2.911459
+  },
+  "safety": {
+    "motion_authorized": false,
+    "robot_target_available": false,
+    "robot_power": "12V_OFF",
+    "robot_motion_count": 0
+  },
+  "limitations": [
+    "The result includes manual object placement and printed-grid registration error.",
+    "It validates board-relative coarse perception, not a base-frame robot target.",
+    "Top-to-base target publication and robot motion remain blocked."
+  ]
+}

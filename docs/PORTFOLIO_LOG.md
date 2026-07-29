@@ -373,3 +373,176 @@
 - 단계 5 초기 B안 single-point hardware milestone 통과
 - 실제 로봇 q0 원복, MoveIt/Pi bridge 종료와 servo power OFF 완료
 - 다음 단계: 단계 6 Top 카메라 인식
+
+---
+
+## 2026-07-30 — 단계 6 Top 작업대 물체 실제 좌표 검증
+
+**목표**
+
+- 검은 펜의 `top_board` 기준 `x/y/yaw`를 출력한 20 mm 검증지의 실제 배치와 비교한다.
+- 보정 영역 밖 로봇팔 윤곽은 무시하되, 경계와 교차하는 물체는 계속 fail-closed로 차단한다.
+
+**구현/시험**
+
+- 완전히 보정 영역 밖인 contour만 object count에서 제외하는 필터 추가
+- 영역 경계와 교차하는 contour는 relevant candidate로 유지
+- 빈 작업대와 validation grid 인쇄선의 오검출 0개 확인
+- 검은 펜 3위치·3각도에서 각 5프레임, 총 15프레임 검출
+- 로봇 12 V OFF, 실제 이동 0회
+
+**측정 결과**
+
+| 지표 | 결과 |
+|---|---:|
+| 검출 성공 | `15/15` |
+| 위치 평균/RMSE/최대 | `6.251 / 6.340 / 7.603 mm` |
+| yaw 평균/RMSE/최대 | `1.609 / 1.899 / 2.911 deg` |
+| 반복 위치 span 최대 | `0.385 mm` |
+| 반복 yaw span 최대 | `0.022 deg` |
+| 회귀시험 | `213/213` 통과 |
+
+**완료 판정**
+
+- `VIS-001` board-relative coarse perception 통과
+- `motion_authorized=false`, `robot_target_available=false` 유지
+- 다음 단계: base-frame shadow target, workspace와 freshness gate 검증
+
+---
+
+## 2026-07-30 — 단계 7 준비 base-frame shadow target
+
+**목표**
+
+- `top_board`의 물체 좌표를 `left_base_link` 후보 좌표로 변환한다.
+- 변환 검증 전에는 진단용 shadow 결과만 제공하고 로봇 목표 생성을 차단한다.
+
+**구현/시험**
+
+- freshness, confidence, board footprint, workspace를 모두 검사하는 fail-closed
+  shadow 변환 core와 ROS 2 node 구현
+- 실제 Top 카메라 입력에서 후보 위치
+  `(0.396118, -0.125855, 0.040223) m` 출력
+- `shadow_pose_available=true`, `inside_workspace=true`, `fresh=true` 확인
+- `transform_validated=false`, `motion_authorized=false`,
+  `robot_target_available=false` 강제 확인
+- 관련 회귀시험 `223/223`, shadow 단위시험 `14/14` 통과
+- 로봇 제어 프로세스와 12 V 이동 없이 dry-run 수행
+
+**판정**
+
+- `VIS-002` 비명령 shadow target과 안전 gate 통과
+- 최초 판정 당시 `118.216 mm` 불일치 때문에 실제 단계 7 Pick을 시작하지
+  않았으며, 아래의 현재 Planar GridBoard 재검증에서 혼합 기준 오류로 정정
+- 당시 다음 gate: 독립 물리 기준으로 `left_base_link ← top_board` 변환 검증
+
+**증거**
+
+- `docs/test-results/2026-07-30-top-base-shadow-target.md`
+- `docs/test-results/evidence/2026-07-30-top-shadow-dry-run.yaml`
+
+
+---
+
+## 2026-07-30 — 현재 작업대–왼팔 base 등록 재검증
+
+**교정**
+
+- 앞선 `118.216 mm` 차이는 현재 작업대 좌표의 실패가 아니라, 폐기된 높이
+  있는 목재 체스보드 pose와 다른 세대 eye-to-hand 결과를 섞어 비교한
+  결과임을 확인
+- 현재 사용하는 대형 Planar GridBoard(ID `10..29`)만으로 기준을 통일
+
+**검증**
+
+- 실제 작업대의 서로 떨어진 두 위치에서 GridBoard PnP 수행
+- 위치 간 거리 `160.528 mm`
+- PnP RMS 최대 `0.650 px`
+- 평면 법선 차이 `0.847 deg`, 평균 높이 차이 `1.550 mm`
+- 저장된 20 mm 물리 랜드마크의 현재 보정 재투영:
+  위치 RMS/최대 `7.116 / 8.880 mm`, yaw RMS/최대
+  `1.440 / 1.946 deg`
+- 전체 회귀시험 `233/233` 통과
+
+**판정**
+
+- 현재 table–base transform `validated=true`
+- `motion_authorized=false`, `robot_target_available=false` 유지
+- GridBoard 제거 후 실제 검은 펜으로 최신 transform의 실시간 shadow 재확인:
+  `(0.371814, -0.129674, 0.006300) m`, confidence `0.857`,
+  `source_image_fully_visible=true`, `inside_workspace=true`
+- 긴 물체의 전체 footprint 보정 사각형 조건을 카메라 전체 가시성 조건과
+  grasp-point workspace 조건으로 분리
+- 다음 gate: 명령 없는 plan-only grasp 후보 검증
+
+**증거**
+
+- `docs/test-results/2026-07-30-current-table-base-registration.md`
+- `docs/test-results/evidence/2026-07-30-top-base-table-validation.yaml`
+- `docs/test-results/evidence/2026-07-30-top-shadow-corrected-validation.yaml`
+
+
+---
+
+## 2026-07-30 — 단계 7 카메라–하드웨어 도달영역 감사
+
+**발견**
+
+- Top 카메라와 table–base transform은 유효
+- 기존 shadow workspace가 현재 승인 관절범위에서 계산되지 않아 카메라에
+  보이는 펜을 잘못 `inside_workspace=true`로 표시한 사실 확인
+- 즉시 hardware-limit 기반 fail-closed workspace로 정정
+
+**수치**
+
+- 현재 펜: `(0.371814, -0.129674, 0.006300) m`
+- 승인 관절범위 TCP 최대 x: `0.332350 m`
+- pre-grasp/grasp 전역 최소 오차: `83.945 / 114.357 mm`
+- 전체 URDF 한계에서는 두 목표 모두 위치 오차 `0.0 mm`
+- 필요한 shoulder/elbow: pre-grasp `1.862 / 1.020 rad`,
+  grasp `2.257 / 1.359 rad`
+
+**판정**
+
+- 카메라 재보정보다 shoulder/elbow 물리 안전범위 재측정이 선행
+- torque-disabled raw observer 전에는 firmware/MoveIt 한계를 확장하지 않음
+- MoveIt plan service만 사용했고 Execute API 및 실제 로봇 이동은 0회
+- 전체 회귀시험 `236/236` 통과
+
+**증거**
+
+- `docs/test-results/2026-07-30-stage7-reachability-audit.md`
+- `docs/test-results/evidence/2026-07-30-stage7-reachability-blocked.yaml`
+
+
+---
+
+## 2026-07-30 — torque-off 물리 범위 재검증과 plan-only 해제
+
+**실측**
+
+- 12V 전원과 팔 지지 절차 후 `DISABLE` 확인, motion command 없이 600초간
+  2182 sample 수집
+- 수동 Shoulder/Elbow 펼침, 현재 검은 펜의 pregrasp와 grasp 위치 도달
+- Shoulder `2046..3830`, Elbow `563..2444`, Wrist Roll `1981..1988` 기록
+
+**보수적 operational limit**
+
+- 관측 끝값에서 64 raw, 약 5.625도 여유 적용
+- Shoulder `1988..3766`, Elbow `627..2258`
+- Wrist Roll은 기존 `1874..2219`를 유지하고 측정 증거에 포함
+- 배포 firmware `0x00020B00`, calibration `0x4D62F8D5`
+- HEX SHA-256 `d1a6536c1833443629ff103ecba3452820e3880ab59f02a78d845eed4a72e405`
+
+**검증**
+
+- 핵심 회귀시험 `64/64`, 최종 저장소 회귀시험 `244/244` 통과
+- STM32 ARM Release 및 ROS package build 통과
+- localhost 전용 Domain 93 MoveIt plan-only: pregrasp `184`, grasp `216`
+  trajectory points, 모두 SUCCESS; Execute API 사용 0회
+- Pi 전송 SHA 확인, OpenOCD program/verify/reset, identity gate 통과
+- READ_ONLY와 MOTION_ENABLED 무동작 연결 통과
+- Shoulder/Elbow 각 `+0.08 rad / 2 s` 격리 이동 통과
+- `0x00020A00` heartbeat/settling 후보는 soft-abort 뒤 stop latch가 다시
+  걸려 거부하고 `0x00020900`으로 rollback한 뒤 `0x00020B00`을 배포
+- 다음 gate: 중간 waypoint를 둔 제한 pregrasp 접근; 전체 Pick은 아직 금지

@@ -8,6 +8,7 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     arm_slot = LaunchConfiguration("arm_slot")
+    use_overhead_webcam_mount = LaunchConfiguration("use_overhead_webcam_mount")
     xacro_file = PathJoinSubstitution(
         [FindPackageShare("so101_description"), "urdf", "so101_left.urdf.xacro"]
     )
@@ -17,7 +18,15 @@ def generate_launch_description():
     robot_description = {
         "robot_description": ParameterValue(
             Command(
-                [FindExecutable(name="xacro"), " ", xacro_file, " arm_slot:=", arm_slot]
+                [
+                    FindExecutable(name="xacro"),
+                    " ",
+                    xacro_file,
+                    " arm_slot:=",
+                    arm_slot,
+                    " use_overhead_webcam_mount:=",
+                    use_overhead_webcam_mount,
+                ]
             ),
             value_type=str,
         )
@@ -26,6 +35,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("arm_slot", default_value="left"),
+            DeclareLaunchArgument("use_overhead_webcam_mount", default_value="false"),
             Node(
                 package="robot_state_publisher",
                 executable="robot_state_publisher",

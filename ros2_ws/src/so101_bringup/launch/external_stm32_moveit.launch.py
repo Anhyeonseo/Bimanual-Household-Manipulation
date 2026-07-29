@@ -1,14 +1,15 @@
 """Run MoveIt here while the STM32 bridge runs on another ROS host."""
 
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
 from launch_ros.substitutions import FindPackageShare
 
 
-def _include_moveit(launch_file):
+def _include_moveit(launch_file, condition=None):
     return IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
@@ -18,7 +19,8 @@ def _include_moveit(launch_file):
                     launch_file,
                 ]
             )
-        )
+        ),
+        condition=condition,
     )
 
 
@@ -29,9 +31,21 @@ def _moveit_actions():
         _include_moveit("rsp.launch.py"),
         _include_moveit("static_virtual_joint_tfs.launch.py"),
         _include_moveit("external_move_group.launch.py"),
-        _include_moveit("moveit_rviz.launch.py"),
+        _include_moveit(
+            "moveit_rviz.launch.py",
+            condition=IfCondition(LaunchConfiguration("use_rviz")),
+        ),
     ]
 
 
 def generate_launch_description():
-    return LaunchDescription(_moveit_actions())
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument(
+                "use_rviz",
+                default_value="true",
+                description="Start RViz; set false for headless execution",
+            ),
+            *_moveit_actions(),
+        ]
+    )

@@ -34,6 +34,20 @@ class ExecutionOutcome:
     reason: str
 
 
+def format_execution_outcome(outcome: ExecutionOutcome) -> str:
+    """Format every terminal field for persistent operator diagnostics."""
+
+    status = "none" if outcome.status_code is None else str(outcome.status_code)
+    detail = (
+        "none" if outcome.final_error_raw is None else str(outcome.final_error_raw)
+    )
+    return (
+        "ARM_EXECUTION_TERMINAL "
+        f"state={outcome.state.value} sequence={outcome.request_sequence} "
+        f"status={status} detail={detail} reason={outcome.reason}"
+    )
+
+
 class MotionExecutionCore:
     """Own one active goal and never resume it across a reconnect."""
 
@@ -137,24 +151,28 @@ class MotionExecutionCore:
 
         sequence = result.request_sequence
         self._active_sequence = None
-        if (
-            result.status_code == 6
-            and result.detail <= self._maximum_final_error_raw
-        ):
+        if result.status_code == 6:
+            if result.detail <= self._maximum_final_error_raw:
+                return ExecutionOutcome(
+                    TerminalState.SUCCEEDED,
+                    sequence,
+                    result.status_code,
+                    result.detail,
+                    "motion completed within final error tolerance",
+                )
             return ExecutionOutcome(
-                TerminalState.SUCCEEDED,
+                TerminalState.ABORTED,
                 sequence,
                 result.status_code,
                 result.detail,
-                "motion completed within final error tolerance",
+                f"final error {result.detail} exceeds "
+                f"{self._maximum_final_error_raw} raw; "
+                "soft abort without safety latch",
             )
 
         self._blocked = True
         reason = (
-            f"final error {result.detail} exceeds "
-            f"{self._maximum_final_error_raw} raw"
-            if result.status_code == 6
-            else f"motion failed with status={result.status_code} "
+            f"motion failed with status={result.status_code} "
             f"detail={result.detail}"
         )
         self._request_safe_stop_best_effort()

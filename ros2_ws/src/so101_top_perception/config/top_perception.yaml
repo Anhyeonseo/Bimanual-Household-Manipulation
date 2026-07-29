@@ -1,0 +1,22 @@
+top_object_pose:
+  ros__parameters:
+    image_topic: /camera/top/image_raw
+    pose_topic: /perception/top/object_pose_board
+    diagnostics_topic: /perception/top/diagnostics
+    output_frame_id: top_board
+    threshold: 110
+    min_area_px: 1000.0
+    min_width_px: 20
+    min_height_px: 20
+    min_solidity: 0.5
+    image_edge_margin_px: 8
+    # Ignore the fixed lower-left left-arm footprint while locking a target.
+    # Flattened x,y,width,height groups in raw 640x480 image pixels.
+    exclusion_rectangles_px: [0, 410, 120, 70]
+    # The calibrated center may be used while a long object extends beyond
+    # the small board rectangle, provided the whole object remains in-frame.
+    allow_partial_footprint_observation: true
+    max_frame_age_s: 0.2
+    future_tolerance_s: 0.05
+    stale_timeout_s: 1.5
+    diagnostics_period_s: 0.5

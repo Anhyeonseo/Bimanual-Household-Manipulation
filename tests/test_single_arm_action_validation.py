@@ -63,16 +63,16 @@ class SingleArmActionValidationTests(unittest.TestCase):
         self.assertEqual(self.arm_limits["left_base_joint"][0], 0.0)
         self.assertAlmostEqual(
             self.arm_limits["left_base_joint"][1],
-            341 * 2.0 * math.pi / 4096.0,
+            562 * 2.0 * math.pi / 4096.0,
         )
         self.assertAlmostEqual(self.gripper_limit[0], 0.0)
         self.assertAlmostEqual(
             self.gripper_limit[1],
-            114 * 2.0 * math.pi / 4096.0,
+            182 * 2.0 * math.pi / 4096.0,
         )
 
     def test_feedback_recovery_envelope_matches_firmware_margin(self) -> None:
-        recoverable_raw = (2070, 2043, 2041, 2071, 2080, 1965)
+        recoverable_raw = (2070, 1983, 2041, 2071, 2080, 1965)
         recoverable = tuple(
             self.calibration.raw_feedback_to_radians(recoverable_raw)
         )
@@ -85,7 +85,7 @@ class SingleArmActionValidationTests(unittest.TestCase):
         )
 
         outside_raw = list(recoverable_raw)
-        outside_raw[1] = 2048 - 41
+        outside_raw[1] = 1988 - 41
         outside = tuple(
             self.calibration.raw_feedback_to_radians(tuple(outside_raw))
         )

@@ -143,10 +143,10 @@ over "so101_new_calib"
             prepend rel physics:body1 = </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link/wrist_link/gripper_link>
             point3f physics:localPos0 = (8.326673e-17, -0.0611, 0.0181)
             point3f physics:localPos1 = (0, 0, 0)
-            quatf physics:localRot0 = (-0.017210072, 0.017208133, -0.7068986, -0.706896)
+            quatf physics:localRot0 = (-0.4876816, 0.48768485, 0.5120208, 0.51202035)
             quatf physics:localRot1 = (1, 0, 0, 0)
-            float physics:lowerLimit = -157.21103
-            float physics:upperLimit = 162.78934
+            float physics:lowerLimit = -247.21103
+            float physics:upperLimit = 72.78934
             custom float urdf:limit:effort = 10
             custom float urdf:limit:velocity = 10
         }
@@ -163,10 +163,10 @@ over "so101_new_calib"
             prepend rel physics:body1 = </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link/wrist_link>
             point3f physics:localPos0 = (-0.1349, 0.0052, 3.469447e-17)
             point3f physics:localPos1 = (0, 0, 0)
-            quatf physics:localRot0 = (-0.70710546, -1.1301029e-16, -1.110223e-16, 0.7071081)
+            quatf physics:localRot0 = (0.9761031, 1.0951614e-15, -1.7224381e-15, -0.21730794)
             quatf physics:localRot1 = (1, 0, 0, 0)
-            float physics:lowerLimit = -94.99984
-            float physics:upperLimit = 94.99984
+            float physics:lowerLimit = -159.89812
+            float physics:upperLimit = 30.101559
             custom float urdf:limit:effort = 10
             custom float urdf:limit:velocity = 10
         }
@@ -183,10 +183,10 @@ over "so101_new_calib"
             prepend rel physics:body1 = </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link/lower_arm_link>
             point3f physics:localPos0 = (-0.11257, -0.028, 1.7347235e-16)
             point3f physics:localPos1 = (0, 0, 0)
-            quatf physics:localRot0 = (-0.70710546, 1.9888334e-18, 3.330669e-16, -0.7071081)
+            quatf physics:localRot0 = (0.30070406, -3.048439e-16, 3.6224776e-16, 0.9537175)
             quatf physics:localRot1 = (1, 0, 0, 0)
-            float physics:lowerLimit = -96.829865
-            float physics:upperLimit = 96.829865
+            float physics:lowerLimit = -151.82986
+            float physics:upperLimit = 41.82987
             custom float urdf:limit:effort = 10
             custom float urdf:limit:velocity = 10
         }
@@ -203,10 +203,10 @@ over "so101_new_calib"
             prepend rel physics:body1 = </so101_new_calib/Geometry/base_link/shoulder_link/upper_arm_link>
             point3f physics:localPos0 = (-0.0303992, -0.0182778, -0.0542)
             point3f physics:localPos1 = (0, 0, 0)
-            quatf physics:localRot0 = (-0.49999815, 0.5, 0.5, 0.50000185)
+            quatf physics:localRot0 = (-2.5973482e-06, -5.551115e-17, -0.70710677, -0.70710677)
             quatf physics:localRot1 = (1, 0, 0, 0)
-            float physics:lowerLimit = -100.000046
-            float physics:upperLimit = 100.000046
+            float physics:lowerLimit = -10.000043
+            float physics:upperLimit = 190.00005
             custom float urdf:limit:effort = 10
             custom float urdf:limit:velocity = 10
         }
@@ -256,4 +256,3 @@ over "so101_new_calib"
         }
     }
 }
-

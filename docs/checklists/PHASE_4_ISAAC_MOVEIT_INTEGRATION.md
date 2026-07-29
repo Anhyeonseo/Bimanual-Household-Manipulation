@@ -3,14 +3,29 @@
 ## 완료 판정
 
 - 범위: 정상인 SO-ARM101 왼팔 1대의 simulation vertical slice
-- 판정: **통과**
-- 단계 4 진행률: **100%**
-- 검증일: 2026-07-24
+- 판정: **simulation vertical slice 통과 / physical q0 visual baseline 반영**
+- 단계 4 진행률: **92%**
+- 검증일: 2026-07-24, physical q0 visual registration 2026-07-26
 - 실제 hardware 활성화: **아니요**
 
 이 판정은 `mock`과 Isaac Sim에서 대표 arm/gripper trajectory가 계획되고
 실행된 단일 왼팔 기준이다. 고장 난 반대편 팔, 실제 STM32 trajectory 실행,
 simulated camera mount, 양팔 planning group은 후속 단계로 남긴다.
+
+2026-07-26 servo one-key centering으로 정한 physical raw `2048` Home을
+top/side/front 사진과 Isaac interactive FK로 시각 정합했다. 기존 모델에서
+그 자세를 만들던 arm 5축 값 `0, +90, -55, -64.898281239, -90 deg`를 URDF
+joint origin에 흡수해 raw 2048, ROS/MoveIt q0와 SRDF Home이 같은 자세를
+뜻하도록 수정했다. 2026-07-30 보정값은 Isaac USD에도 동기화했으며, 이 값은
+실물 명령이 아니라 모델 원점 보정이다.
+Wrist flex는 2026-07-30 eye-to-hand 외부 계측으로 사진 기반 `-57.5 deg`
+추정값을 `-7.398281239 deg` 추가 보정했다. raw 2048과 firmware/bridge zero는
+변경하지 않았다.
+자동 FK 동치와 shifted limit 검증을 통과했다. 2026-07-30 보정값도 Isaac
+`base.usda`/`Physics/physics.usda`에 동기화하고 URDF↔USD anchor/limit parity를
+통과했다. 다만 사진 기반
+1차 정합이므로 정밀 실물 FK, 충돌 형상, TCP와 camera–base 등록을 다시 검증하기
+전 실제 기하 기반 motion은 fail-closed로 유지한다.
 
 ## 고정한 실행 환경
 
@@ -35,7 +50,8 @@ Isaac Sim은 desktop icon이 아니라 ROS 2 환경을 source한 terminal에서
 - `+X`: 로봇 전방
 - `+Y`: 로봇 기준 왼쪽
 - `+Z`: 위
-- physical folded home: 모든 project joint의 `q=0`
+- intended physical home: 모든 project joint의 `q=0`
+- physical raw-2048 home parity: **PROVISIONAL PASS — visual baseline**
 - SRDF virtual joint: `world` → `workcell_base_link`
 - URDF mount: `workcell_base_link` → `left_arm_mount_joint` →
   `left_base_link`
@@ -171,10 +187,15 @@ MoveIt actions -> /isaac/joint_command
 
 - Isaac Sim 6.0.1 GUI, empty stage, Play/Stop 안정성
 - Ubuntu workstation ↔ Raspberry Pi 양방향 ROS 2 discovery
-- 왼팔 URDF/Xacro visual, TF, q0, joint axis와 limit
+- 왼팔 URDF/Xacro visual, TF, q0, joint axis와 limit — simulation 내부 PASS
+- physical raw-2048 Home → model q0 visual registration 및 자동 FK 동치 PASS
+- wrist-roll `-90 deg` 수정 후 Isaac q0 ↔ URDF/RViz all-zero 정합 PASS
+- Isaac Script Editor simulation-only gripper open/closed 물리 방향 사용자 확인 PASS
+- 2026-07-30 Isaac↔URDF q0 TCP FK parity — 위치 `3.46e-8 m`, 회전 `2.15e-7 rad` 이하
 - MoveIt Setup Assistant config, collision matrix, position-only IK
 - mock controller에서 arm Plan/Execute
 - mock controller에서 gripper Plan/Execute
+- wrist-roll `-90 deg` q0 수정 후 mock gripper open/closed 물리 방향 사용자 확인 PASS
 - Isaac ROS 2 Bridge startup
 - Isaac Joint States OmniGraph state/command round trip
 - Isaac articulation q0 안정 유지
@@ -189,6 +210,8 @@ MoveIt actions -> /isaac/joint_command
 
 상세 증거는
 [2026-07-24 시험 결과](../test-results/2026-07-24-isaac-moveit-left-arm-integration.md)에
+정리한다. physical q0 재정렬과 READ_ONLY TF 증거는
+[2026-07-26 q0 재정렬 시험](../test-results/2026-07-26-left-arm-q0-realignment.md)에
 정리한다.
 
 ## 알려진 비차단 항목
@@ -202,6 +225,21 @@ MoveIt actions -> /isaac/joint_command
 - Isaac Sim의 `Play` 중에는 중력 때문에 shoulder/elbow에 약
   `0.006`/`0.010 rad`의 정상상태 오차가 관찰됐다. `0.03 rad` 허용치
   이내이며 속도는 0으로 안정됐다.
+
+## 2026-07-26 q0 정합 결과와 잔여 차단
+
+- host calibration의 arm 5축 `zero_raw=2048`과 SRDF Home all-zero는 유지했다.
+- model origin을 보정했으므로 Isaac bridge arm offset도 계속 `0`이다.
+- 초기 wrist roll `+90 deg` 후보는 mock gripper open에서 반대 방향으로 판정해
+  폐기했고, physical 기준 반대인 `-90 deg`를 model origin에 흡수했다.
+- 수정 후 MoveIt mock에서 gripper open/closed 방향을 다시 확인해 PASS했다.
+- 같은 수정이 반영된 Isaac Sim 6.0.1 asset에서도 simulation-only Robot Poser로
+  gripper open/closed 방향과 closed 복구를 확인해 PASS했다.
+- gripper raw 2048의 실제 개방 폭과 project gripper rad 변환은 아직 미확정이다.
+- 사진 기반 1차 시각 정합이므로 계측 기반 joint-by-joint FK, TCP와 collision
+  parity는 아직 미통과다.
+- q0 변경 전 계산한 Top–base visual registration은 재사용하지 않는다.
+- 위 정밀 검증과 재등록 전 task motion은 계속 금지한다.
 
 ## 후속 범위
 

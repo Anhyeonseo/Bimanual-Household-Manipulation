@@ -5,7 +5,7 @@
   Modified for the SO101-Bimanual-Manipulation ROS joint and frame contract.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:macro name="so101_arm" params="prefix parent mount_xyz mount_rpy">
+  <xacro:macro name="so101_arm" params="prefix parent mount_xyz mount_rpy use_wrist_camera_mount:=false">
     <joint name="${prefix}arm_mount_joint" type="fixed">
       <origin xyz="${mount_xyz}" rpy="${mount_rpy}"/>
       <parent link="${parent}"/>
@@ -274,18 +274,31 @@
         <mesh filename="package://so101_description/meshes/sts3215_03a_v1.stl"/>
       </geometry>
     </collision>
-    <!-- Part wrist_roll_follower_so101_v1 -->
+    <!--
+      The integrated 32x32 UVC camera mount is a complete Wrist Roll
+      replacement, not an add-on. Its official STL is authored in millimetres.
+    -->
     <visual>
       <origin xyz="8.32667e-17 -0.000218214 0.000949706" rpy="-3.14159 -5.55112e-17 0"/>
       <geometry>
-        <mesh filename="package://so101_description/meshes/wrist_roll_follower_so101_v1.stl"/>
+        <xacro:if value="${use_wrist_camera_mount}">
+          <mesh filename="package://so101_description/meshes/wrist_cam_mount_32x32_uvc_module_so101.stl" scale="0.001 0.001 0.001"/>
+        </xacro:if>
+        <xacro:unless value="${use_wrist_camera_mount}">
+          <mesh filename="package://so101_description/meshes/wrist_roll_follower_so101_v1.stl"/>
+        </xacro:unless>
       </geometry>
       <material name="3d_printed"/>
     </visual>
     <collision>
       <origin xyz="8.32667e-17 -0.000218214 0.000949706" rpy="-3.14159 -5.55112e-17 0"/>
       <geometry>
-        <mesh filename="package://so101_description/meshes/wrist_roll_follower_so101_v1.stl"/>
+        <xacro:if value="${use_wrist_camera_mount}">
+          <mesh filename="package://so101_description/meshes/wrist_cam_mount_32x32_uvc_module_so101.stl" scale="0.001 0.001 0.001"/>
+        </xacro:if>
+        <xacro:unless value="${use_wrist_camera_mount}">
+          <mesh filename="package://so101_description/meshes/wrist_roll_follower_so101_v1.stl"/>
+        </xacro:unless>
       </geometry>
     </collision>
   </link>
@@ -298,6 +311,36 @@
     <parent link="${prefix}gripper_link"/>
     <child link="${prefix}gripper_frame_link"/>
   </joint>
+
+  <!--
+    Center of the 27x27 mm four-M2-hole pattern for the optional 32x32 UVC
+    camera module. The frame origin is the camera mounting plate mid-plane,
+    not the gripper TCP or the camera optical center. The CAD mesh origin,
+    millimetre scale, and visual Rx(pi) transform are already included here.
+    +Z is normal to the mounting plate.
+  -->
+  <xacro:if value="${use_wrist_camera_mount}">
+    <link name="${prefix}wrist_camera_mount_center_link"/>
+
+    <joint name="${prefix}wrist_camera_mount_center_joint" type="fixed">
+      <origin xyz="0.00250008 -0.07292374 0.00595299" rpy="-2.70526034 0 0"/>
+      <parent link="${prefix}gripper_link"/>
+      <child link="${prefix}wrist_camera_mount_center_link"/>
+    </joint>
+
+    <!--
+      Center of the temporary rigid yellow registration marker on the outer
+      surface of the 4 mm printed mounting plate. The visible surface is
+      local -Z from the CAD mid-plane; paper thickness is neglected.
+    -->
+    <link name="${prefix}wrist_registration_marker_link"/>
+
+    <joint name="${prefix}wrist_registration_marker_joint" type="fixed">
+      <origin xyz="0 0 -0.002" rpy="0 0 0"/>
+      <parent link="${prefix}wrist_camera_mount_center_link"/>
+      <child link="${prefix}wrist_registration_marker_link"/>
+    </joint>
+  </xacro:if>
 
   <!-- Link moving_jaw_so101_v1 -->
   <link name="${prefix}moving_jaw_link">
@@ -334,39 +377,58 @@
 
   <!-- Joint from wrist to gripper -->
   <joint name="${prefix}wrist_roll_joint" type="revolute">
-    <origin xyz="5.55112e-17 -0.0611 0.0181" rpy="1.5708 0.0486795 3.14159"/>
+    <!--
+      2026-07-26 left-arm physical Home: upstream q=-90deg is the new q=0.
+      The joint origin absorbs that rotation so raw 2048, ROS q=0, MoveIt
+      Home, and Isaac q=0 retain one shared meaning.
+    -->
+    <origin xyz="5.55112e-17 -0.0611 0.0181" rpy="1.57087172410138 -1.52211682665642 3.14151451327097"/>
     <parent link="${prefix}wrist_link"/>
     <child link="${prefix}gripper_link"/>
-    <axis xyz="0 0 -1"/>
-    <limit effort="10" velocity="10" lower="-2.84121" upper="2.74385"/>
+    <!--
+      2026-07-29 external rigid-target metrology: positive ROS feedback
+      rotates this physical joint about local +Z.
+    -->
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-4.3146463267949" upper="1.2704136732051"/>
   </joint>
 
   <!-- Joint from lower_arm to wrist -->
   <joint name="${prefix}wrist_flex_joint" type="revolute">
-    <origin xyz="-0.1349 0.0052 3.62355e-17" rpy="4.02456e-15 8.67362e-16 -1.5708"/>
+    <!--
+      Upstream q=-64.898281239deg is the new q=0. The 2026-07-30
+      eye-to-hand external metrology refined the visual -57.5deg baseline by
+      -7.398281239deg. Hardware raw 2048 and ROS feedback zero are unchanged.
+    -->
+    <origin xyz="-0.1349 0.0052 3.62355e-17" rpy="2.88657986402541e-15 -2.88657986402541e-15 -0.438111313497813"/>
     <parent link="${prefix}lower_arm_link"/>
     <child link="${prefix}wrist_link"/>
     <axis xyz="0 0 -1"/>
-    <limit effort="10" velocity="10" lower="-1.65806" upper="1.65806"/>
+    <limit effort="10" velocity="10" lower="-0.525371313497813" upper="2.790748686502188"/>
   </joint>
 
   <!-- Joint from upper_arm to lower_arm -->
-  <!-- Note: 5-degree calibration offset applied to joint limits -->
   <joint name="${prefix}elbow_joint" type="revolute">
-    <origin xyz="-0.11257 -0.028 1.73763e-16" rpy="-3.63608e-16 8.74301e-16 1.5708"/>
+    <!-- Upstream q=-55deg is the new q=0. -->
+    <origin xyz="-0.11257 -0.028 1.73763e-16" rpy="6.66133814775094e-16 8.88178419700125e-16 2.53073108859688"/>
     <parent link="${prefix}upper_arm_link"/>
     <child link="${prefix}lower_arm_link"/>
     <axis xyz="0 0 -1"/>
-    <limit effort="10" velocity="10" lower="-1.69" upper="1.69"/>
+    <limit effort="10" velocity="10" lower="-0.730068911403119" upper="2.64993108859688"/>
   </joint>
 
   <!-- Joint from shoulder to upper_arm -->
   <joint name="${prefix}shoulder_joint" type="revolute">
-    <origin xyz="-0.0303992 -0.0182778 -0.0542" rpy="-1.5708 -1.5708 0"/>
+    <!-- Upstream q=+90deg is the new q=0. -->
+    <origin xyz="-0.0303992 -0.0182778 -0.0542" rpy="1.5707963267814 3.67320510319402e-06 3.14158898038469"/>
     <parent link="${prefix}shoulder_link"/>
     <child link="${prefix}upper_arm_link"/>
-    <axis xyz="0 0 -1"/>
-    <limit effort="10" velocity="10" lower="-1.74533" upper="1.74533"/>
+    <!--
+      2026-07-29 external rigid-target metrology: positive ROS feedback
+      rotates this physical joint about local +Z.
+    -->
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-0.174533673205103" upper="3.3161263267949"/>
   </joint>
 
   <!-- Joint from base to shoulder -->
@@ -374,7 +436,11 @@
     <origin xyz="0.0388353 -8.97657e-09 0.0624" rpy="3.14159 4.18253e-17 -3.14159"/>
     <parent link="${prefix}base_link"/>
     <child link="${prefix}shoulder_link"/>
-    <axis xyz="0 0 -1"/>
+    <!--
+      2026-07-29 external rigid-target metrology: positive ROS feedback
+      rotates this physical joint about local +Z.
+    -->
+    <axis xyz="0 0 1"/>
     <limit effort="10" velocity="10" lower="-1.91986" upper="1.91986"/>
   </joint>
 

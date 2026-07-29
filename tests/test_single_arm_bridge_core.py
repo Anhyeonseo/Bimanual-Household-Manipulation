@@ -20,6 +20,7 @@ from single_arm_bridge.protocol import (  # noqa: E402
 )
 from single_arm_bridge.transport import (  # noqa: E402
     ActuatorTransport,
+    POSITION_STATE_RESPONSE_TIMEOUT_S,
     StateResponseDeferred,
 )
 
@@ -66,7 +67,7 @@ class FakeSerial:
                         4,
                         77,
                         1200,
-                        0x3DB42B48,
+                        0x4D62F8D5,
                     ),
                 )
             )
@@ -94,8 +95,8 @@ class FakeSerial:
                 6,
                 0,
                 0,
-                0x00020700,
-                0x3DB42B48,
+                0x00020B00,
+                0x4D62F8D5,
                 0x0000000F,
                 0,
             )
@@ -121,7 +122,7 @@ class FakeSerial:
                                 4,
                                 77,
                                 1200,
-                                0x3DB42B48,
+                                0x4D62F8D5,
                             ),
                         )
                     )
@@ -138,7 +139,7 @@ class FakeSerial:
                 1,
                 3,
                 0,
-                0x3DB42B48,
+                0x4D62F8D5,
                 1200,
                 2048,
                 2050,
@@ -158,7 +159,7 @@ class FakeSerial:
                 0,
                 request.sequence,
                 apply_tick,
-                0x3DB42B48,
+                0x4D62F8D5,
             )
             response_type = MessageType.SETPOINT_STATUS
         elif request.message_type is MessageType.SAFE_STOP:
@@ -172,7 +173,7 @@ class FakeSerial:
                 1,
                 4,
                 0,
-                0x3DB42B48,
+                0x4D62F8D5,
                 1200,
             )
             response_type = MessageType.STATE_FEEDBACK
@@ -185,7 +186,7 @@ class FakeSerial:
                 1,
                 4,
                 0,
-                0x3DB42B48,
+                0x4D62F8D5,
                 1200,
             )
             response_type = MessageType.STATE_FEEDBACK
@@ -271,7 +272,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
 
     def test_calibration_hash_and_feedback_conversion(self) -> None:
         calibration = load_calibration(CALIBRATION_PATH)
-        self.assertEqual(calibration.calibration_hash, 0x3DB42B48)
+        self.assertEqual(calibration.calibration_hash, 0x4D62F8D5)
         radians = calibration.raw_feedback_to_radians(
             (2048, 2048, 2048, 2048, 2048, 2048)
         )
@@ -280,12 +281,33 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
     def test_transport_enters_binary_mode_and_reads_positions(self) -> None:
         transport = ActuatorTransport(FakeSerial(), response_timeout_s=0.01)
         hello = transport.enter_binary_mode()
-        self.assertEqual(hello.firmware_version, 0x00020700)
+        self.assertEqual(hello.firmware_version, 0x00020B00)
         state = transport.get_state(include_positions=True)
         self.assertEqual(
             state.raw_positions,
             (2048, 2050, 2046, 2047, 2051, 2045),
         )
+
+    def test_position_get_state_uses_extended_response_timeout(self) -> None:
+        transport = ActuatorTransport(FakeSerial(), response_timeout_s=0.12)
+        observed_timeouts: list[float | None] = []
+        receive_matching = transport._receive_matching
+
+        def record_timeout(*args, **kwargs):
+            observed_timeouts.append(kwargs.get("timeout_s"))
+            return receive_matching(*args, **kwargs)
+
+        transport._receive_matching = record_timeout
+        transport.enter_binary_mode()
+        transport.get_state(include_positions=False)
+        transport.get_state(include_positions=True)
+
+        self.assertEqual(observed_timeouts[-2], None)
+        self.assertEqual(
+            observed_timeouts[-1],
+            POSITION_STATE_RESPONSE_TIMEOUT_S,
+        )
+        self.assertEqual(POSITION_STATE_RESPONSE_TIMEOUT_S, 0.5)
 
     def test_transport_reconnects_when_mcu_is_already_binary(self) -> None:
         transport = ActuatorTransport(
@@ -336,7 +358,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
         self.assertEqual(accepted.safety_state, 3)
         self.assertGreater(accepted.request_sequence, 0)
         self.assertEqual(accepted.apply_tick_ms, 1500)
-        self.assertEqual(accepted.calibration_hash, 0x3DB42B48)
+        self.assertEqual(accepted.calibration_hash, 0x4D62F8D5)
 
     def test_safe_stop_ack_survives_interleaved_terminal_result(self) -> None:
         transport = ActuatorTransport(

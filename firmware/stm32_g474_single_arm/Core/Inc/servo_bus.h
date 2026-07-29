@@ -68,6 +68,7 @@ HAL_StatusTypeDef Servo_WriteData(
     const uint8_t *data,
     uint8_t data_length
 );
+HAL_StatusTypeDef Servo_DisableTorqueAll(void);
 int32_t Servo_PositionError(
     uint16_t actual_position,
     uint16_t target_position

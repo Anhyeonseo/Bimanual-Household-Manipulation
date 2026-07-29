@@ -127,7 +127,7 @@ def Xform "so101_new_calib" (
 
                 def Xform "upper_arm_link"
                 {
-                    quatf xformOp:orient = (-0.49999815, 0.5, 0.5, 0.50000185)
+                    quatf xformOp:orient = (-2.5973482e-06, -5.551115e-17, -0.70710677, -0.70710677)
                     float3 xformOp:scale = (1, 1, 1)
                     double3 xformOp:translate = (-0.0303992, -0.0182778, -0.0542)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -156,7 +156,7 @@ def Xform "so101_new_calib" (
 
                     def Xform "lower_arm_link"
                     {
-                        quatf xformOp:orient = (0.70710546, 0, 0, 0.7071081)
+                        quatf xformOp:orient = (0.30070406, -3.048439e-16, 3.6224776e-16, 0.9537175)
                         float3 xformOp:scale = (1, 1, 1)
                         double3 xformOp:translate = (-0.11257, -0.028, 1.73763e-16)
                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -196,7 +196,7 @@ def Xform "so101_new_calib" (
 
                         def Xform "wrist_link"
                         {
-                            quatf xformOp:orient = (-0.70710546, 0, 0, 0.7071081)
+                            quatf xformOp:orient = (0.9761031, 1.0951614e-15, -1.7224381e-15, -0.21730794)
                             float3 xformOp:scale = (1, 1, 1)
                             double3 xformOp:translate = (-0.1349, 0.0052, 3.62355e-17)
                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -225,7 +225,7 @@ def Xform "so101_new_calib" (
 
                             def Xform "gripper_link"
                             {
-                                quatf xformOp:orient = (0.017210072, -0.017208133, 0.7068986, 0.706896)
+                                quatf xformOp:orient = (-0.4876816, 0.48768485, 0.5120208, 0.51202035)
                                 float3 xformOp:scale = (1, 1, 1)
                                 double3 xformOp:translate = (5.55112e-17, -0.0611, 0.0181)
                                 uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -504,4 +504,3 @@ def Xform "so101_new_calib" (
     {
     }
 }
-

@@ -4,9 +4,14 @@
   <xacro:arg name="mount_xyz" default="0 0 0"/>
   <xacro:arg name="mount_rpy" default="0 0 0"/>
   <xacro:arg name="use_mock_hardware" default="false"/>
+  <xacro:arg name="use_wrist_camera_mount" default="true"/>
+  <xacro:arg name="use_overhead_webcam_mount" default="false"/>
+  <xacro:arg name="top_camera_xyz" default="0 0.2344404 0"/>
+  <xacro:arg name="top_camera_optical_rpy" default="1.5707963267948966 0 0"/>
 
   <xacro:include filename="so101_arm_macro.xacro"/>
   <xacro:include filename="so101_ros2_control.xacro"/>
+  <xacro:include filename="so101_overhead_webcam_mount.xacro"/>
 
   <material name="3d_printed">
     <color rgba="1.0 0.82 0.12 1.0"/>
@@ -17,11 +22,21 @@
 
   <link name="workcell_base_link"/>
 
+  <xacro:if value="$(arg use_overhead_webcam_mount)">
+    <xacro:so101_overhead_webcam_mount
+      prefix="top_"
+      parent="workcell_base_link"
+      camera_xyz="$(arg top_camera_xyz)"
+      camera_optical_rpy="$(arg top_camera_optical_rpy)"
+    />
+  </xacro:if>
+
   <xacro:so101_arm
     prefix="$(arg arm_slot)_"
     parent="workcell_base_link"
     mount_xyz="$(arg mount_xyz)"
     mount_rpy="$(arg mount_rpy)"
+    use_wrist_camera_mount="$(arg use_wrist_camera_mount)"
   />
 
   <xacro:if value="$(arg use_mock_hardware)">

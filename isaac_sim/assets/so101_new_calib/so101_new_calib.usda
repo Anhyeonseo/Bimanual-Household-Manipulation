@@ -41,6 +41,9 @@ Generated from Composed Stage of root layer /tmp/so101_stage4_fda892c/Simulation
 """
     kilogramsPerUnit = 1
     metersPerUnit = 1
+    subLayers = [
+        @./payloads/overhead_workcell.usd@
+    ]
     upAxis = "Z"
 )
 

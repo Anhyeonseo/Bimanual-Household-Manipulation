@@ -418,7 +418,7 @@ def Scope "Instances"
     }
 
     def Xform "wrist_roll_follower_so101_v1" (
-        prepend references = @./geometries.usd@</Geometries/wrist_roll_follower_so101_v1>
+        prepend references = @./wrist_camera_mount_geometry.usd@</Geometries/wrist_roll_follower_so101_v1>
     )
     {
         over "wrist_roll_follower_so101_v1" (
@@ -441,7 +441,7 @@ def Scope "Instances"
     }
 
     def Xform "wrist_roll_follower_so101_v1_1" (
-        prepend references = @./geometries.usd@</Geometries/wrist_roll_follower_so101_v1>
+        prepend references = @./wrist_camera_mount_geometry.usd@</Geometries/wrist_roll_follower_so101_v1>
     )
     {
         over "wrist_roll_follower_so101_v1" (
@@ -489,4 +489,3 @@ def Scope "Instances"
         }
     }
 }
-

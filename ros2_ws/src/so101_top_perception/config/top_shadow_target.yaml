@@ -1,0 +1,63 @@
+schema_version: 1
+status: SHADOW_ONLY_TABLE_BASE_VALIDATED_HARDWARE_WORKSPACE_RESTRICTED
+motion_authorized: false
+robot_target_available: false
+reference_generation_compatible: true
+frames:
+  source: top_board
+  output: left_base_link
+transform:
+  validated: true
+  base_from_board:
+    rows: 4
+    cols: 4
+    data:
+    - - 1.0
+      - 0.0
+      - 0.0
+      - 0.34
+    - - 0.0
+      - 1.0
+      - 0.0
+      - -0.28
+    - - 0.0
+      - 0.0
+      - 1.0
+      - -0.005
+    - - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+  planar_gridboard_pnp_rms_px_max: 0.649687
+  plane_normal_disagreement_deg: 0.846624
+  plane_height_mean_disagreement_mm: 1.549545
+  rejected_mixed_reference_disagreement_mm: 118.216
+object:
+  type: rigid_black_pen
+  center_height_above_board_m: 0.0113
+source_gate:
+  board_span_xy_m:
+  - 0.18
+  - 0.28
+  max_frame_age_s: 0.2
+  future_tolerance_s: 0.05
+  minimum_confidence: 0.7
+  require_image_fully_visible: true
+workspace:
+  # Conservative object-center region whose +25 mm grasp and +100 mm
+  # pre-grasp TCP layers overlap under the currently approved MoveIt limits.
+  x_min_m: 0.15
+  x_max_m: 0.23
+  y_min_m: -0.13
+  y_max_m: -0.02
+  z_min_m: -0.005
+  z_max_m: 0.02
+  radial_min_m: 0.18
+  radial_max_m: 0.26
+sources:
+  eye_to_hand_candidate_sha256: b0e251a159f86a76915b1ae437e37a325ba42e9161da186d9173e36df549ea37
+  camera_info_sha256: dd7297be6e78d02721cb39915f8fe728ca44ac8d9e6a28167ab8c297d1a43936
+  table_base_validation_sha256: c820eb5f709b9f7accc46db514289599a294e047941e88be0482bcbb6d80df34
+required_next_gate: physically revalidate and extend shoulder/elbow limits or
+  revise the fixed camera layout; current camera-visible and approved
+  low-grasp workspaces do not overlap

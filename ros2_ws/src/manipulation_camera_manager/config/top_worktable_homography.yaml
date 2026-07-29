@@ -1,0 +1,89 @@
+schema_version: 1
+status: TABLE_BASE_VALIDATED_MOTION_STILL_NOT_AUTHORIZED
+motion_authorized: false
+camera:
+  name: so101_top
+  image_width: 640
+  image_height: 480
+  input_domain: rectified_pixel_using_projection_matrix
+  camera_info_file: top_camera_info.yaml
+  camera_info_sha256: dd7297be6e78d02721cb39915f8fe728ca44ac8d9e6a28167ab8c297d1a43936
+capture:
+  method: current planar GridBoard IDs 10-29 at two table positions
+  validation_file: docs/test-results/evidence/2026-07-30-top-base-table-validation.yaml
+  validation_sha256: c820eb5f709b9f7accc46db514289599a294e047941e88be0482bcbb6d80df34
+  image_sha256:
+  - 1c792d3b271a961ce50791da49ba1a08d0e56c221624bbf7166ec26dff5ae02d
+  - 573cbbdcb9f2ca0e20482ce988a079182d61b254669d0a715dd3956e8ed2bc83
+board:
+  origin: left_base_link aligned camera-safe region minimum
+  positive_x: parallel to left_base_link +X
+  positive_y: parallel to left_base_link +Y
+  calibrated_span_m:
+  - 0.18
+  - 0.28
+  origin_in_left_base_link_xy_m:
+  - 0.34
+  - -0.28
+  table_z_in_left_base_link_m: -0.005
+homography:
+  rectified_pixel_to_board_m:
+    rows: 3
+    cols: 3
+    data:
+    - - -8.858708968076542e-05
+      - -0.002025525698038689
+      - 0.84379362597074
+    - - -0.0017271699752076774
+      - 0.0005401973787598214
+      - 0.6527693302785658
+    - - 0.00011870143138495284
+      - 0.0030308697610713963
+      - 1.0
+  board_m_to_rectified_pixel:
+    rows: 3
+    cols: 3
+    data:
+    - - 179.8010495080812
+      - -572.927816918734
+      - 222.27472783023433
+    - - -225.60487688773287
+      - 23.595735697990946
+      - 174.96138451677487
+    - - 0.6624363573681387
+      - -0.0035082498687637152
+      - 0.4433305019587722
+fit_quality:
+  planar_gridboard_pnp_rms_px_max: 0.649687
+  plane_normal_disagreement_deg: 0.846624
+  height_mean_disagreement_mm: 1.549545
+  grid_corner_metric_error_max_mm: 4.503808
+  tabletop_position_error_max_mm: 8.880034
+  tabletop_yaw_error_max_deg: 1.945985
+base_registration:
+  status: CURRENT_PLANAR_GRIDBOARD_TWO_POSITION_VALIDATED
+  transform_validated: true
+  motion_authorized: false
+  reference: left_base_link
+  base_from_board:
+    rows: 4
+    cols: 4
+    data:
+    - - 1.0
+      - 0.0
+      - 0.0
+      - 0.34
+    - - 0.0
+      - 1.0
+      - 0.0
+      - -0.28
+    - - 0.0
+      - 0.0
+      - 1.0
+      - -0.005
+    - - 0.0
+      - 0.0
+      - 0.0
+      - 1.0
+  rejected_mixed_reference_disagreement_mm: 118.216
+required_next_gate: plan-only grasp candidate validation; robot motion remains disabled

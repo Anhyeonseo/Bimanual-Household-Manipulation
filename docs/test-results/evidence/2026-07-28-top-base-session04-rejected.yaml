@@ -1,0 +1,318 @@
+schema_version: 1
+session_id: TOP_BASE_VISUAL_2026_07_28_04
+status: FIVE_POINTS_COLLECTED_CANDIDATE_REJECTED
+motion_authorized: false
+robot_target_available: false
+method: rigid_body_marker_bundle_registration
+frames:
+  board: top_board
+  robot: left_base_link
+  marker: left_wrist_registration_marker_link
+  tcp: left_gripper_frame_link
+marker:
+  color: yellow
+  shape: square
+  measured_side_m: 0.01157
+  dimension_source: USER_MEASURED_2026_07_28
+  attachment_location: center_of_4mm_printed_mount_outer_surface
+  attachment_status: USER_CONFIRMED_ATTACHED
+  mount_center_local_xyz_m: [0.0, 0.0, -0.002]
+  paper_thickness_model: neglected
+  must_remain_unchanged_for_entire_session: true
+policy:
+  powered_manual_motion: false
+  previous_session_reuse: false
+  fixed_single_point_goals_only: true
+  explicit_user_approval_per_motion: true
+  automatic_retry: false
+rejected_attempts:
+  - id: ATTEMPT_BASE040_ELBOW_M005
+    target_arm_rad: [0.40, 0.0, -0.05, 0.0, 0.0]
+    outcome: REJECTED_BEFORE_MOTION
+    reason: left_elbow_joint target is outside hardware calibration range
+    diagnosis: reproduced_by_host_hardware_calibration_precheck
+    motion_occurred: false
+  - id: ATTEMPT_REGISTER_POSE03_DURATION_3000
+    target_arm_rad: [0.45, 0.10, 0.05, 0.05, 0.05]
+    duration_ms: 3000
+    outcome: REJECTED_BEFORE_MOTION
+    reason: bridge accepts only 300..2000 ms single-point durations
+    diagnosis: reproduced_by_host_bridge_contract_precheck
+    motion_occurred: false
+  - id: ATTEMPT_REGISTER_POSE03_LEGACY_Q0_GATE
+    target_arm_rad: [0.45, 0.10, 0.05, 0.05, 0.05]
+    duration_ms: 2000
+    outcome: REJECTED_BEFORE_MOTION
+    reason: elbow feedback raw 2069 exceeded strict maximum 2048 by 21 raw
+    diagnosis: legacy host gate allowed only all-zero q0 recovery
+    motion_occurred: false
+    remediation: bounded inward recovery deployed and executed once; offending elbow returned inside strict range
+  - id: ATTEMPT_REGISTER_POSE05_BORDER_CLIPPED
+    target_arm_rad: [0.48, 0.14, 0.14, 0.04, 0.16]
+    duration_ms: 2000
+    motion_occurred: true
+    controller_outcome: SUCCEEDED
+    firmware_final_error_raw: 18
+    measured_arm_rad:
+      - 0.4724660826687775
+      - 0.13192234775816514
+      - 0.1119805975156518
+      - 0.04295146206079795
+      - 0.1518640980006785
+    measured_gripper_rad: 0.13652429012182207
+    base_marker_xyz_m:
+      - 0.09833765656057086
+      - 0.016458508119425768
+      - 0.30147999683983767
+    base_marker_quaternion_xyzw:
+      - 0.5017839038581406
+      - 0.7085190348008836
+      - 0.46001894396264326
+      - 0.18600070523845597
+    image_file: tmp/top_tcp_session04_pose_05.png
+    image_sharpness: 175.10
+    visible_yellow_bbox_xywh_px: [0, 366, 27, 45]
+    visible_yellow_center_px: [12.084093211752787, 387.677811550152]
+    visible_yellow_area_px: 987
+    capture_outcome: REJECTED_FAIL_CLOSED
+    reason: yellow marker touches the left image border
+    automatic_retry: false
+  - id: ATTEMPT_REGISTER_POSE05B_MARKER_OUT_OF_FRAME
+    target_arm_rad: [0.49, 0.04, 0.10, 0.04, 0.16]
+    duration_ms: 2000
+    motion_occurred: true
+    controller_outcome: SUCCEEDED
+    firmware_final_error_raw: 6
+    measured_arm_rad:
+      - 0.4816699673960913
+      - 0.047553404424454875
+      - 0.09970875121256667
+      - 0.04295146206079795
+      - 0.1518640980006785
+    measured_gripper_rad: 0.13652429012182207
+    base_marker_xyz_m:
+      - 0.11361512969431693
+      - 0.025072172796141677
+      - 0.2963209390612761
+    base_marker_quaternion_xyzw:
+      - 0.51354937705623
+      - 0.7281749352094143
+      - 0.42308701128419735
+      - 0.16439489633358065
+    image_file: tmp/top_tcp_session04_pose_05b.png
+    image_sharpness: 175.65
+    yellow_component_count: 0
+    capture_outcome: REJECTED_FAIL_CLOSED
+    reason: wrist roll rotated the marker entirely outside the Top-camera frame
+    automatic_retry: false
+  - id: ATTEMPT_REGISTER_POSE05C_LEFT_BORDER
+    target_arm_rad: [0.49, 0.04, 0.10, 0.04, 0.08]
+    duration_ms: 2000
+    motion_occurred: true
+    controller_outcome: SUCCEEDED
+    firmware_final_error_raw: 7
+    measured_arm_rad:
+      - 0.4816699673960913
+      - 0.047553404424454875
+      - 0.09970875121256667
+      - 0.04295146206079795
+      - 0.09050486648525283
+    measured_gripper_rad: 0.13652429012182207
+    base_marker_xyz_m:
+      - 0.11164608506152147
+      - 0.029105371328988355
+      - 0.29692230195592384
+    base_marker_quaternion_xyzw:
+      - 0.498548641151637
+      - 0.7399781876342599
+      - 0.4116600856735983
+      - 0.18551956256572558
+    image_file: tmp/top_tcp_session04_pose_05c.png
+    image_sharpness: 166.69
+    visible_yellow_bbox_xywh_px: [0, 396, 11, 42]
+    visible_yellow_center_px: [4.303, 415.429]
+    visible_yellow_area_px: 389
+    capture_outcome: REJECTED_FAIL_CLOSED
+    reason: yellow marker still touches the left image border
+    automatic_retry: false
+  - id: ATTEMPT_REGISTER_POSE05D_MARKER_OUT_OF_FRAME
+    target_arm_rad: [0.45, 0.08, 0.12, 0.12, 0.08]
+    duration_ms: 2000
+    motion_occurred: true
+    controller_outcome: SUCCEEDED
+    firmware_final_error_raw: 13
+    measured_arm_rad:
+      - 0.45712627478992107
+      - 0.0674951546669682
+      - 0.09970875121256667
+      - 0.10584467436410924
+      - 0.09050486648525283
+    measured_gripper_rad: 0.13652429012182207
+    base_marker_xyz_m:
+      - 0.10546180686668201
+      - 0.023927223662679534
+      - 0.30184617589757273
+    base_marker_quaternion_xyzw:
+      - 0.4954299284861637
+      - 0.7186140499724516
+      - 0.44127118950099503
+      - 0.20838131024341558
+    image_file: tmp/top_tcp_session04_pose_05d.png
+    image_sharpness: 177.78
+    yellow_component_count: 0
+    capture_outcome: REJECTED_FAIL_CLOSED
+    reason: marker mounting surface remained outside the Top-camera frame
+    automatic_retry: false
+recovery_events:
+  - id: RECOVERY_BASE035_FINAL_ERROR_21
+    target_arm_rad: [0.35, 0.0, 0.0, 0.0, 0.0]
+    motion_occurred: true
+    controller_outcome: PATH_TOLERANCE_VIOLATED
+    firmware_final_error_raw: 21
+    firmware_final_error_tolerance_raw: 20
+    automatic_retry: false
+    physical_inspection: USER_CONFIRMED_SAFE_AND_HOLDING
+    clear_fault_calls: 1
+    clear_fault_result: SUCCESS_COMMANDS_ENABLED
+    feedback_recovered: true
+  - id: RECOVERY_POSE03_FINAL_ERROR_25
+    target_arm_rad: [0.45, 0.10, 0.05, 0.05, 0.05]
+    motion_occurred: true
+    bounded_inward_recovery_goal_accepted: true
+    controller_outcome: PATH_TOLERANCE_VIOLATED
+    firmware_final_error_raw: 25
+    firmware_final_error_tolerance_raw: 20
+    moveit_execution_upper_bound_s: 2.7
+    automatic_retry: false
+    physical_inspection: USER_CONFIRMED_SAFE_AND_HOLDING
+    clear_fault_calls: 1
+    clear_fault_result: SUCCESS_COMMANDS_ENABLED
+    feedback_recovered: true
+    safety_result: offending elbow feedback returned inside strict range
+  - id: RESET_RECOVERY_AFTER_ARM_REQUEST_REJECTED
+    motion_occurred: false
+    clear_fault_calls: 1
+    clear_fault_result: REJECTED_ARM_REQUEST
+    physical_stm32_reset: USER_CONFIRMED_COMPLETE
+    bridge_restarted: true
+    recovered_mode: MOTION_ENABLED
+    automatic_retry: false
+visual_marker_points:
+  - id: V1_BASE_040
+    commanded_arm_rad: [0.40, 0.0, 0.0, 0.0, 0.0]
+    measured_arm_rad:
+      - 0.3957670432744954
+      - 0.0046019423636569235
+      - -0.02761165418194154
+      - 0.0
+      - 0.009203884727313847
+    measured_gripper_rad: 0.13652429012182207
+    base_marker_xyz_m:
+      - 0.137082027578
+      - 0.038935883316
+      - 0.269188243744
+    image_file: tmp/top_tcp_session04_base_040.png
+    marker_center_px: [32.48078725398313, 428.29522024367384]
+    marker_bbox_xywh_px: [17, 408, 32, 42]
+    marker_area_px: 1067
+    image_sharpness: 164.30
+    capture_status: PASS
+  - id: V2_BASE_035
+    commanded_arm_rad: [0.35, 0.0, 0.0, 0.0, 0.0]
+    measured_arm_rad:
+      - 0.35434956200158313
+      - 0.0046019423636569235
+      - -0.032213596545598466
+      - 0.0
+      - 0.009203884727313847
+    measured_gripper_rad: 0.13652429012182207
+    base_marker_xyz_m:
+      - 0.139148057214
+      - 0.035033606413
+      - 0.268321922961
+    image_file: tmp/top_tcp_session04_base_035.png
+    marker_center_px: [23.178907721280602, 424.8757062146893]
+    marker_bbox_xywh_px: [8, 404, 32, 44]
+    marker_area_px: 1062
+    image_sharpness: 164.63
+    capture_status: PASS
+    capture_provenance: AFTER_EXPLICIT_FAULT_RECOVERY
+  - id: V3_BOUNDED_INWARD_POSE_03
+    commanded_arm_rad: [0.45, 0.10, 0.05, 0.05, 0.05]
+    measured_arm_rad:
+      - 0.4433204476989503
+      - 0.0859029241215959
+      - 0.01227184630308513
+      - 0.0337475773334841
+      - 0.04141748127291231
+    measured_gripper_rad: 0.13652429012182207
+    base_marker_xyz_m:
+      - 0.117812435586
+      - 0.032713519448
+      - 0.284071194175
+    image_file: tmp/top_tcp_session04_pose_03.png
+    marker_center_px: [46.15561694290976, 410.7403314917127]
+    marker_bbox_xywh_px: [29, 389, 35, 43]
+    marker_area_px: 1086
+    image_sharpness: 164.70
+    capture_status: PASS
+    capture_provenance: AFTER_BOUNDED_RECOVERY_AND_EXPLICIT_FAULT_CLEAR
+  - id: V4_REGISTER_POSE_04
+    commanded_arm_rad: [0.47, 0.14, 0.04, 0.14, 0.08]
+    measured_arm_rad:
+      - 0.4632621979414636
+      - 0.13192234775816514
+      - 0.009203884727313847
+      - 0.12425244381873693
+      - 0.07209709703062514
+    measured_gripper_rad: 0.13652429012182207
+    base_marker_xyz_m:
+      - 0.10648614173968624
+      - 0.026433018894101174
+      - 0.29166168227438427
+    base_marker_quaternion_xyzw:
+      - 0.49004798651669873
+      - 0.7248872414883523
+      - 0.4353240448120363
+      - 0.2118594676827656
+    image_file: tmp/top_tcp_session04_pose_04.png
+    marker_center_px: [51.07136060894386, 396.7059942911513]
+    marker_bbox_xywh_px: [35, 376, 33, 43]
+    marker_area_px: 1051
+    image_sharpness: 172.68
+    moveit_outcome: SUCCEEDED
+    firmware_final_error_raw: 20
+    automatic_retry: false
+    capture_status: PASS
+  - id: V5_REGISTER_POSE_05E
+    commanded_arm_rad: [0.40, 0.14, 0.04, 0.14, 0.08]
+    measured_arm_rad:
+      - 0.4065049087896949
+      - 0.12885438618239387
+      - 0.03681553890925539
+      - 0.12425244381873693
+      - 0.09050486648525283
+    measured_gripper_rad: 0.13652429012182207
+    base_marker_xyz_m:
+      - 0.1047384465180199
+      - 0.019729433497165806
+      - 0.29569484510156374
+    base_marker_quaternion_xyzw:
+      - 0.5107943137512113
+      - 0.7026656059812174
+      - 0.4421741819851895
+      - 0.22323128812110152
+    image_file: tmp/top_tcp_session04_pose_05e.png
+    marker_center_px: [20.982024597918638, 386.55250709555344]
+    marker_bbox_xywh_px: [6, 365, 31, 43]
+    marker_area_px: 1057
+    image_sharpness: 177.56
+    moveit_outcome: SUCCEEDED
+    firmware_final_error_raw: 10
+    automatic_retry: false
+    capture_status: PASS
+candidate_file: output/top_base_registration_candidate_session04.yaml
+candidate_status: REJECTED_REGISTRATION_GEOMETRY_OR_RIGID_FIT
+required_next_gate: diagnose the image-to-board scale mismatch, then repeat registration
+  with at least five geometrically separated poses and capture an independent
+  validation pose before authorizing any task motion

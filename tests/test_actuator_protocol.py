@@ -27,7 +27,7 @@ class ActuatorProtocolTests(unittest.TestCase):
             1,
             4,
             2,
-            0x3DB42B48,
+            0x4D62F8D5,
             1234,
         )
         legacy = parse_state_feedback(base)
