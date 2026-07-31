@@ -70,6 +70,27 @@ def test_camera_visible_pose_is_outside_approved_hardware_workspace():
     assert result.status == 'SHADOW_OUTSIDE_WORKSPACE'
 
 
+def test_stage7_pick_center_is_inside_expanded_shadow_workspace_but_non_actionable():
+    config = MODULE.load_shadow_config(CONFIG_PATH)
+    result = MODULE.evaluate_shadow(
+        config,
+        observation(
+            x_m=0.035923,
+            y_m=0.150361,
+            yaw_rad=-0.034,
+            footprint_inside=False,
+            image_fully_visible=True,
+        ),
+    )
+    assert result.position_m == pytest.approx(
+        [0.375923, -0.129639, 0.006300],
+        abs=1e-6,
+    )
+    assert result.inside_workspace is True
+    assert result.status == 'SHADOW_CANDIDATE_VALIDATED_NON_ACTIONABLE'
+    assert result.transform_validated is True
+
+
 @pytest.mark.parametrize(
     ('field', 'value', 'code'),
     [
@@ -122,10 +143,15 @@ def test_long_object_may_extend_beyond_board_when_center_and_image_are_valid():
     config = MODULE.load_shadow_config(CONFIG_PATH)
     result = MODULE.evaluate_shadow(
         config,
-        observation(footprint_inside=False, image_fully_visible=True),
+        observation(
+            x_m=0.035923,
+            y_m=0.150361,
+            footprint_inside=False,
+            image_fully_visible=True,
+        ),
     )
-    assert result.inside_workspace is False
-    assert result.status == 'SHADOW_OUTSIDE_WORKSPACE'
+    assert result.inside_workspace is True
+    assert result.status == 'SHADOW_CANDIDATE_VALIDATED_NON_ACTIONABLE'
 
 
 def test_source_stamp_freshness_rejects_zero_future_and_stale():

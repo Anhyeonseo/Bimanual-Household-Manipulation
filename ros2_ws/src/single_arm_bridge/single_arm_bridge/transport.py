@@ -16,21 +16,89 @@ from .protocol import (
     MessageType,
     MotionResult,
     ProtocolError,
+    ServoDiagnostics,
     State,
     decode_frame,
     encode_frame,
     parse_hello,
+    parse_servo_diagnostic,
     parse_setpoint_status,
     parse_state,
 )
 
 
 POSITION_STATE_RESPONSE_TIMEOUT_S = 0.5
-DISABLE_RESPONSE_TIMEOUT_S = 0.5
+# DISABLE performs six torque-off writes and six physical readbacks before
+# acknowledging. With the bounded 0x218 READ parser and WRITE-reply settling,
+# its firmware timeout envelope is about 1.529 seconds, so this operation needs
+# a dedicated bound instead of the regular state timeout.
+DISABLE_RESPONSE_TIMEOUT_S = 2.5
+DIAGNOSTIC_RESPONSE_TIMEOUT_S = 0.5
+DIAGNOSTIC_CAPABILITY = 0x00000010
+HEARTBEAT_RESPONSE_TIMEOUT_S = 0.25
 
 
 class TransportError(RuntimeError):
     pass
+
+
+class StopLatchedError(TransportError):
+    """The MCU reports a physical safety stop that requires explicit recovery."""
+
+
+SERVO_BUS_FAILURE_NAMES = {
+    0: "none",
+    1: "tx",
+    2: "rx_timeout",
+    3: "uart",
+    4: "header",
+    5: "id",
+    6: "length",
+    7: "servo_status",
+    8: "checksum",
+    9: "recovery",
+}
+
+
+class PositionReadError(TransportError):
+    """A complete background position sweep exhausted its per-servo retries."""
+
+    def __init__(
+        self,
+        servo_id: int,
+        streak: int,
+        limit: int,
+        stop_latched: bool,
+        reason: int = 0,
+        hal_status: int = 0,
+        servo_status: int = 0,
+        recovery_count: int = 0,
+        discarded_bytes: int = 0,
+        uart_error_code: int = 0,
+        uart_isr: int = 0,
+    ) -> None:
+        self.servo_id = servo_id
+        self.streak = streak
+        self.limit = limit
+        self.stop_latched = stop_latched
+        self.reason = reason
+        self.hal_status = hal_status
+        self.servo_status = servo_status
+        self.recovery_count = recovery_count
+        self.discarded_bytes = discarded_bytes
+        self.uart_error_code = uart_error_code
+        self.uart_isr = uart_isr
+        super().__init__(
+            "GET_STATE position read failed: "
+            f"servo_id={servo_id} "
+            f"streak={streak}/{limit} "
+            f"latched={int(stop_latched)} "
+            f"cause={SERVO_BUS_FAILURE_NAMES.get(reason, f'unknown_{reason}')} "
+            f"hal={hal_status} servo_status=0x{servo_status:02X} "
+            f"recoveries={recovery_count} discarded={discarded_bytes} "
+            f"uart_error=0x{uart_error_code:08X} "
+            f"uart_isr=0x{uart_isr:08X}"
+        )
 
 
 class StateResponseDeferred(TransportError):
@@ -179,8 +247,25 @@ class ActuatorTransport:
         return hello
 
     @_synchronized
-    def heartbeat(self) -> None:
-        self._send(MessageType.HEARTBEAT)
+    def heartbeat(self) -> State:
+        sequence = self._send(MessageType.HEARTBEAT)
+        state = parse_state(
+            self._receive_matching(
+                sequence,
+                MessageType.STATE_FEEDBACK,
+                timeout_s=HEARTBEAT_RESPONSE_TIMEOUT_S,
+            ).payload
+        )
+        if state.stop_latched:
+            raise StopLatchedError(
+                "HEARTBEAT rejected: "
+                f"status={state.status_code} latched=1"
+            )
+        if state.status_code != 0:
+            raise TransportError(
+                f"HEARTBEAT rejected: status={state.status_code} latched=0"
+            )
+        return state
 
     @_synchronized
     def get_state(self, include_positions: bool = True) -> State:
@@ -198,11 +283,81 @@ class ActuatorTransport:
                 defer_state_after_motion_result=True,
             ).payload
         )
+        if (
+            state.status_code == 2
+            and state.position_read_failed_servo_id is not None
+        ):
+            raise PositionReadError(
+                servo_id=state.position_read_failed_servo_id,
+                streak=state.position_read_failure_streak,
+                limit=state.position_read_failure_limit,
+                stop_latched=state.stop_latched,
+                reason=state.position_read_failure_reason,
+                hal_status=state.position_read_hal_status,
+                servo_status=state.position_read_servo_status,
+                recovery_count=state.position_read_recovery_count,
+                discarded_bytes=state.position_read_discarded_bytes,
+                uart_error_code=state.position_read_uart_error_code,
+                uart_isr=state.position_read_uart_isr,
+            )
+        if state.stop_latched:
+            raise StopLatchedError(
+                f"GET_STATE rejected: status={state.status_code} latched=1"
+            )
         if state.status_code != 0:
             raise TransportError(f"GET_STATE status={state.status_code}")
         if include_positions and state.raw_positions is None:
             raise TransportError("position feedback missing")
         return state
+
+    @_synchronized
+    def get_diagnostics(self) -> ServoDiagnostics:
+        hello = self.hello_info
+        if hello is None:
+            raise TransportError("diagnostics require a completed HELLO")
+        if (hello.capabilities & DIAGNOSTIC_CAPABILITY) == 0:
+            raise TransportError("firmware does not provide servo diagnostics")
+
+        samples = []
+        for joint_index in range(hello.joint_count):
+            # One bounded servo transaction per request prevents a six-joint
+            # snapshot from starving the MCU heartbeat watchdog.
+            self.heartbeat()
+            sequence = self._send(
+                MessageType.GET_STATE,
+                bytes((2, joint_index)),
+            )
+            sample = parse_servo_diagnostic(
+                self._receive_matching(
+                    sequence,
+                    MessageType.DIAGNOSTICS,
+                    timeout_s=DIAGNOSTIC_RESPONSE_TIMEOUT_S,
+                ).payload
+            )
+            if sample.status_code != 0 or sample.read_status != 0:
+                raise TransportError(
+                    "diagnostic read failed: "
+                    f"joint_index={joint_index} "
+                    f"status={sample.status_code} "
+                    f"read_status=0x{sample.read_status:02X}"
+                )
+            if (
+                sample.joint_index != joint_index
+                or sample.joint_count != hello.joint_count
+                or sample.protocol_version != hello.protocol_version
+                or sample.calibration_hash != hello.calibration_hash
+            ):
+                raise TransportError(
+                    f"diagnostic identity mismatch at joint_index={joint_index}"
+                )
+            samples.append(sample)
+
+        return ServoDiagnostics(
+            protocol_version=hello.protocol_version,
+            joint_count=hello.joint_count,
+            calibration_hash=hello.calibration_hash,
+            joints=tuple(samples),
+        )
 
     @_synchronized
     def arm_and_enable(self, calibration_hash: int) -> None:

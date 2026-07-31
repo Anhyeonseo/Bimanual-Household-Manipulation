@@ -20,6 +20,7 @@ try:
 
     from single_arm_bridge.action_execution import MotionExecutionCore
     from single_arm_bridge.calibration import load_calibration
+    from single_arm_bridge.commanded_setpoint_state import CommandedSetpointState
     from single_arm_bridge.follow_joint_trajectory_server import (
         FollowJointTrajectoryActionAdapter,
     )
@@ -64,7 +65,7 @@ if ROS_AVAILABLE:
                         self.auto_detail,
                         sequence,
                         1200,
-                        0x4D62F8D5,
+                        0x8AD27897,
                     )
                 )
             return MotionResult(
@@ -74,7 +75,7 @@ if ROS_AVAILABLE:
                 0,
                 sequence,
                 1200,
-                0x4D62F8D5,
+                0x8AD27897,
             )
 
         def drain_motion_results(self):
@@ -108,9 +109,9 @@ class ParallelGripperRosIntegrationTests(unittest.TestCase):
             1,
             6,
             False,
-            0x00020B00,
-            0x4D62F8D5,
-            0x0000000F,
+            0x00021800,
+            0x8AD27897,
+            0x000003FF,
             0,
         )
         self.core = MotionExecutionCore(
@@ -121,6 +122,7 @@ class ParallelGripperRosIntegrationTests(unittest.TestCase):
         self.ready = True
         self.positions = (0.01, 0.01, 0.01, 0.01, 0.01, 0.0)
         self.motion_arbiter = MotionGoalArbiter()
+        self.setpoint_state = CommandedSetpointState()
         self.adapter = ParallelGripperCommandActionAdapter(
             self.server_node,
             self.core,
@@ -128,6 +130,7 @@ class ParallelGripperRosIntegrationTests(unittest.TestCase):
             lambda: self.ready,
             lambda: self.positions,
             motion_arbiter=self.motion_arbiter,
+            setpoint_state=self.setpoint_state,
             action_name=self.action_name,
             poll_interval_s=0.005,
             completion_timeout_s=0.2,
@@ -139,6 +142,7 @@ class ParallelGripperRosIntegrationTests(unittest.TestCase):
             lambda: self.ready,
             lambda: self.positions,
             motion_arbiter=self.motion_arbiter,
+            setpoint_state=self.setpoint_state,
             action_name=self.arm_action_name,
             poll_interval_s=0.005,
             completion_timeout_s=0.2,
@@ -246,6 +250,31 @@ class ParallelGripperRosIntegrationTests(unittest.TestCase):
         self.assertTrue(feedback)
         self.assertIsNone(self.motion_arbiter.owner)
 
+    def test_contact_gripper_target_survives_following_arm_goal(self) -> None:
+        self.transport.auto_status = 6
+        self.transport.auto_detail = 20
+
+        def apply_contact_feedback(positions_urad) -> None:
+            feedback = [value / 1_000_000.0 for value in positions_urad]
+            feedback[5] = 0.07
+            self.positions = tuple(feedback)
+
+        self.transport.on_send = apply_contact_feedback
+        gripper_handle = self.send_goal(self.goal(0.1))
+        self.assertTrue(gripper_handle.accepted)
+        gripper_response = self.wait_future(gripper_handle.get_result_async())
+        self.assertEqual(gripper_response.status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertAlmostEqual(self.positions[5], 0.07)
+        self.assertAlmostEqual(self.setpoint_state.snapshot()[5], 0.1)
+
+        self.transport.on_send = None
+        arm_handle = self.send_arm_goal()
+        self.assertTrue(arm_handle.accepted)
+        arm_response = self.wait_future(arm_handle.get_result_async())
+        self.assertEqual(arm_response.status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(len(self.transport.send_calls), 2)
+        self.assertEqual(self.transport.send_calls[1][0][5], 100_000)
+
     def _apply_fake_feedback(self, positions_urad) -> None:
         self.positions = tuple(value / 1_000_000.0 for value in positions_urad)
 
@@ -311,6 +340,7 @@ class ParallelGripperRosIntegrationTests(unittest.TestCase):
         self.assertFalse(response.result.reached_goal)
         self.assertEqual(self.transport.safe_stop_calls, 1)
         self.assertIsNone(self.motion_arbiter.owner)
+        self.assertIsNone(self.setpoint_state.snapshot())
 
     def test_connection_loss_aborts_without_resend(self) -> None:
         goal_handle = self.send_goal(self.goal())

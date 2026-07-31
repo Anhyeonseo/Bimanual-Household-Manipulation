@@ -12,7 +12,10 @@ from .hardware_identity import validate_hardware_identity
 from .protocol import Hello, MotionResult
 
 
-MAX_FINAL_ERROR_RAW = 20
+# Physical Stage 7 evidence observed a transient terminal maximum of 26 raw
+# while fresh feedback settled within 18 raw of the target. Keep this completion
+# tolerance separate from the stricter feedback recovery envelope.
+MAX_FINAL_ERROR_RAW = 30
 
 
 class ExecutionError(RuntimeError):

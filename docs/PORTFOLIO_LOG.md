@@ -546,3 +546,204 @@
 - `0x00020A00` heartbeat/settling 후보는 soft-abort 뒤 stop latch가 다시
   걸려 거부하고 `0x00020900`으로 rollback한 뒤 `0x00020B00`을 배포
 - 다음 gate: 중간 waypoint를 둔 제한 pregrasp 접근; 전체 Pick은 아직 금지
+
+## 2026-07-30 — 분할 pregrasp 첫 구간과 완료 판정 분리
+
+- 실제 READ_ONLY 시작 자세에서 pregrasp까지 5구간으로 분할, 구간 최대
+  `0.299863 rad`, MoveIt plan-only 5/5 통과
+- SHA 고정, fresh 시작 오차 `0.05 rad`, calibration과 one-shot/no-retry
+  gate를 추가하고 전체 Python 회귀 `257/257` 통과
+- 승인된 첫 구간은 2초간 목표 근처까지 이동했지만 terminal final error
+  `26 raw`가 기존 host `20 raw`를 넘어 soft-abort; latch와 재시도 0회
+- 실제 최대 잔차는 Elbow `0.026637 rad`; 최초 실기는 계약상 실패로 보존
+- host completion만 `30 raw`로 조정하고 feedback recovery trigger와
+  target margin은 `20 raw`로 분리 유지
+- 보강 후 Python `259/259`, ROS 8 packages build와 21 tests 통과
+- Pi 배포 SHA와 백업을 확인하고 READ_ONLY, MOTION_ENABLED 무동작을 재통과
+- 전원 주기 뒤 fresh 시작점으로 이전 계획을 폐기하고 새 5구간 생성:
+  SHA `664a3a0456facb73f7fafc5e2fa32efd9c0608d4db4321e4d880bb69c10c985e`,
+  구간 최대 `0.266422 rad`
+- 실제 현재→목표도 `0.30 rad` 이하인지 확인하는 gate를 추가해 Python
+  `260/260` 통과
+- 새 pregrasp 5구간 모두 MoveIt status `4`, error code `1`, 재시도 0회
+- 최종 pregrasp 최대 잔차 Elbow `0.036544 rad`; 다음 gate는 분할 grasp
+
+## 2026-07-30 — 분할 grasp plan-only
+
+- pregrasp/grasp 공용 분할 계획 계약과 SHA 고정 one-shot 실행 gate로 확장
+- 집중 테스트 `15/15`, 전체 Python 회귀 `262/262` 통과
+- 마지막 실제 pregrasp 자세에서 grasp까지 `0.18 rad` 제한으로 2구간 생성
+- 두 구간 최대 변화 `0.157417 rad`, MoveIt error code `1`, 각각
+  `28 / 27` trajectory points로 plan-only PASS
+- 실행 API와 실제 로봇 bridge는 사용하지 않았으며 자동 재시도 0회
+- 계획 SHA:
+  `b782ef0315cc2be7213084ffc5301f8ebccb49315b898f09977aeb75e116b37c`
+- 다음 gate: fresh 시작 상태 검증 뒤 grasp 1번 구간 2초 단 1회
+
+## 2026-07-30 — Shoulder torque 후보 0x00020C00
+
+- pregrasp 복귀 `0.163079 rad` 구간은 Shoulder `59 raw` 오차로 soft-abort
+- 최대 `0.075068 rad`로 세분화해도 `44 raw` 오차로 soft-abort
+- 두 번째 실행에서 Shoulder가 목표 반대 방향으로 `0.013806 rad` 밀렸고,
+  Elbow/Wrist는 목표 근처로 이동; latch와 자동 재시도 0회
+- Shoulder/Elbow torque를 `650/550 → 780/650`, P gain은 `16/24` 유지
+- load/current stop `800/320`, 연속 2회 조건과 calibration
+  `0x4D62F8D5` 유지
+- firmware `0x00020C00` 로컬 후보: Python `264/264`, C core `1/1`,
+  ROS bridge build/test, ARM Release build PASS
+- HEX SHA:
+  `dc44537b914e95e93c543e8d1631ab137fed84f64c0dfc6bbdd8f1f17ee9e984`
+- 기존 `0x00020B00` 512 KiB 백업 뒤 Pi 전송, OpenOCD program/verify/reset,
+  host identity, READ_ONLY, MOTION_ENABLED 무동작 PASS
+- Shoulder `2.330117 → 2.250117 rad`, 2초 격리 명령은 실제
+  `2.357728 rad`로 목표 반대 방향에 밀렸고 `59 raw > 30 raw`로
+  soft-abort; latch와 자동 재시도 없음
+- `0x00020C00` 물리 수락은 실패했으며 토크를 더 올리지 않음
+
+## 2026-07-30 — Torque register readback 후보 0x00020D00
+
+- `0x00020C00`은 torque-limit register `48..49`에 값을 썼지만 P/D/I만
+  readback해 `780/650` 실제 적용을 증명하지 못하는 누락을 확인
+- 모든 축 trajectory 설정에서 torque-limit 16비트 readback을 요구하고,
+  읽기 실패 또는 불일치 시 `HAL_ERROR`를 반환해 상위 rollback이 구성된
+  축의 torque를 끄는 fail-closed gate 추가
+- Shoulder/Elbow torque `780/650`, P gain `16/24`, load/current stop
+  `800/320`, calibration `0x4D62F8D5` 유지
+- 집중 Python `38 passed, 22 skipped`, 전체 ROS 환경 Python `265/265`,
+  actuator C core `1/1`, ROS bridge build/identity test, Cortex-M4 Release
+  build PASS
+- image size: text `26156`, data `112`, bss `3080`, total `29348`
+- HEX SHA:
+  `c4b564145a32994c6601355cebccc08146bfe5287741ec1423a2b5f5c5012126`
+- Pi 전송·플래시·로봇 이동은 미실행
+
+## 2026-07-30 — Shoulder 근본 원인 감사와 diagnostics/settling 후보 0x00020E00
+
+- 실제 `0x00020D00` torque-limit readback gate는 배포·MOTION_ENABLED에서 통과
+- 큰 Shoulder 명령은 `status=6` 뒤 fresh feedback에서 추가 정착했지만,
+  마지막 약 `0.079155 rad` 소각도는 장시간 뒤에도 사실상 정지
+- firmware가 보간 종료 100 ms 뒤 위치를 한 번만 읽고 terminal을 보내는
+  조기 판정과, load/current/voltage/PID가 보이지 않는 관측성 결손을 분리
+- `0x00020E00`: 100 ms 간격, 최대 1초, 30 raw 이내 2회 연속 endpoint
+  settling; 정착 중 load/current watchdog 지속
+- GET_STATE `[0x02, joint_index]`와 message id `51`로 torque enable/limit,
+  P/D/I, position/speed/load/voltage/temperature/current를 on-demand 제공
+- `/get_servo_diagnostics`는 Action과 servo bus 소유권을 공유해 동작 중 거부,
+  관절 사이 heartbeat로 500 ms watchdog starvation 방지
+- Python/ROS `264/264`, ament `21`, C core `1/1`, Cortex-M4 Release build PASS
+- HEX SHA `7c042e346a0dbcb4f74d4d0c73f20eedfa9e527349edacee01191870d67d9e0e`
+- Pi 전송·flash·로봇 이동 0회. 물리 진단 전 P gain/torque 추가 변경 금지
+
+## 2026-07-31 — 0x00020E00 물리 거절과 acknowledged-heartbeat 후보 0x00020F00
+
+- `0x00020E00`을 실제 배포해 calibration `0x4D62F8D5`, capability `0x1F`,
+  READ_ONLY/MOTION_ENABLED와 6축 diagnostics를 통과
+- Shoulder/Elbow 실제 설정은 torque `780/650`, P/D/I `16/32/0`, `24/32/0`,
+  전압 `12.3..12.5 V`로 확인되어 register 미적용 가설 제거
+- 첫 Shoulder `-0.08 rad / 2초` 단 1회에서 `status=8 detail=0`과 stop latch가
+  재현되어 20E 물리 수락 거절; 즉시 bridge 종료, 12V OFF, 팔 안전 확보
+- 사후 상태는 `STOP_LATCHED=1`, heartbeat count `72`, rejected frames `11`.
+  heartbeat age는 bridge 종료 뒤 측정된 누적값이므로 단독 원인 증거로 쓰지 않음
+- 근본 원인은 main loop가 safety를 먼저 검사한 뒤 UART를 1 byte만 처리하는 구조와,
+  host가 실제 MCU 수신을 확인할 수 없는 fire-and-forget heartbeat 계약의 결합으로 판정
+- `0x00020F00`: safety 검사 전 최대 64 byte bounded RX drain, heartbeat별 동일
+  sequence state ACK, host 250 ms ACK gate, capability bit `0x20`, status 8 detail에
+  실제 safety state 기록
+- 표적 `28/28`, 전체 Python/ROS `276/276`, C core `1/1`, ament identity,
+  Cortex-M4 Release build PASS; image text `26700`, data `112`, bss `3088`, total `29900`
+- HEX SHA `7f4e08027c996929a672aa46287f49e8b1364157e38db1e36b147409170edf78`
+- Pi host/HEX 전송, host backup, `single_arm_bridge` rebuild PASS. 실제 build module의
+  expected firmware `0x00020F00`, heartbeat ACK timeout `0.25 s` 확인
+- 현재 20E flash 512 KiB backup PASS:
+  `/home/pi/firmware_updates/backup/stm32_before_0x00020F00.bin`, SHA
+  `d8577ac39861d39489c60cd07f571fef98f29951bee6a917eb4e85472d365b66`
+- SHA 검증된 20F HEX의 OpenOCD program/verify/reset PASS
+- post-flash identity/heartbeat ACK gate PASS: protocol `1`, joints `6`, firmware
+  `0x00020F00`, calibration `0x4D62F8D5`, capabilities `0x3F`, latch `0`, ACK `0`
+- 첫 READ_ONLY 통신과 diagnostics는 응답했지만 6축 모두 torque enabled로 확인되어
+  물리 수락 거절. `allow_motion=false`가 ROS command만 막고 firmware DISABLE을 호출하지
+  않는 host 누락과, shutdown disable이 motion/fault/heartbeat 조건에 묶인 결함 확인
+- host-only fail-closed 보강: READ_ONLY·latched startup·arming 예외·모든 shutdown에
+  6축 physical DISABLE write/readback 강제, latched shutdown heartbeat 선행 제거
+- 보강 검증: 표적 `27/27`, 전체 `280/280`, 독립 ROS build/identity PASS
+- 보강 Pi 전송·backup·rebuild PASS: source/build SHA
+  `93e1b61415020e5ba8ceeb4041cf33e97dc26e92b6e96aec8dde36bac2753e00`
+- 보강 READ_ONLY 물리 재시험 PASS: diagnostics 6축 torque OFF, load/current 0,
+  voltage `12.3..12.5 V`, heartbeat/feedback/latch 오류 없음
+- MOTION_ENABLED 무동작 heartbeat ACK 지속성 PASS: ACTIVE 약 `243.5 s` 뒤에도
+  6축 diagnostics 정상, Shoulder/Elbow torque `780/650`, current `2/3 raw`,
+  voltage `12.3/12.4 V`, heartbeat/feedback/latch 오류와 로봇 이동 없음
+- shutdown physical DISABLE 사후 readback PASS: 별도 transport diagnostics에서
+  6축 torque OFF, current 0; startup disable에 의해 결과가 가려지지 않음
+- clear fault·로봇 이동 미실행
+
+
+## 2026-07-31 — 20F 실제 motion 거절과 0x00021000 통신 구조 교체
+
+- 보강 20F의 READ_ONLY physical disable, MOTION_ENABLED 무동작 약 243.5초,
+  shutdown 6축 torque OFF는 통과
+- fresh Shoulder -0.08 rad / 2초 단 1회에서 heartbeat ACK timeout 경고 2회,
+  terminal status=8 detail=4(HOLD), stop latch 재현; 20F motion gate 최종 거절
+- 정지 상태에서만 정상이고 motion service에서만 실패하는 증거를 MCU 호출 경로와 대조
+- 1Mbps servo UART 동기 read 중 115200bps host LPUART를 polling해 heartbeat byte가
+  하드웨어에서 유실되며, 사후 64-byte drain으로 복구할 수 없음을 근본 원인으로 판정
+- 0x00021000: LPUART1 interrupt RX, 1024B ring, overflow/error/rearm fault의 원자적
+  parser reset + HOLD/latch, capability 0x40 및 host identity fail-closed gate 추가
+- 시작 위치, motion safety telemetry, endpoint verification을 one-joint cooperative
+  step으로 분할; safety full sweep 약 96ms, Action terminal margin 3.5초
+- 전체 Python/ROS 283/283, native C 1/1, single_arm_bridge 독립 build,
+  Cortex-M4 Release build PASS; text 30052, data 112, bss 4160
+- RX fault 선처리·invalidated ring 폐기까지 fail-closed 보강
+- 로컬 HEX SHA 2c9b0f05063890e093d1a910ae4ff11778393cb550862c63badfef2a46bccfca
+- Pi 전송·STM32 flash/reset·clear fault·로봇 이동 0회. 다음 물리 gate는 현재
+  20F flash 신규 512KiB backup과 12V OFF 재확인부터 분리 수행
+
+
+## 2026-07-31 — 210 READ_ONLY 계약 거절과 idempotent DISABLE 후보 0x00021100
+
+- 0x00021000 HEX program/verify/reset 및 identity/capability 0x7F gate PASS
+- latched READ_ONLY 재연결에서 6축 torque OFF 성공 후에도 DISABLE status=1로 bridge 종료
+- 독립 진단에서 stop latch 1, 6축 status/read status 0, torque OFF, 전압 12.3..12.5 V 확인
+- 서보 하드웨어가 아니라 FAULT/ESTOP 논리 전이와 물리 DISABLE 결과를 혼합한 계약 오류로 확정
+- 0x00021100: fault/latch 보존, 6축 physical disable/readback 성공 status 0, 실패 status 2
+- 전체 Python/ROS 284/284, native C 1/1, Cortex-M4 Release build PASS
+- HEX SHA 8fd11d901b141cd959c995ed3101f1f2556809b7f417cd967c228b1efb2a7858
+- Pi 전송·flash·reset·clear fault·로봇 이동 0회
+
+
+## 2026-07-31 — 0x00021100 READ_ONLY 물리 수락과 shutdown quiescence
+
+- 210 full-flash 512KiB backup SHA b6cbd426e5409a84afadaa81030aa4d2c24a90cb97a31ea2e9182bd638861e93
+- 211 HEX SHA 8fd11d901b141cd959c995ed3101f1f2556809b7f417cd967c228b1efb2a7858 program/verify/reset PASS
+- identity: firmware 0x00021100, calibration 0x4D62F8D5, capability 0x7F, latch 0, heartbeat ACK 20
+- 첫 READ_ONLY 60초와 연속 두 번째 READ_ONLY에서 6축 torque OFF, 전압 12.3..12.5V; DISABLE status=1 재발 0회
+- Ctrl+C context-invalid publish 경고를 host lifecycle race로 분리하고 timer quiescence/context guard 적용
+- 전체 287 tests, 독립 ROS build, Pi host backup/rebuild, 실제 무경고 Ctrl+C physical DISABLE 종료 PASS
+- clear fault·MOTION_ENABLED·로봇 이동 0회; 다음 gate는 MOTION_ENABLED 무동작 5분
+
+
+## 2026-07-31 — 0x00021100 MOTION_ENABLED 무동작 수락
+
+- 별도 승인 후 setpoint 없이 MOTION_ENABLED 연결
+- 시작 diagnostics: 6축 torque ON, Shoulder/Elbow limit 780/650, 전압 12.3..12.5V, current 최대 2 raw
+- 약 330.98초 후 diagnostics: 위치 변화 사실상 0, heartbeat/feedback/latch 경고 0, current 최대 1 raw, 온도 상승 최대 약 2°C
+- 보강 host로 Ctrl+C 무경고 종료하고 독립 readback에서 6축 torque OFF, current 0 확인
+- clear fault·setpoint·로봇 이동 0회; 다음 gate는 Shoulder -0.08 rad / 2초 단 1회
+
+## 2026-07-31 — 0x00021800 감독형 실제 Pick/Place 완주
+
+- servo UART frame 재동기화·완전 복구 펌웨어 `0x00021800`, calibration
+  `0x8AD27897`, capability `0x000003FF` 배포 및 identity gate 통과
+- READ_ONLY 6축 physical disable, MOTION_ENABLED 설정 readback, 5분 무동작
+  heartbeat/feedback, 단일 exhausted-sweep fault injection과 reset 없는 6축
+  복구 통과
+- Shoulder P32, Elbow P28과 축별 start/post-settle gate 적용; 매 arm 구간
+  6축 진단과 Shoulder `<50 C`, soft-abort 무재전송 정책 강제
+- 실제 grasp, 약 20 mm lift, Place 이동, 두 차례 제한된 5 mm Z correction,
+  object release, 5구간 retreat와 11구간 q0 복귀 성공
+- 자동 재시도 0회. 최종 q0 arm 최대 오차 `0.007670 rad`, Shoulder `36 C`
+- Bridge 무경고 종료, 12 V OFF, 팔 안전 확인
+- 감독형 시운전 체크리스트는 100%; 정식 단계 7 합격 조건인 50회/90%
+  benchmark 전에는 multi-point/buffered trajectory 시간축 계약을 구현·검증
+- 상세 증거:
+  `docs/test-results/2026-07-31-stage7-supervised-pick-place-complete.md`

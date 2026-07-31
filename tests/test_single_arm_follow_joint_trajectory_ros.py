@@ -21,8 +21,11 @@ try:
 
     from single_arm_bridge.action_execution import MotionExecutionCore
     from single_arm_bridge.calibration import load_calibration
+    from single_arm_bridge.commanded_setpoint_state import CommandedSetpointState
     from single_arm_bridge.follow_joint_trajectory_server import (
         FollowJointTrajectoryActionAdapter,
+        RECOVERY_FEEDBACK_OVERRUN_RAW,
+        RECOVERY_TARGET_MARGIN_RAW,
     )
     from single_arm_bridge.motion_goal_arbiter import MotionGoalArbiter
     from single_arm_bridge.protocol import Hello, MotionResult
@@ -59,7 +62,7 @@ if ROS_AVAILABLE:
                         self.auto_detail,
                         sequence,
                         1200,
-                        0x4D62F8D5,
+                        0x8AD27897,
                     )
                 )
             return MotionResult(
@@ -69,7 +72,7 @@ if ROS_AVAILABLE:
                 0,
                 sequence,
                 1200,
-                0x4D62F8D5,
+                0x8AD27897,
             )
 
         def drain_motion_results(self):
@@ -102,9 +105,9 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
             1,
             6,
             False,
-            0x00020B00,
-            0x4D62F8D5,
-            0x0000000F,
+            0x00021800,
+            0x8AD27897,
+            0x000003FF,
             0,
         )
         self.core = MotionExecutionCore(
@@ -115,6 +118,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         self.ready = True
         self.positions = (0.0, 0.0, 0.0, 0.0, 0.0, 0.1)
         self.motion_arbiter = MotionGoalArbiter()
+        self.setpoint_state = CommandedSetpointState()
         self.adapter = FollowJointTrajectoryActionAdapter(
             self.server_node,
             self.core,
@@ -122,6 +126,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
             lambda: self.ready,
             lambda: self.positions,
             motion_arbiter=self.motion_arbiter,
+            setpoint_state=self.setpoint_state,
             action_name=self.action_name,
             poll_interval_s=0.005,
             completion_timeout_s=0.2,
@@ -202,6 +207,26 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         self.assertEqual(duration_ms, 300)
         self.assertTrue(feedback)
         self.assertEqual(feedback[0].joint_names, self.calibration.ros_joint_names[:5])
+
+    def test_arm_goal_preserves_commanded_gripper_not_contact_feedback(self) -> None:
+        self.positions = (0.0, 0.0, 0.0, 0.0, 0.0, 0.098)
+        self.setpoint_state.commit(
+            (0.0, 0.0, 0.0, 0.0, 0.0, 0.13)
+        )
+        self.transport.auto_status = 6
+        self.transport.auto_detail = 20
+
+        goal_handle = self.send_goal(self.goal())
+        self.assertTrue(goal_handle.accepted)
+        response = self.wait_future(goal_handle.get_result_async())
+
+        self.assertEqual(response.status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(self.transport.send_calls[0][0][5], 130_000)
+        self.assertAlmostEqual(self.setpoint_state.snapshot()[5], 0.13)
+
+    def test_recovery_thresholds_remain_20_raw(self) -> None:
+        self.assertEqual(RECOVERY_FEEDBACK_OVERRUN_RAW, 20)
+        self.assertEqual(RECOVERY_TARGET_MARGIN_RAW, 20)
 
     def test_invalid_unready_and_feedbackless_goals_are_rejected(self) -> None:
         invalid = self.goal(names=["unknown_joint"] * 5)
@@ -385,7 +410,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
 
     def test_final_tracking_error_soft_aborts_without_safe_stop(self) -> None:
         self.transport.auto_status = 6
-        self.transport.auto_detail = 21
+        self.transport.auto_detail = 31
         goal_handle = self.send_goal(self.goal())
         self.assertTrue(goal_handle.accepted)
 

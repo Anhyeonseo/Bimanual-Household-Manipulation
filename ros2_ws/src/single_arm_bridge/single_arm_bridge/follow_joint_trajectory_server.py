@@ -14,7 +14,6 @@ from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from .action_execution import (
-    MAX_FINAL_ERROR_RAW,
     ExecutionError,
     ExecutionOutcome,
     MotionExecutionCore,
@@ -27,11 +26,13 @@ from .action_validation import (
     validate_single_point_trajectory,
 )
 from .calibration import ArmCalibration
+from .commanded_setpoint_state import CommandedSetpointState
 from .motion_goal_arbiter import MotionGoalArbiter
 
 DEFAULT_ACTION_NAME = "/left_arm_controller/follow_joint_trajectory"
 RECOVERY_DURATION_MS = 2000
-RECOVERY_TARGET_MARGIN_RAW = MAX_FINAL_ERROR_RAW
+RECOVERY_FEEDBACK_OVERRUN_RAW = 20
+RECOVERY_TARGET_MARGIN_RAW = 20
 RECOVERY_MAX_JOINT_DELTA_RAW = 64
 
 
@@ -45,6 +46,7 @@ class PreparedArmGoal:
 
 def _duration_ns(duration: Any) -> int:
     return int(duration.sec) * 1_000_000_000 + int(duration.nanosec)
+
 
 def _position_to_raw(joint: Any, position: float) -> int:
     return round(
@@ -68,7 +70,7 @@ def _validate_bounded_inward_recovery(
     joint_names = tuple(calibration.ros_joint_names)
     arm_names = joint_names[:5]
     if any(
-        name not in arm_names and overrun > MAX_FINAL_ERROR_RAW
+        name not in arm_names and overrun > RECOVERY_FEEDBACK_OVERRUN_RAW
         for name, overrun in outside_strict.items()
     ):
         raise GoalValidationError(
@@ -110,7 +112,7 @@ def _validate_bounded_inward_recovery(
             )
         if name not in outside_strict:
             continue
-        if outside_strict[name] <= MAX_FINAL_ERROR_RAW:
+        if outside_strict[name] <= RECOVERY_FEEDBACK_OVERRUN_RAW:
             continue
         if actual_raw < joint.minimum_raw and target_raw <= actual_raw:
             raise GoalValidationError(
@@ -122,13 +124,13 @@ def _validate_bounded_inward_recovery(
             )
 
 
-
 def prepare_follow_joint_trajectory_goal(
     request: Any,
     calibration: ArmCalibration,
     latest_positions: Sequence[float] | None,
+    commanded_positions: Sequence[float] | None = None,
 ) -> PreparedArmGoal:
-    """Validate a ROS goal and preserve the feedback gripper position."""
+    """Validate a ROS goal and preserve the commanded gripper target."""
     multi_dof = request.multi_dof_trajectory
     if multi_dof.joint_names or multi_dof.points:
         raise GoalValidationError("multi-DOF trajectory is not supported")
@@ -183,7 +185,8 @@ def prepare_follow_joint_trajectory_goal(
             f"joint feedback is outside recovery range: {error}"
         ) from error
     needs_bounded_recovery = any(
-        overrun > MAX_FINAL_ERROR_RAW for overrun in outside_strict.values()
+        overrun > RECOVERY_FEEDBACK_OVERRUN_RAW
+        for overrun in outside_strict.values()
     )
     if needs_bounded_recovery:
         _validate_bounded_inward_recovery(
@@ -194,7 +197,17 @@ def prepare_follow_joint_trajectory_goal(
             validated.duration_ms,
         )
 
-    full_positions = validated.ordered_positions + (actual[5],)
+    preserved = actual
+    if commanded_positions is not None:
+        preserved = tuple(float(value) for value in commanded_positions)
+        if len(preserved) != len(all_joint_names):
+            raise GoalValidationError("commanded setpoint count is invalid")
+        if not all(math.isfinite(value) for value in preserved):
+            raise GoalValidationError(
+                "commanded setpoint contains a non-finite value"
+            )
+
+    full_positions = validated.ordered_positions + (preserved[5],)
     try:
         calibration.radians_to_urad(list(full_positions))
     except ValueError as error:
@@ -220,9 +233,10 @@ class FollowJointTrajectoryActionAdapter:
         motion_ready: Callable[[], bool],
         latest_positions: Callable[[], Sequence[float] | None],
         motion_arbiter: MotionGoalArbiter | None = None,
+        setpoint_state: CommandedSetpointState | None = None,
         action_name: str = DEFAULT_ACTION_NAME,
         poll_interval_s: float = 0.02,
-        completion_timeout_s: float = 1.0,
+        completion_timeout_s: float = 3.5,
     ) -> None:
         if poll_interval_s <= 0.0 or completion_timeout_s <= 0.0:
             raise ValueError("Action timing values must be positive")
@@ -232,6 +246,7 @@ class FollowJointTrajectoryActionAdapter:
         self._motion_ready = motion_ready
         self._latest_positions = latest_positions
         self._motion_arbiter = motion_arbiter or MotionGoalArbiter()
+        self._setpoint_state = setpoint_state or CommandedSetpointState()
         self._poll_interval_s = poll_interval_s
         self._completion_timeout_s = completion_timeout_s
         self._state_lock = threading.RLock()
@@ -266,10 +281,13 @@ class FollowJointTrajectoryActionAdapter:
                 )
                 return GoalResponse.REJECT
             try:
+                latest = self._latest_positions()
+                commanded = self._setpoint_state.snapshot()
                 prepared = prepare_follow_joint_trajectory_goal(
                     request,
                     self._calibration,
-                    self._latest_positions(),
+                    latest,
+                    commanded,
                 )
             except (GoalValidationError, ValueError) as error:
                 self._motion_arbiter.release("arm")
@@ -384,6 +402,15 @@ class FollowJointTrajectoryActionAdapter:
     def _finish_goal(self, goal_handle: Any, outcome: ExecutionOutcome):
         terminal_log = format_execution_outcome(outcome)
         if outcome.state is TerminalState.SUCCEEDED:
+            with self._state_lock:
+                prepared = self._prepared_goal
+            if prepared is None:
+                self._setpoint_state.reset()
+                return self._abort_without_execution(
+                    goal_handle,
+                    "completed goal preparation is missing",
+                )
+            self._setpoint_state.commit(prepared.full_positions)
             self._node.get_logger().info(terminal_log)
             goal_handle.succeed()
             return self._result(
@@ -391,12 +418,14 @@ class FollowJointTrajectoryActionAdapter:
                 outcome.reason,
             )
         if outcome.state is TerminalState.CANCELED:
+            self._setpoint_state.reset()
             self._node.get_logger().warning(terminal_log)
             goal_handle.canceled()
             return self._result(
                 FollowJointTrajectory.Result.SUCCESSFUL,
                 outcome.reason,
             )
+        self._setpoint_state.reset()
         self._node.get_logger().error(terminal_log)
         goal_handle.abort()
         return self._result(
@@ -405,10 +434,12 @@ class FollowJointTrajectoryActionAdapter:
         )
 
     def _abort_without_execution(self, goal_handle: Any, reason: str):
+        self._setpoint_state.reset()
         goal_handle.abort()
         return self._result(FollowJointTrajectory.Result.INVALID_GOAL, reason)
 
     def notify_connection_loss(self, reason: str) -> None:
+        self._setpoint_state.reset()
         if self._motion_arbiter.owner != "arm":
             return
         outcome = self._execution_core.handle_connection_loss(reason)
@@ -418,5 +449,6 @@ class FollowJointTrajectoryActionAdapter:
             self._external_outcome = outcome
 
     def destroy(self) -> None:
+        self._setpoint_state.reset()
         self._motion_arbiter.release("arm")
         self._server.destroy()

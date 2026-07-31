@@ -106,6 +106,13 @@ class BackendSelectorTests(unittest.TestCase):
         }
         self.assertEqual(arguments["backend"], "mock")
         self.assertEqual(arguments["allow_motion"], "false")
+        self.assertEqual(arguments["use_rviz"], "true")
+
+    def test_rviz_can_be_disabled_for_headless_validation(self) -> None:
+        actions = launch_module._common_actions("mock", "false")
+
+        rviz_action = actions[-1]
+        self.assertIsNotNone(rviz_action.condition)
 
 
 if __name__ == "__main__":

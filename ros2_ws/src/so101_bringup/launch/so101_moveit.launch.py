@@ -9,6 +9,7 @@ from launch.actions import (
     OpaqueFunction,
     Shutdown,
 )
+from launch.conditions import IfCondition
 from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -23,7 +24,12 @@ from single_arm_bridge.backend_lease import (
 )
 
 
-def _include(package_name, launch_file, launch_arguments=None):
+def _include(
+    package_name,
+    launch_file,
+    launch_arguments=None,
+    condition=None,
+):
     return IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution(
@@ -31,6 +37,7 @@ def _include(package_name, launch_file, launch_arguments=None):
             )
         ),
         launch_arguments=(launch_arguments or {}).items(),
+        condition=condition,
     )
 
 
@@ -94,7 +101,7 @@ def _backend_actions(backend, allow_motion, lease_owner_pid):
     raise AssertionError(f"validated backend has no provider: {backend}")
 
 
-def _common_actions(backend):
+def _common_actions(backend, use_rviz):
     actions = []
     if backend != "mock":
         actions.append(
@@ -107,7 +114,11 @@ def _common_actions(backend):
                 "static_virtual_joint_tfs.launch.py",
             ),
             _include("so101_moveit_config", "move_group.launch.py"),
-            _include("so101_moveit_config", "moveit_rviz.launch.py"),
+            _include(
+                "so101_moveit_config",
+                "moveit_rviz.launch.py",
+                condition=IfCondition(use_rviz),
+            ),
         ]
     )
     return actions
@@ -118,6 +129,7 @@ def _launch_setup(context):
         LaunchConfiguration("backend").perform(context)
     )
     allow_motion = LaunchConfiguration("allow_motion")
+    use_rviz = LaunchConfiguration("use_rviz")
 
     try:
         ros_domain_id = int(os.environ.get("ROS_DOMAIN_ID", "0"))
@@ -135,7 +147,7 @@ def _launch_setup(context):
             backend,
             allow_motion,
             os.getpid(),
-        ) + _common_actions(backend)
+        ) + _common_actions(backend, use_rviz)
     except Exception:
         lease.release()
         raise
@@ -156,6 +168,11 @@ def generate_launch_description():
                     "STM32 motion opt-in; false keeps the hardware backend "
                     "READ_ONLY"
                 ),
+            ),
+            DeclareLaunchArgument(
+                "use_rviz",
+                default_value="true",
+                description="Start RViz; false enables headless validation",
             ),
             OpaqueFunction(function=_launch_setup),
         ]

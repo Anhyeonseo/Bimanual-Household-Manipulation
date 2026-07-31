@@ -34,8 +34,8 @@
 | MOT-002 | 단계 5 | 취소/정지 | 정해진 안전 상태 진입 | 통과 | [단계 5 실기 결과](test-results/2026-07-25-phase5-stm32-read-only.md) |
 | VIS-001 | 단계 6 | 작업대 위치 추정 | 위치 최대 10 mm, yaw 최대 5 deg | 통과 | [Top 물체 실제 좌표 검증](test-results/2026-07-30-top-object-ground-truth-validation.md) |
 | VIS-002 | 단계 7 준비 | base-frame shadow target 및 table–base 등록 | 두 위치 물리 검증, freshness/workspace 검사, 실행 가능 flag false | 통과 | [현재 작업대–왼팔 base 등록](test-results/2026-07-30-current-table-base-registration.md), [Top-base shadow target](test-results/2026-07-30-top-base-shadow-target.md) |
-| TASK-001 | 단계 7 | Pick | 50회 중 90% 이상 | 차단 | [물리 범위 재검증·배포·격리 이동 PASS](test-results/2026-07-30-physical-range-revalidation.md), 분할 pregrasp·grasp·50회 반복은 미실행 |
-| TASK-002 | 단계 7 | Place | 50회 중 90% 이상 | 미실행 |  |
+| TASK-001 | 단계 7 | Pick | 50회 중 90% 이상 | 부분 통과 | [감독형 실제 Pick/Place 1회 완주](test-results/2026-07-31-stage7-supervised-pick-place-complete.md): grasp와 약 20 mm loaded lift 성공, 자동 재시도 0회. 50회 반복과 무인 perception-to-task 실행은 미실행 |
+| TASK-002 | 단계 7 | Place | 50회 중 90% 이상 | 부분 통과 | [전체 Pick/Place plan-only](test-results/2026-07-31-stage7-full-pick-place-plan-only.md) 및 [감독형 실제 Pick/Place 1회 완주](test-results/2026-07-31-stage7-supervised-pick-place-complete.md): Place·release·retreat·q0 복귀 성공. 수동 Z 보정이 있었고 50회 반복은 미실행 |
 | SYS-001 | 단계 9 | 부팅 | 반복 부팅 모두 무동작 STANDBY | 미실행 |  |
 | SYS-002 | 단계 9 | 장시간 시험 | 8시간 후 24시간 | 미실행 |  |
 | DUAL-001 | 단계 10 | 실제 시작 시각 차이 | 측정값과 기준 기록 | 미실행 |  |

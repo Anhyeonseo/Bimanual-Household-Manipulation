@@ -1,6 +1,7 @@
 #include "single_arm_app.h"
 
 #include "binary_control.h"
+#include "host_uart_rx.h"
 #include "servo_bus.h"
 #include "single_arm_config.h"
 
@@ -243,6 +244,7 @@ void SingleArmApp_Init(
 )
 {
     app_host_uart = host_uart;
+    HostUartRx_Init(host_uart);
     ServoBus_Init(
         servo_uart,
         SingleArmApp_StopRequested,
@@ -382,6 +384,41 @@ void SingleArmApp_Init(
 
 void SingleArmApp_Process(void)
 {
+    if (BinaryControl_IsBinaryMode() != 0U)
+    {
+        /*
+         * LPUART1 ISR captures host bytes while synchronous servo-bus calls are
+         * in progress. A pre-existing RX fault is consumed before any buffered
+         * byte is parsed; HostUartRx_TakeFault() also discards the invalidated
+         * stream. Only an intact bounded burst reaches the protocol parser.
+         */
+        if (HostUartRx_TakeFault() != 0U)
+        {
+            BinaryControl_HandleHostUartError();
+            BinaryControl_Service();
+            return;
+        }
+
+        for (uint8_t processed = 0U;
+             processed < HOST_BINARY_RX_BURST_MAX_BYTES;
+             processed++)
+        {
+            if (HostUartRx_Pop(&rx_byte) == 0U)
+            {
+                break;
+            }
+            BinaryControl_ProcessByte(rx_byte);
+        }
+
+        if (HostUartRx_TakeFault() != 0U)
+        {
+            BinaryControl_HandleHostUartError();
+        }
+
+        BinaryControl_Service();
+        return;
+    }
+
     BinaryControl_Service();
 
       HAL_StatusTypeDef host_receive_status = HAL_UART_Receive(
@@ -405,12 +442,27 @@ void SingleArmApp_Process(void)
 
 	      BinaryControl_EnterMode();
 
-	      (void)HAL_UART_Transmit(
-	          app_host_uart,
-	          (uint8_t *)binary_ready,
-	          sizeof(binary_ready) - 1U,
-	          100U
-	      );
+	      if (HostUartRx_Start() == HAL_OK)
+	      {
+	          (void)HAL_UART_Transmit(
+	              app_host_uart,
+	              (uint8_t *)binary_ready,
+	              sizeof(binary_ready) - 1U,
+	              100U
+	          );
+	      }
+	      else
+	      {
+	          static const uint8_t binary_rx_fail[] =
+	              "BINARY_RX_INTERRUPT_START_FAIL_RESET_REQUIRED\r\n";
+	          BinaryControl_HandleHostUartError();
+	          (void)HAL_UART_Transmit(
+	              app_host_uart,
+	              (uint8_t *)binary_rx_fail,
+	              sizeof(binary_rx_fail) - 1U,
+	              100U
+	          );
+	      }
 	  }
 	  else if ((rx_byte == 'X') || (rx_byte == 'x'))
 	  {

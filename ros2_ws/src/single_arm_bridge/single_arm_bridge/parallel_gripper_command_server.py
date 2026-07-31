@@ -25,6 +25,7 @@ from .action_validation import (
     validate_gripper_command,
 )
 from .calibration import ArmCalibration
+from .commanded_setpoint_state import CommandedSetpointState
 from .motion_goal_arbiter import MotionGoalArbiter
 
 
@@ -45,8 +46,9 @@ def prepare_parallel_gripper_goal(
     calibration: ArmCalibration,
     latest_positions: Sequence[float] | None,
     duration_ms: int = DEFAULT_DURATION_MS,
+    commanded_positions: Sequence[float] | None = None,
 ) -> PreparedGripperGoal:
-    """Validate a Jazzy gripper goal while preserving all five arm joints."""
+    """Validate a gripper goal while preserving commanded arm targets."""
     if not 300 <= duration_ms <= 2000:
         raise GoalValidationError("gripper duration must be within 300..2000 ms")
     if request.command.header.stamp.sec or request.command.header.stamp.nanosec:
@@ -79,7 +81,17 @@ def prepare_parallel_gripper_goal(
             f"joint feedback is outside safe range: {error}"
         ) from error
 
-    full_positions = actual[:5] + (target,)
+    preserved = actual
+    if commanded_positions is not None:
+        preserved = tuple(float(value) for value in commanded_positions)
+        if len(preserved) != len(all_joint_names):
+            raise GoalValidationError("commanded setpoint count is invalid")
+        if not all(math.isfinite(value) for value in preserved):
+            raise GoalValidationError(
+                "commanded setpoint contains a non-finite value"
+            )
+
+    full_positions = preserved[:5] + (target,)
     try:
         calibration.radians_to_urad(list(full_positions))
     except ValueError as error:
@@ -105,10 +117,11 @@ class ParallelGripperCommandActionAdapter:
         motion_ready: Callable[[], bool],
         latest_positions: Callable[[], Sequence[float] | None],
         motion_arbiter: MotionGoalArbiter | None = None,
+        setpoint_state: CommandedSetpointState | None = None,
         action_name: str = DEFAULT_ACTION_NAME,
         duration_ms: int = DEFAULT_DURATION_MS,
         poll_interval_s: float = 0.02,
-        completion_timeout_s: float = 1.0,
+        completion_timeout_s: float = 3.5,
     ) -> None:
         if not 300 <= duration_ms <= 2000:
             raise ValueError("gripper duration must be within 300..2000 ms")
@@ -120,6 +133,7 @@ class ParallelGripperCommandActionAdapter:
         self._motion_ready = motion_ready
         self._latest_positions = latest_positions
         self._motion_arbiter = motion_arbiter or MotionGoalArbiter()
+        self._setpoint_state = setpoint_state or CommandedSetpointState()
         self._duration_ms = duration_ms
         self._poll_interval_s = poll_interval_s
         self._completion_timeout_s = completion_timeout_s
@@ -155,11 +169,14 @@ class ParallelGripperCommandActionAdapter:
                 )
                 return GoalResponse.REJECT
             try:
+                latest = self._latest_positions()
+                commanded = self._setpoint_state.snapshot()
                 prepared = prepare_parallel_gripper_goal(
                     request,
                     self._calibration,
-                    self._latest_positions(),
+                    latest,
                     self._duration_ms,
+                    commanded,
                 )
             except (GoalValidationError, ValueError) as error:
                 self._motion_arbiter.release("gripper")
@@ -284,11 +301,14 @@ class ParallelGripperCommandActionAdapter:
         outcome: ExecutionOutcome,
     ):
         if outcome.state is TerminalState.SUCCEEDED:
+            self._setpoint_state.commit(prepared.full_positions)
             goal_handle.succeed()
             return self._result(prepared.target_position, reached_goal=True)
         if outcome.state is TerminalState.CANCELED:
+            self._setpoint_state.reset()
             goal_handle.canceled()
             return self._result(prepared.actual_position, reached_goal=False)
+        self._setpoint_state.reset()
         goal_handle.abort()
         return self._result(prepared.actual_position, reached_goal=False)
 
@@ -298,11 +318,13 @@ class ParallelGripperCommandActionAdapter:
         reason: str,
         position: float = 0.0,
     ):
+        self._setpoint_state.reset()
         self._node.get_logger().error(f"gripper goal aborted: {reason}")
         goal_handle.abort()
         return self._result(position, reached_goal=False)
 
     def notify_connection_loss(self, reason: str) -> None:
+        self._setpoint_state.reset()
         if self._motion_arbiter.owner != "gripper":
             return
         outcome = self._execution_core.handle_connection_loss(reason)
@@ -312,5 +334,6 @@ class ParallelGripperCommandActionAdapter:
             self._external_outcome = outcome
 
     def destroy(self) -> None:
+        self._setpoint_state.reset()
         self._motion_arbiter.release("gripper")
         self._server.destroy()

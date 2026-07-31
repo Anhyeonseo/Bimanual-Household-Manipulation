@@ -5,11 +5,11 @@ from __future__ import annotations
 import threading
 
 
-VALID_OWNERS = frozenset({"arm", "gripper"})
+VALID_OWNERS = frozenset({"arm", "gripper", "diagnostics"})
 
 
 class MotionGoalArbiter:
-    """Allow exactly one arm or gripper goal to own motion."""
+    """Allow one motion goal or diagnostic snapshot to own the servo bus."""
 
     def __init__(self) -> None:
         self._owner: str | None = None

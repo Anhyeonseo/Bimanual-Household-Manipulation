@@ -1,5 +1,5 @@
 schema_version: 1
-status: SHADOW_ONLY_TABLE_BASE_VALIDATED_HARDWARE_WORKSPACE_RESTRICTED
+status: SHADOW_ONLY_TABLE_BASE_VALIDATED_HARDWARE_WORKSPACE_0X00021600
 motion_authorized: false
 robot_target_available: false
 reference_generation_compatible: true
@@ -44,20 +44,22 @@ source_gate:
   minimum_confidence: 0.7
   require_image_fully_visible: true
 workspace:
-  # Conservative object-center region whose +25 mm grasp and +100 mm
-  # pre-grasp TCP layers overlap under the currently approved MoveIt limits.
-  x_min_m: 0.15
-  x_max_m: 0.23
-  y_min_m: -0.13
-  y_max_m: -0.02
+  # Conservative object-center projection of the Stage 7 workspace validated
+  # after the 0x00021600 / 0x8AD27897 Shoulder P32 and Elbow P28 deployment.
+  # The execution manifest independently checks the +25 mm grasp and +100 mm
+  # pre-grasp TCP layers, joint limits, and the tighter 0.18 rad step bound.
+  x_min_m: 0.20
+  x_max_m: 0.46
+  y_min_m: -0.30
+  y_max_m: 0.08
   z_min_m: -0.005
   z_max_m: 0.02
   radial_min_m: 0.18
-  radial_max_m: 0.26
+  radial_max_m: 0.46
 sources:
   eye_to_hand_candidate_sha256: b0e251a159f86a76915b1ae437e37a325ba42e9161da186d9173e36df549ea37
   camera_info_sha256: dd7297be6e78d02721cb39915f8fe728ca44ac8d9e6a28167ab8c297d1a43936
   table_base_validation_sha256: c820eb5f709b9f7accc46db514289599a294e047941e88be0482bcbb6d80df34
-required_next_gate: physically revalidate and extend shoulder/elbow limits or
-  revise the fixed camera layout; current camera-visible and approved
-  low-grasp workspaces do not overlap
+required_next_gate: fresh center, image visibility, transform, confidence and
+  workspace validation; hash-pinned phase execution remains separately gated
+  and never becomes automatically authorized by this shadow output

@@ -121,7 +121,8 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
     /* USER CODE BEGIN LPUART1_MspInit 1 */
-
+    HAL_NVIC_SetPriority(LPUART1_IRQn, 1U, 0U);
+    HAL_NVIC_EnableIRQ(LPUART1_IRQn);
     /* USER CODE END LPUART1_MspInit 1 */
   }
   else if(huart->Instance==USART1)
@@ -184,7 +185,7 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_2|GPIO_PIN_3);
 
     /* USER CODE BEGIN LPUART1_MspDeInit 1 */
-
+    HAL_NVIC_DisableIRQ(LPUART1_IRQn);
     /* USER CODE END LPUART1_MspDeInit 1 */
   }
   else if(huart->Instance==USART1)

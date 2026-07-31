@@ -42,6 +42,39 @@ typedef struct
     uint16_t maximum_current_raw;
 } ServoMotionSafetyDiagnostics;
 
+typedef enum
+{
+    SERVO_BUS_FAILURE_NONE = 0,
+    SERVO_BUS_FAILURE_TX = 1,
+    SERVO_BUS_FAILURE_RX_TIMEOUT = 2,
+    SERVO_BUS_FAILURE_UART = 3,
+    SERVO_BUS_FAILURE_HEADER = 4,
+    SERVO_BUS_FAILURE_ID = 5,
+    SERVO_BUS_FAILURE_LENGTH = 6,
+    SERVO_BUS_FAILURE_STATUS = 7,
+    SERVO_BUS_FAILURE_CHECKSUM = 8,
+    SERVO_BUS_FAILURE_RECOVERY = 9
+} ServoBusFailureReason;
+
+typedef struct
+{
+    ServoBusFailureReason reason;
+    uint8_t servo_id;
+    uint8_t hal_status;
+    uint8_t servo_status;
+    uint32_t uart_error_code;
+    uint32_t uart_isr;
+    uint16_t recovery_count;
+    uint16_t discarded_bytes;
+} ServoBusDiagnostics;
+
+typedef struct
+{
+    uint16_t positions[SINGLE_ARM_JOINT_COUNT];
+    uint8_t next_joint;
+    uint8_t attempt;
+} ServoPositionSweep;
+
 extern const ServoJointConfig servo_joints[SINGLE_ARM_JOINT_COUNT];
 extern const uint8_t servo_joint_count;
 extern uint8_t servo_last_all_read_failed_id;
@@ -52,6 +85,7 @@ void ServoBus_Init(
     ServoReadFailureFn read_failure
 );
 
+const ServoBusDiagnostics *ServoBus_GetDiagnostics(void);
 HAL_StatusTypeDef Servo_ReadPosition(
     uint8_t servo_id,
     uint16_t *position
@@ -110,6 +144,8 @@ HAL_StatusTypeDef Servo_ConfigureForTrajectory(
     uint8_t p_gain,
     uint16_t *initial_position
 );
+void Servo_PositionSweepBegin(ServoPositionSweep *sweep);
+HAL_StatusTypeDef Servo_PositionSweepStep(ServoPositionSweep *sweep);
 HAL_StatusTypeDef Servo_ReadAllPositions(
     uint16_t positions[SINGLE_ARM_JOINT_COUNT]
 );

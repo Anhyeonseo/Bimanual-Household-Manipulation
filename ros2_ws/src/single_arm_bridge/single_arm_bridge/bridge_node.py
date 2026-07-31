@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -22,6 +23,7 @@ from trajectory_msgs.msg import JointTrajectory
 from .action_execution import MotionExecutionCore
 from .backend_lease import acquire_backend_lease
 from .calibration import load_calibration
+from .commanded_setpoint_state import CommandedSetpointState
 from .device_discovery import resolve_serial_device
 from .follow_joint_trajectory_server import FollowJointTrajectoryActionAdapter
 from .hardware_identity import validate_hardware_identity
@@ -32,7 +34,9 @@ from .parallel_gripper_command_server import (
 from .serial_port import open_exclusive_serial
 from .transport import (
     ActuatorTransport,
+    PositionReadError,
     StateResponseDeferred,
+    StopLatchedError,
     TransportError,
 )
 
@@ -63,7 +67,9 @@ class SingleArmBridge(Node):
             raise ValueError("feedback_rate_hz must be within 1..10")
 
         self._faulted = False
-        self._consecutive_errors = 0
+        self._shutdown_requested = False
+        self._feedback_errors = 0
+        self._heartbeat_errors = 0
         self._feedback_resume_at = 0.0
         self._motion_armed = False
         self._serial = None
@@ -71,6 +77,7 @@ class SingleArmBridge(Node):
         self._arm_action_adapter = None
         self._gripper_action_adapter = None
         self._motion_arbiter = MotionGoalArbiter()
+        self._commanded_setpoints = CommandedSetpointState()
         self._latest_positions: tuple[float, ...] | None = None
         self._latest_feedback_at = 0.0
         self._feedback_max_age_s = max(0.5, 2.5 / feedback_rate)
@@ -128,6 +135,11 @@ class SingleArmBridge(Node):
             "clear_fault",
             self._on_clear_fault,
         )
+        self._servo_diagnostics_service = self.create_service(
+            Trigger,
+            "get_servo_diagnostics",
+            self._on_get_servo_diagnostics,
+        )
         self._heartbeat_timer = self.create_timer(0.1, self._send_heartbeat)
         self._feedback_timer = self.create_timer(
             1.0 / feedback_rate,
@@ -143,6 +155,7 @@ class SingleArmBridge(Node):
                     self._motion_backend_ready,
                     self._fresh_joint_positions,
                     motion_arbiter=self._motion_arbiter,
+                    setpoint_state=self._commanded_setpoints,
                 )
                 self._gripper_action_adapter = (
                     ParallelGripperCommandActionAdapter(
@@ -152,12 +165,17 @@ class SingleArmBridge(Node):
                         self._motion_backend_ready,
                         self._fresh_joint_positions,
                         motion_arbiter=self._motion_arbiter,
+                        setpoint_state=self._commanded_setpoints,
                     )
                 )
                 if hello.stop_latched:
+                    # A latched controller may still have physical servo torque
+                    # enabled. Force the firmware's six-axis write/readback
+                    # DISABLE transaction before exposing the blocked backend.
+                    self._transport.disable()
                     self.get_logger().warning(
-                        "STM32 stop is latched; inspect the arm and call "
-                        "/clear_fault"
+                        "STM32 stop is latched; physical torque disabled; "
+                        "inspect the arm and call /clear_fault"
                     )
                 else:
                     arm_attempted = True
@@ -165,12 +183,24 @@ class SingleArmBridge(Node):
                         self._calibration.calibration_hash
                     )
                     self._motion_armed = True
+            else:
+                # READ_ONLY is a physical contract, not only a ROS command
+                # filter. Firmware acknowledges this call only after all six
+                # Torque Enable registers read back as zero.
+                self._transport.disable()
         except Exception as error:
             if arm_attempted:
                 try:
                     self._transport.safe_stop()
                 except Exception:
                     pass
+            try:
+                # Even a failed or latched arming path must end with physical
+                # torque disabled. DISABLE itself performs six-axis readback.
+                self._transport.disable()
+                self._motion_armed = False
+            except Exception:
+                pass
             if self._arm_action_adapter is not None:
                 self._arm_action_adapter.destroy()
                 self._arm_action_adapter = None
@@ -197,15 +227,18 @@ class SingleArmBridge(Node):
         )
 
     def _send_heartbeat(self) -> None:
-        if self._faulted:
+        if self._shutdown_requested or self._faulted:
             return
         try:
             self._transport.heartbeat()
+            self._heartbeat_errors = 0
+        except StopLatchedError as error:
+            self._handle_transport_error("heartbeat", error, immediate=True)
         except Exception as error:
             self._handle_transport_error("heartbeat", error)
 
     def _publish_feedback(self) -> None:
-        if self._faulted:
+        if self._shutdown_requested or self._faulted:
             return
         if time.monotonic() < self._feedback_resume_at:
             return
@@ -213,7 +246,7 @@ class SingleArmBridge(Node):
             # Firmware trajectory execution owns the servo bus. The Action
             # polling thread collects its unsolicited terminal status; resume
             # physical position reads on the first regular cycle after it ends.
-            self._consecutive_errors = 0
+            self._feedback_errors = 0
             return
         try:
             state = self._transport.get_state(include_positions=True)
@@ -240,12 +273,20 @@ class SingleArmBridge(Node):
                 and self._gripper_action_adapter is None
             ):
                 self._process_motion_results()
-            self._consecutive_errors = 0
+            self._feedback_errors = 0
         except StateResponseDeferred:
             # A terminal motion result is valid serial traffic. The MCU can omit
             # the overlapping position response while final verification ends;
             # the next regular 5 Hz cycle will obtain fresh joint state.
-            self._consecutive_errors = 0
+            self._feedback_errors = 0
+        except PositionReadError as error:
+            self._handle_transport_error(
+                "feedback",
+                error,
+                immediate=error.stop_latched,
+            )
+        except StopLatchedError as error:
+            self._handle_transport_error("feedback", error, immediate=True)
         except Exception as error:
             self._handle_transport_error("feedback", error)
 
@@ -307,12 +348,106 @@ class SingleArmBridge(Node):
         except Exception as error:
             self._handle_transport_error("joint command", error, immediate=True)
 
+    def _on_get_servo_diagnostics(
+        self,
+        request: Trigger.Request,
+        response: Trigger.Response,
+    ):
+        del request
+        reserved = False
+        try:
+            reserved = self._motion_arbiter.try_reserve("diagnostics")
+            if not reserved or self._execution_core.active:
+                raise RuntimeError(
+                    "cannot read diagnostics while a motion goal is active"
+                )
+            snapshot = self._transport.get_diagnostics()
+            joints = []
+            for name, sample in zip(
+                self._calibration.ros_joint_names,
+                snapshot.joints,
+                strict=True,
+            ):
+                signed_current = (
+                    sample.current_raw - 0x10000
+                    if sample.current_raw >= 0x8000
+                    else sample.current_raw
+                )
+                joints.append(
+                    {
+                        "name": name,
+                        "servo_id": sample.servo_id,
+                        "sample_time_ms": sample.sample_time_ms,
+                        "torque_enabled": sample.torque_enabled,
+                        "position_raw": sample.position_raw,
+                        "speed_raw": sample.speed_raw,
+                        "load_raw": sample.load_raw,
+                        "load_magnitude_raw": sample.load_raw & 0x03FF,
+                        "current_raw": sample.current_raw,
+                        "current_signed_raw": signed_current,
+                        "voltage_raw": sample.voltage_raw,
+                        "voltage_v": sample.voltage_raw / 10.0,
+                        "temperature_c": sample.temperature_c,
+                        "p_gain": sample.p_gain,
+                        "d_gain": sample.d_gain,
+                        "i_gain": sample.i_gain,
+                        "torque_limit_raw": sample.torque_limit_raw,
+                        "goal_position_raw": sample.goal_position_raw,
+                        "model_number": sample.model_number,
+                        "servo_firmware_version": (
+                            f"{sample.firmware_major_version}."
+                            f"{sample.firmware_minor_version}"
+                        ),
+                        "maximum_torque_limit_raw": (
+                            sample.maximum_torque_limit_raw
+                        ),
+                        "minimum_startup_force_raw": (
+                            sample.minimum_startup_force_raw
+                        ),
+                        "cw_dead_zone_raw": sample.cw_dead_zone_raw,
+                        "ccw_dead_zone_raw": sample.ccw_dead_zone_raw,
+                        "protection_current_raw": (
+                            sample.protection_current_raw
+                        ),
+                        "operating_mode": sample.operating_mode,
+                        "protective_torque_raw": (
+                            sample.protective_torque_raw
+                        ),
+                        "protection_time_raw": sample.protection_time_raw,
+                        "overload_torque_raw": sample.overload_torque_raw,
+                    }
+                )
+            response.success = True
+            response.message = json.dumps(
+                {
+                    "protocol_version": snapshot.protocol_version,
+                    "joint_count": snapshot.joint_count,
+                    "calibration_hash": (
+                        f"0x{snapshot.calibration_hash:08X}"
+                    ),
+                    "joints": joints,
+                },
+                separators=(",", ":"),
+            )
+            self.get_logger().info("servo diagnostics snapshot captured")
+        except Exception as error:
+            response.success = False
+            response.message = f"servo diagnostics rejected: {error}"
+            self.get_logger().error(response.message)
+        finally:
+            if reserved:
+                self._motion_arbiter.release("diagnostics")
+        return response
+
     def _on_clear_fault(self, request: Trigger.Request, response: Trigger.Response):
         del request
         try:
             if self._execution_core.active or self._motion_arbiter.owner is not None:
                 raise RuntimeError("cannot clear fault while an Action goal is active")
             self._transport.clear_fault()
+            self._commanded_setpoints.reset()
+            self._latest_positions = None
+            self._latest_feedback_at = 0.0
             hello = self._transport.enter_binary_mode()
             validate_hardware_identity(
                 hello,
@@ -326,7 +461,8 @@ class SingleArmBridge(Node):
                 hello,
             )
             self._faulted = False
-            self._consecutive_errors = 0
+            self._feedback_errors = 0
+            self._heartbeat_errors = 0
             response.success = True
             response.message = (
                 "fault cleared; commands enabled"
@@ -352,16 +488,32 @@ class SingleArmBridge(Node):
         error: Exception,
         immediate: bool = False,
     ) -> None:
-        self._consecutive_errors += 1
-        if not immediate and self._consecutive_errors < 3:
+        # SIGINT can invalidate the ROS context while a MultiThreadedExecutor
+        # callback is returning from serial I/O.  Do not convert that lifecycle
+        # race into a transport fault or attempt to publish through rosout.
+        # destroy_node() still performs the independent physical DISABLE gate.
+        if self._shutdown_requested or not rclpy.ok(context=self.context):
+            return
+        if immediate:
+            error_count = 3
+        elif stage == "heartbeat":
+            self._heartbeat_errors += 1
+            error_count = self._heartbeat_errors
+        elif stage == "feedback":
+            self._feedback_errors += 1
+            error_count = self._feedback_errors
+        else:
+            error_count = 3
+        if error_count < 3:
             self.get_logger().warning(
                 f"transient {stage} delay "
-                f"({self._consecutive_errors}/3): {error}"
+                f"({error_count}/3): {error}"
             )
             return
         self.get_logger().error(f"{stage} error: {error}")
         self._faulted = True
         self._motion_armed = False
+        self._commanded_setpoints.reset()
         if self._arm_action_adapter is not None:
             self._arm_action_adapter.notify_connection_loss(
                 f"{stage}: {error}"
@@ -385,18 +537,17 @@ class SingleArmBridge(Node):
             self._gripper_action_adapter = None
         if (
             hasattr(self, "_transport")
-            and self._allow_motion
-            and self._motion_armed
-            and not self._faulted
+            and self._serial is not None
+            and self._serial.is_open
         ):
             disable_error: Exception | None = None
             for _ in range(3):
                 try:
                     # Ctrl+C may interrupt a feedback read after consuming only
-                    # part of a frame. Drop that fragment, refresh the firmware
-                    # watchdog, and retry the idempotent DISABLE transaction.
+                    # part of a frame. Drop that fragment and retry DISABLE
+                    # directly: a latched heartbeat must never prevent physical
+                    # torque removal.
                     self._serial.reset_input_buffer()
-                    self._transport.heartbeat()
                     self._transport.disable()
                     self._motion_armed = False
                     disable_error = None
@@ -432,6 +583,16 @@ class SingleArmBridge(Node):
         return positions
 
     def prepare_shutdown(self) -> None:
+        if self._shutdown_requested:
+            return
+        # Quiesce timer callbacks before the executor/context teardown.  The
+        # flag is set first so an already-running callback also becomes silent.
+        self._shutdown_requested = True
+        self._commanded_setpoints.reset()
+        for timer_name in ("_heartbeat_timer", "_feedback_timer"):
+            timer = getattr(self, timer_name, None)
+            if timer is not None:
+                timer.cancel()
         if self._arm_action_adapter is not None:
             self._arm_action_adapter.notify_connection_loss("node shutdown")
         if self._gripper_action_adapter is not None:

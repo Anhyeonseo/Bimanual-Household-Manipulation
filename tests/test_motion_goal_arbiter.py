@@ -24,6 +24,15 @@ class MotionGoalArbiterTests(unittest.TestCase):
         self.assertFalse(arbiter.try_reserve("arm"))
         self.assertEqual(arbiter.owner, "gripper")
 
+    def test_diagnostics_owner_blocks_motion_goals(self) -> None:
+        arbiter = MotionGoalArbiter()
+
+        self.assertTrue(arbiter.try_reserve("diagnostics"))
+        self.assertFalse(arbiter.try_reserve("arm"))
+        self.assertFalse(arbiter.try_reserve("gripper"))
+        self.assertTrue(arbiter.release("diagnostics"))
+        self.assertIsNone(arbiter.owner)
+
     def test_only_current_owner_can_release(self) -> None:
         arbiter = MotionGoalArbiter()
         arbiter.try_reserve("arm")

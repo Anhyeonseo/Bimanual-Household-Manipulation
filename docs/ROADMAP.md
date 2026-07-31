@@ -126,8 +126,109 @@
   READ_ONLY, MOTION_ENABLED 무동작, Shoulder/Elbow 각 `+0.08 rad / 2 s`
   격리 이동까지 통과했다.
 - 다음 gate는 한 번에 Pick을 실행하지 않고 중간 waypoint를 둔 제한
-  pregrasp 접근이다. grasp/place 상태 머신과 50회 반복 시험 전까지
+  grasp 접근이다. lift/place 상태 머신과 50회 반복 시험 전까지
   `motion_authorized=false`와 `robot_target_available=false`를 유지한다.
+- 2026-07-31 통신 구조 교체 펌웨어 `0x00021000`은 identity/capability `0x7F`까지
+  통과했으나, latched 상태의 READ_ONLY 재연결에서 6축 torque OFF readback 성공 후에도
+  `DISABLE status=1(BAD_STATE)`을 반환해 물리 수락을 거절했다. 독립 진단은 6축
+  status 0, torque OFF, 전압 `12.3..12.5 V`로 서보 하드웨어 이상을 배제했다.
+- `0x00021100`은 DISABLE을 멱등적인 물리 안전 계약으로 수정했다. Pi 배포와
+  program/verify/reset, identity `0x7F`, 60초 READ_ONLY, reset·clear fault 없는 연속
+  READ_ONLY 재연결, 두 차례 6축 torque OFF readback을 모두 통과했다.
+- host shutdown timer/context race도 별도 보강해 전체 287 tests, 독립 build와 실제
+  Ctrl+C 무경고 physical DISABLE 종료를 통과했다.
+- MOTION_ENABLED 무동작 약 `330.98 s` 동안 heartbeat/feedback/latch 경고 0,
+  전압 `12.3..12.5 V`, current 최대 1 raw였고 정상 종료 후 6축 torque OFF를
+  독립 readback했다. Shoulder 격리 이동 전까지 task motion은 계속 차단한다.
+- 실제 시작 자세 기반 5구간 plan-only는 모두 통과했다. 첫 구간 실기는
+  목표 근처까지 이동했지만 terminal `26 raw > 20 raw`로 soft-abort됐고
+  latch와 재시도는 없었다. host completion만 `30 raw`로 늘리고 feedback
+  recovery는 `20 raw`로 유지하는 수정이 로컬 `259/259`, ROS 21 tests를
+  통과했다. Pi 배포·READ_ONLY·MOTION_ENABLED 무동작 재검증 후 fresh
+  시작점에서 만든 최대 `0.266422 rad` 5구간을 모두 재시도 없이 실행해
+  pregrasp 도달을 PASS했다. 최종 최대 잔차는 Elbow `0.036544 rad`였다.
+- 마지막 실제 pregrasp 자세에서 grasp까지 더 촘촘한 `0.18 rad` gate로
+  분할했다. 최대 `0.157417 rad`인 2구간 모두 MoveIt plan-only를 통과했고
+  실행 API는 사용하지 않았다. 다음 gate는 fresh 시작 오차 `0.05 rad`와
+  실제 current-to-target `0.18 rad`를 재확인한 grasp 1번 구간 단 1회다.
+- 전원 주기 뒤 pregrasp 복귀 실기에서 Shoulder가 중력을 거스르는 방향으로
+  들리지 않아 `59 raw`, 세분화 뒤 `44 raw` soft-abort됐다. latch와 자동
+  재시도는 없었다. Shoulder/Elbow torque를 `780 / 650`으로 조정한
+  `0x00020C00` 실기도 실패했다.
+- torque-limit register `48..49` readback을 fail-closed로 만든 `0x00020D00`을
+  실제 배포해 identity, READ_ONLY, MOTION_ENABLED와 register gate를 통과했다.
+  큰 Shoulder 명령은 terminal 뒤에도 목표 쪽으로 더 정착했지만 마지막
+  `0.079155 rad` 소각도 명령은 fresh feedback에서도 거의 움직이지 않았다.
+  이는 100 ms 단발 endpoint 판정과 관측 불가능한 static-control 문제가
+  겹친 것으로 분리했다.
+- `0x00020E00`은 Pi 배포·flash·READ_ONLY/MOTION_ENABLED diagnostics까지
+  통과했으나 첫 Shoulder `-0.08 rad / 2초` 시험에서 terminal `status=8`,
+  stop latch가 재현되어 물리 수락을 거절했다. 실제 torque limit/PID/전압은
+  정상 readback됐으므로 토크를 더 올리는 방향은 중단했다.
+- 코드 감사 결과 binary main loop가 safety service를 먼저 호출하고 host UART를
+  한 바이트만 읽어, settling telemetry 중 UART에 도착한 heartbeat frame이 완전히
+  decode되기 전에 500 ms deadline을 넘길 수 있었다. 기존 heartbeat는 ACK 없는
+  fire-and-forget이라 host도 실제 수신 여부를 알 수 없었다.
+- 로컬 `0x00020F00` 후보는 safety service 전에 최대 64 byte를 bounded drain하고,
+  heartbeat마다 동일 sequence의 `STATE_FEEDBACK` ACK를 반환한다. Host는 250 ms
+  안에 ACK와 unlatched 상태를 확인해야 heartbeat 성공으로 인정한다. Python/ROS
+  `276/276`, 표적 `28/28`, C core `1/1`, ament identity, Cortex-M4 Release build를
+  통과했다. Pi host/HEX 전송·host backup·single_arm_bridge rebuild도 통과했으며,
+  STM32 flash와 post-flash identity/heartbeat ACK까지 통과했다. 첫 READ_ONLY
+  diagnostics에서 6축 torque가 모두 켜진 host 초기화 누락을 발견해 수락을 거절했다.
+  READ_ONLY·latched startup·모든 shutdown 경로에 firmware DISABLE write/readback을
+  강제하는 host-only 수정은 표적 `27/27`, 전체 `280/280`, 독립 ROS build를
+  통과했으며 Pi 재배포는 미실행이다. grasp/lift/place는 계속 금지한다.
+- 보강된 20F는 READ_ONLY physical disable, ACTIVE 무동작 약 243.5초, shutdown
+  6축 torque OFF까지 통과했지만 fresh Shoulder -0.08 rad / 2초 실제 setpoint에서
+  heartbeat delay 2회와 terminal status=8 detail=4(HOLD), stop latch가 재현되어
+  최종 물리 거절됐다. polling drain은 servo UART 동기 transaction 중 LPUART
+  하드웨어에서 이미 유실된 byte를 복구하지 못한다.
+- 로컬 0x00021000 후보는 LPUART1 RX interrupt + 1024B ring, RX fault의 원자적
+  HOLD/latch, 시작 위치·안전 telemetry·endpoint 검증의 축별 cooperative step을
+  적용한다. 전체 283 tests, C core 1/1, 독립 ROS build, Cortex-M4 Release build를
+  통과했으며 Pi 전송·플래시·reset·로봇 이동은 0회다. 다음은 20F 신규 backup부터
+  시작하는 분리 gate이며 자동 재시도는 금지한다.
+
+- `0x00021600 / 0x8AD27897`에서 Shoulder P32, Elbow P28을 채택했다. 실제
+  grasp 뒤 약 20 mm lift는 terminal detail 26 raw로 성공했고, Elbow는
+  goal/actual `1537/1553` raw였다. Arm Action 동안 gripper contact goal
+  `1963` raw가 유지되고 actual/load/current `1984/96/4`가 보존되어 shared
+  commanded-setpoint host 보강을 실물에서 확인했다.
+- 물체를 다시 내려놓고 gripper를 연 뒤, 검증된 grasp/pregrasp 경로를
+  역순으로 묶은 fail-closed 8구간 q0 복귀를 한 번의 감독 실행으로 완료했다.
+  8/8 구간이 성공했고 최종 arm q0 오차는 축별 `2..6` raw였다. 다음 gate는
+  perception 입력부터 place까지의 plan-only 상태 머신과 고정된 place
+  target 계약이며, 50회 반복 전까지 자동 motion authorization은 false다.
+
+- 기존 Pick에서 base `+Y 60 mm`인 Place 후보까지 mock MoveIt 전 경로를
+  최대 `0.18 rad`로 분할해 29 arm segment 모두 plan-only PASS했다. Close와
+  release를 포함한 31-step manifest는 calibration `0x8AD27897`, source
+  SHA-256, phase 연속성, Place workspace/board, 최종 q0를 독립 검증하며
+  `automatic_execution_permitted=false`를 강제한다. 다음은 물리 Place 지점
+  확인과 manifest-hash-pinned 수동 gate supervisor다.
+
+- 최종 `0x00021800 / 0x8AD27897 / capabilities 0x000003FF`는 서보 UART
+  frame 재동기화·완전 복구와 확장 failure cause를 추가했다. 5분 무동작
+  heartbeat/feedback, fault injection의 단일 sweep 실패, reset 없는 6축
+  복구를 통과했다.
+- Shoulder `0.055 rad`, 나머지 arm 축 `0.050 rad`의 축별 start/post-settle
+  gate, 매 구간 6축 진단, Shoulder `<50 C`, soft-abort 무재전송 계약을
+  적용해 grasp, 약 20 mm lift, Place, release, retreat와 q0 복귀를 실제로
+  1회 완주했다. Place는 최종 두 차례의 제한된 5 mm Z 보정을 포함했고,
+  q0 복귀 11/11 구간 뒤 최대 arm 오차는 Wrist Roll `0.007670 rad`였다.
+  Bridge는 경고 없이 종료됐고 12 V OFF와 팔 안전 상태를 확인했다.
+- 이 결과로 단계 7 **감독형 시운전 체크리스트는 100%**다. 다만 정식 완료
+  조건은 Pick/Place 50회 중 90% 이상이므로 검증 매트릭스는 `부분 통과`를
+  유지한다. 반복 시험 전에 현재 single-point Action 연쇄를 시간축·queue·
+  cancel/stop semantics가 검증된 multi-point/buffered trajectory로 교체한다.
+  또한 nominal Place TCP offset `0.025 m`는 실제 안착에서 총 `-10 mm`
+  추가 하강이 필요했으므로, Pick/Place offset을 분리하고 Place
+  TCP-to-contact 후보 `0.015 m`를 plan-only·충돌 검사·실기 1회로 다시
+  보정한 뒤 채택한다.
+  상세 결과는
+  [감독형 실제 Pick/Place](test-results/2026-07-31-stage7-supervised-pick-place-complete.md)에
+  기록했다.
 
 ## 단계 8 — 손목(Wrist) 카메라 Visual Servo
 

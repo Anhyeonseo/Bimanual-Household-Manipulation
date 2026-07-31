@@ -15,8 +15,12 @@ CRC = struct.Struct("<I")
 HELLO_PAYLOAD = struct.Struct("<BBBBIIII")
 STATE_BASE = struct.Struct("<BBBBIIII")
 STATE_POSITIONS = struct.Struct("<6H")
+STATE_POSITION_READ_FAILURE_LEGACY = struct.Struct("<BBBB")
+STATE_POSITION_READ_FAILURE = struct.Struct("<BBBBBBHH2xII")
 ARM_RESPONSE = struct.Struct("<BB2xI")
 SETPOINT_STATUS = struct.Struct("<BBBBIII")
+DIAGNOSTICS_BASE = struct.Struct("<BBBBII")
+DIAGNOSTICS_JOINT = struct.Struct("<8B7H2B2H2BH4B")
 
 
 class MessageType(IntEnum):
@@ -34,6 +38,7 @@ class MessageType(IntEnum):
     SETPOINT_STATUS = 33
     GET_STATE = 48
     STATE_FEEDBACK = 49
+    DIAGNOSTICS = 51
 
 
 KNOWN_TYPES = {int(value) for value in MessageType}
@@ -74,6 +79,16 @@ class State:
     calibration_hash: int
     last_heartbeat_ms: int
     raw_positions: tuple[int, ...] | None
+    position_read_failed_servo_id: int | None
+    position_read_failure_streak: int
+    position_read_failure_limit: int
+    position_read_failure_reason: int
+    position_read_hal_status: int
+    position_read_servo_status: int
+    position_read_recovery_count: int
+    position_read_discarded_bytes: int
+    position_read_uart_error_code: int
+    position_read_uart_isr: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +100,50 @@ class MotionResult:
     request_sequence: int
     apply_tick_ms: int
     calibration_hash: int
+
+
+@dataclass(frozen=True, slots=True)
+class ServoDiagnostic:
+    status_code: int
+    joint_index: int
+    joint_count: int
+    protocol_version: int
+    calibration_hash: int
+    sample_time_ms: int
+    servo_id: int
+    read_status: int
+    torque_enabled: bool
+    p_gain: int
+    d_gain: int
+    i_gain: int
+    voltage_raw: int
+    temperature_c: int
+    position_raw: int
+    speed_raw: int
+    load_raw: int
+    current_raw: int
+    torque_limit_raw: int
+    goal_position_raw: int
+    model_number: int
+    firmware_major_version: int
+    firmware_minor_version: int
+    maximum_torque_limit_raw: int
+    minimum_startup_force_raw: int
+    cw_dead_zone_raw: int
+    ccw_dead_zone_raw: int
+    protection_current_raw: int
+    operating_mode: int
+    protective_torque_raw: int
+    protection_time_raw: int
+    overload_torque_raw: int
+
+
+@dataclass(frozen=True, slots=True)
+class ServoDiagnostics:
+    protocol_version: int
+    joint_count: int
+    calibration_hash: int
+    joints: tuple[ServoDiagnostic, ...]
 
 
 def crc32c(data: bytes) -> int:
@@ -192,12 +251,50 @@ def parse_hello(payload: bytes) -> Hello:
 
 
 def parse_state(payload: bytes) -> State:
-    if len(payload) not in (STATE_BASE.size, STATE_BASE.size + STATE_POSITIONS.size):
+    valid_lengths = (
+        STATE_BASE.size,
+        STATE_BASE.size + STATE_POSITION_READ_FAILURE_LEGACY.size,
+        STATE_BASE.size + STATE_POSITION_READ_FAILURE.size,
+        STATE_BASE.size + STATE_POSITIONS.size,
+    )
+    if len(payload) not in valid_lengths:
         raise ProtocolError("invalid STATE_FEEDBACK length")
     values = STATE_BASE.unpack_from(payload)
     positions = None
-    if len(payload) > STATE_BASE.size:
+    failed_servo_id = None
+    failure_streak = 0
+    failure_limit = 0
+    failure_reason = 0
+    hal_status = 0
+    servo_status = 0
+    recovery_count = 0
+    discarded_bytes = 0
+    uart_error_code = 0
+    uart_isr = 0
+    if len(payload) == STATE_BASE.size + STATE_POSITIONS.size:
         positions = STATE_POSITIONS.unpack_from(payload, STATE_BASE.size)
+    elif len(payload) == STATE_BASE.size + STATE_POSITION_READ_FAILURE_LEGACY.size:
+        (
+            failed_servo_id,
+            failure_streak,
+            failure_limit,
+            _,
+        ) = STATE_POSITION_READ_FAILURE_LEGACY.unpack_from(
+            payload, STATE_BASE.size
+        )
+    elif len(payload) == STATE_BASE.size + STATE_POSITION_READ_FAILURE.size:
+        (
+            failed_servo_id,
+            failure_streak,
+            failure_limit,
+            failure_reason,
+            hal_status,
+            servo_status,
+            recovery_count,
+            discarded_bytes,
+            uart_error_code,
+            uart_isr,
+        ) = STATE_POSITION_READ_FAILURE.unpack_from(payload, STATE_BASE.size)
     return State(
         stop_latched=values[0] != 0,
         status_code=values[1],
@@ -208,6 +305,16 @@ def parse_state(payload: bytes) -> State:
         calibration_hash=values[6],
         last_heartbeat_ms=values[7],
         raw_positions=positions,
+        position_read_failed_servo_id=failed_servo_id,
+        position_read_failure_streak=failure_streak,
+        position_read_failure_limit=failure_limit,
+        position_read_failure_reason=failure_reason,
+        position_read_hal_status=hal_status,
+        position_read_servo_status=servo_status,
+        position_read_recovery_count=recovery_count,
+        position_read_discarded_bytes=discarded_bytes,
+        position_read_uart_error_code=uart_error_code,
+        position_read_uart_isr=uart_isr,
     )
 
 
@@ -215,3 +322,45 @@ def parse_setpoint_status(payload: bytes) -> MotionResult:
     if len(payload) != SETPOINT_STATUS.size:
         raise ProtocolError("invalid SETPOINT_STATUS length")
     return MotionResult(*SETPOINT_STATUS.unpack(payload))
+
+
+def parse_servo_diagnostic(payload: bytes) -> ServoDiagnostic:
+    expected_length = DIAGNOSTICS_BASE.size + DIAGNOSTICS_JOINT.size
+    if len(payload) != expected_length:
+        raise ProtocolError("invalid DIAGNOSTICS length")
+    base = DIAGNOSTICS_BASE.unpack_from(payload)
+    joint = DIAGNOSTICS_JOINT.unpack_from(payload, DIAGNOSTICS_BASE.size)
+    return ServoDiagnostic(
+        status_code=base[0],
+        joint_index=base[1],
+        joint_count=base[2],
+        protocol_version=base[3],
+        calibration_hash=base[4],
+        sample_time_ms=base[5],
+        servo_id=joint[0],
+        read_status=joint[1],
+        torque_enabled=joint[2] != 0,
+        p_gain=joint[3],
+        d_gain=joint[4],
+        i_gain=joint[5],
+        voltage_raw=joint[6],
+        temperature_c=joint[7],
+        position_raw=joint[8],
+        speed_raw=joint[9],
+        load_raw=joint[10],
+        current_raw=joint[11],
+        torque_limit_raw=joint[12],
+        goal_position_raw=joint[13],
+        model_number=joint[14],
+        firmware_major_version=joint[15],
+        firmware_minor_version=joint[16],
+        maximum_torque_limit_raw=joint[17],
+        minimum_startup_force_raw=joint[18],
+        cw_dead_zone_raw=joint[19],
+        ccw_dead_zone_raw=joint[20],
+        protection_current_raw=joint[21],
+        operating_mode=joint[22],
+        protective_torque_raw=joint[23],
+        protection_time_raw=joint[24],
+        overload_torque_raw=joint[25],
+    )

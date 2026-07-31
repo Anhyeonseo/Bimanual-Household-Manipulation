@@ -14,13 +14,19 @@
 typedef struct
 {
     uint8_t active;
+    uint8_t starting;
     uint8_t verifying;
+    uint8_t verify_consecutive;
+    uint8_t verify_sweep_active;
     uint32_t request_sequence;
     uint32_t start_tick;
     uint32_t duration_ms;
     uint32_t last_control_tick;
+    uint32_t verify_start_tick;
     uint16_t start_positions[SINGLE_ARM_JOINT_COUNT];
     uint16_t target_positions[SINGLE_ARM_JOINT_COUNT];
+    ServoPositionSweep start_sweep;
+    ServoPositionSweep verify_sweep;
 } HostBinaryMotion;
 
 static UART_HandleTypeDef *binary_host_uart = NULL;
@@ -33,6 +39,8 @@ static uint8_t host_binary_mode = 0U;
 static actuator_safety_t host_binary_safety;
 static HostBinaryMotion host_binary_motion;
 static uint8_t host_binary_servos_configured = 0U;
+static uint8_t host_position_read_failure_streak = 0U;
+static uint8_t host_position_read_failed_servo_id = 0U;
 
 static void Host_WriteU32Le(uint8_t *destination, uint32_t value)
 {
@@ -164,6 +172,57 @@ static void Host_SendBinaryState(
     (void)Host_SendBinaryFrame(&response);
 }
 
+static void Host_SendBinaryPositionReadFailure(
+    uint32_t request_sequence
+)
+{
+    actuator_frame_t response;
+    const ServoBusDiagnostics *bus = ServoBus_GetDiagnostics();
+    memset(&response, 0, sizeof(response));
+
+    response.message_type = ACTUATOR_MSG_STATE_FEEDBACK;
+    response.sequence = request_sequence;
+    response.sender_time_ms = HAL_GetTick();
+    response.payload_length = 40U;
+    response.payload[0] = (host_stop_latched != 0U) ? 1U : 0U;
+    response.payload[1] = 2U;
+    response.payload[2] = servo_joint_count;
+    response.payload[3] = (uint8_t)ACTUATOR_PROTOCOL_VERSION;
+    Host_WriteU32Le(&response.payload[4], host_binary_heartbeat_count);
+    Host_WriteU32Le(&response.payload[8], host_binary_rejected_frame_count);
+    Host_WriteU32Le(&response.payload[12], Host_CalibrationHash());
+    Host_WriteU32Le(
+        &response.payload[16],
+        host_binary_last_heartbeat_ms
+    );
+    response.payload[20] = host_position_read_failed_servo_id;
+    response.payload[21] = host_position_read_failure_streak;
+    response.payload[22] = HOST_POSITION_READ_FAILURE_LIMIT;
+    response.payload[23] = (uint8_t)bus->reason;
+    response.payload[24] = bus->hal_status;
+    response.payload[25] = bus->servo_status;
+    Host_WriteU16Le(&response.payload[26], bus->recovery_count);
+    Host_WriteU16Le(&response.payload[28], bus->discarded_bytes);
+    response.payload[30] = 0U;
+    response.payload[31] = 0U;
+    Host_WriteU32Le(
+        &response.payload[32],
+        bus->uart_error_code
+    );
+    Host_WriteU32Le(
+        &response.payload[36],
+        bus->uart_isr
+    );
+
+    (void)Host_SendBinaryFrame(&response);
+}
+
+static void Host_ResetPositionReadFailure(void)
+{
+    host_position_read_failure_streak = 0U;
+    host_position_read_failed_servo_id = 0U;
+}
+
 static void Host_SendBinaryStateWithPositions(
     uint32_t request_sequence
 )
@@ -172,10 +231,26 @@ static void Host_SendBinaryStateWithPositions(
 
     if (Servo_ReadAllPositions(positions) != HAL_OK)
     {
-        host_stop_latched = 1U;
-        Host_SendBinaryState(request_sequence, 2U);
+        host_position_read_failed_servo_id =
+            servo_last_all_read_failed_id;
+        if (host_position_read_failure_streak < UINT8_MAX)
+        {
+            host_position_read_failure_streak++;
+        }
+        if (host_position_read_failure_streak >=
+            HOST_POSITION_READ_FAILURE_LIMIT)
+        {
+            host_stop_latched = 1U;
+            if (actuator_safety_accepts_setpoint(&host_binary_safety))
+            {
+                (void)actuator_safety_request_hold(&host_binary_safety);
+            }
+        }
+        Host_SendBinaryPositionReadFailure(request_sequence);
         return;
     }
+
+    Host_ResetPositionReadFailure();
 
     actuator_frame_t response;
     memset(&response, 0, sizeof(response));
@@ -204,6 +279,185 @@ static void Host_SendBinaryStateWithPositions(
             positions[joint]
         );
     }
+
+    (void)Host_SendBinaryFrame(&response);
+}
+
+static void Host_SendBinaryDiagnostics(
+    uint32_t request_sequence,
+    uint8_t joint_index
+)
+{
+    actuator_frame_t response;
+    uint8_t pid[3] = {0U};
+    uint8_t runtime[10] = {0U};
+    uint8_t identity[5] = {0U};
+    uint8_t protection[27] = {0U};
+    uint16_t position = 0U;
+    uint16_t speed_raw = 0U;
+    uint16_t load_raw = 0U;
+    uint8_t voltage_raw = 0U;
+    uint8_t temperature_c = 0U;
+    uint16_t current_raw = 0U;
+    uint8_t read_status = 0U;
+    const ServoJointConfig *joint = &servo_joints[joint_index];
+
+    memset(&response, 0, sizeof(response));
+    response.message_type = ACTUATOR_MSG_DIAGNOSTICS;
+    response.sequence = request_sequence;
+    response.sender_time_ms = HAL_GetTick();
+    response.payload_length = 48U;
+
+    /*
+     * Keep each request bounded to one servo. The host refreshes the heartbeat
+     * between joints, so a complete six-joint snapshot cannot starve the
+     * 500 ms host watchdog even when one bus read reaches its timeout.
+     */
+    if (host_binary_motion.active != 0U)
+    {
+        read_status = UINT8_C(0x80);
+    }
+    else
+    {
+        if (Servo_ReadData(
+                joint->id,
+                21U,
+                sizeof(pid),
+                pid
+            ) != HAL_OK)
+        {
+            read_status |= UINT8_C(0x01);
+        }
+
+        if (Servo_ReadData(
+                joint->id,
+                40U,
+                sizeof(runtime),
+                runtime
+            ) != HAL_OK)
+        {
+            read_status |= UINT8_C(0x02);
+        }
+
+        if (Servo_ReadTelemetry(
+                joint->id,
+                &position,
+                &speed_raw,
+                &load_raw,
+                &voltage_raw,
+                &temperature_c,
+                &current_raw
+            ) != HAL_OK)
+        {
+            read_status |= UINT8_C(0x04);
+        }
+
+        /*
+         * Model identity and the non-volatile protection block distinguish
+         * an SO-101 follower motor/configuration mismatch from a genuine
+         * payload problem. Goal_Position is already present in runtime[2:3],
+         * so exposing it adds no extra servo transaction.
+         */
+        if (Servo_ReadData(
+                joint->id,
+                0U,
+                sizeof(identity),
+                identity
+            ) != HAL_OK)
+        {
+            read_status |= UINT8_C(0x08);
+        }
+
+        /*
+         * Servo_ReadData deliberately caps one transaction at 16 bytes.
+         * Split EEPROM 13..39 into 13..28 and 29..39; a 27-byte request is
+         * rejected locally before it ever reaches the STS3215 bus.
+         */
+        if ((Servo_ReadData(
+                 joint->id,
+                 13U,
+                 16U,
+                 &protection[0]
+             ) != HAL_OK) ||
+            (Servo_ReadData(
+                 joint->id,
+                 29U,
+                 11U,
+                 &protection[16]
+             ) != HAL_OK))
+        {
+            read_status |= UINT8_C(0x10);
+        }
+    }
+
+    response.payload[0] = (read_status == 0U) ? 0U : 2U;
+    response.payload[1] = joint_index;
+    response.payload[2] = servo_joint_count;
+    response.payload[3] = (uint8_t)ACTUATOR_PROTOCOL_VERSION;
+    Host_WriteU32Le(&response.payload[4], Host_CalibrationHash());
+    Host_WriteU32Le(&response.payload[8], HAL_GetTick());
+    response.payload[12] = joint->id;
+    response.payload[13] = read_status;
+    response.payload[14] = runtime[0];
+    response.payload[15] = pid[0];
+    response.payload[16] = pid[1];
+    response.payload[17] = pid[2];
+    response.payload[18] = voltage_raw;
+    response.payload[19] = temperature_c;
+    Host_WriteU16Le(&response.payload[20], position);
+    Host_WriteU16Le(&response.payload[22], speed_raw);
+    Host_WriteU16Le(&response.payload[24], load_raw);
+    Host_WriteU16Le(&response.payload[26], current_raw);
+    Host_WriteU16Le(
+        &response.payload[28],
+        (uint16_t)(
+            (uint16_t)runtime[8] |
+            ((uint16_t)runtime[9] << 8U)
+        )
+    );
+    Host_WriteU16Le(
+        &response.payload[30],
+        (uint16_t)(
+            (uint16_t)runtime[2] |
+            ((uint16_t)runtime[3] << 8U)
+        )
+    );
+    Host_WriteU16Le(
+        &response.payload[32],
+        (uint16_t)(
+            (uint16_t)identity[3] |
+            ((uint16_t)identity[4] << 8U)
+        )
+    );
+    response.payload[34] = identity[0];
+    response.payload[35] = identity[1];
+    Host_WriteU16Le(
+        &response.payload[36],
+        (uint16_t)(
+            (uint16_t)protection[3] |
+            ((uint16_t)protection[4] << 8U)
+        )
+    );
+    Host_WriteU16Le(
+        &response.payload[38],
+        (uint16_t)(
+            (uint16_t)protection[11] |
+            ((uint16_t)protection[12] << 8U)
+        )
+    );
+    response.payload[40] = protection[13];
+    response.payload[41] = protection[14];
+    Host_WriteU16Le(
+        &response.payload[42],
+        (uint16_t)(
+            (uint16_t)protection[15] |
+            ((uint16_t)protection[16] << 8U)
+        )
+    );
+    response.payload[44] = protection[20];
+    response.payload[45] = protection[21];
+    response.payload[46] = protection[22];
+    response.payload[47] = protection[23];
 
     (void)Host_SendBinaryFrame(&response);
 }
@@ -311,10 +565,7 @@ static void Host_StartBinaryMotion(
         return;
     }
 
-    if ((host_binary_servos_configured == 0U) ||
-        (Servo_ReadAllPositions(
-            host_binary_motion.start_positions
-        ) != HAL_OK))
+    if (host_binary_servos_configured == 0U)
     {
         host_stop_latched = 1U;
         Host_SendBinarySetpointStatus(
@@ -327,38 +578,27 @@ static void Host_StartBinaryMotion(
         return;
     }
 
-    for (uint8_t joint = 0U;
-         joint < servo_joint_count;
-         joint++)
+    for (uint8_t joint = 0U; joint < servo_joint_count; joint++)
     {
-        host_binary_motion.target_positions[joint] =
-            target_positions[joint];
+        host_binary_motion.target_positions[joint] = target_positions[joint];
     }
 
-    host_binary_motion.start_tick = HAL_GetTick();
-    if ((int32_t)(first_apply_tick -
-            host_binary_motion.start_tick) < 20)
-    {
-        Host_SendBinarySetpointStatus(
-            request->sequence,
-            1U,
-            1U,
-            first_apply_tick,
-            0U
-        );
-        return;
-    }
-
+    /*
+     * Accept and reserve the goal before reading six start positions. The
+     * cooperative sweep performs only one bounded servo transaction per main
+     * loop, so acknowledged heartbeats can be serviced between every attempt.
+     */
     host_binary_motion.request_sequence = request->sequence;
-    host_binary_motion.duration_ms =
-        first_apply_tick - host_binary_motion.start_tick;
-    host_binary_motion.last_control_tick =
-        host_binary_motion.start_tick;
+    host_binary_motion.start_tick = now;
+    host_binary_motion.duration_ms = duration_ms;
+    host_binary_motion.last_control_tick = now;
+    host_binary_motion.verify_start_tick = 0U;
+    host_binary_motion.verify_consecutive = 0U;
+    host_binary_motion.verify_sweep_active = 0U;
     host_binary_motion.verifying = 0U;
+    host_binary_motion.starting = 1U;
     host_binary_motion.active = 1U;
-    Servo_MotionSafetyBegin(
-        (uint8_t)((1U << SINGLE_ARM_JOINT_COUNT) - 1U)
-    );
+    Servo_PositionSweepBegin(&host_binary_motion.start_sweep);
 
     Host_SendBinarySetpointStatus(
         request->sequence,
@@ -382,8 +622,7 @@ static void Host_ServiceBinaryMotion(void)
     }
 
     if ((host_stop_latched != 0U) ||
-        !actuator_safety_accepts_setpoint(
-            &host_binary_safety))
+        !actuator_safety_accepts_setpoint(&host_binary_safety))
     {
         host_binary_motion.active = 0U;
         Servo_MotionSafetyEnd();
@@ -391,9 +630,46 @@ static void Host_ServiceBinaryMotion(void)
             host_binary_motion.request_sequence,
             8U,
             1U,
-            host_binary_motion.start_tick +
-                host_binary_motion.duration_ms,
-            0U
+            host_binary_motion.start_tick + host_binary_motion.duration_ms,
+            (uint8_t)host_binary_safety.state
+        );
+        return;
+    }
+
+    if (host_binary_motion.starting != 0U)
+    {
+        HAL_StatusTypeDef start_status = Servo_PositionSweepStep(
+            &host_binary_motion.start_sweep
+        );
+        if (start_status == HAL_BUSY)
+        {
+            return;
+        }
+        if (start_status != HAL_OK)
+        {
+            host_binary_motion.active = 0U;
+            host_stop_latched = 1U;
+            Host_SendBinarySetpointStatus(
+                host_binary_motion.request_sequence,
+                7U,
+                1U,
+                host_binary_motion.start_tick +
+                    host_binary_motion.duration_ms,
+                servo_last_all_read_failed_id
+            );
+            return;
+        }
+
+        memcpy(
+            host_binary_motion.start_positions,
+            host_binary_motion.start_sweep.positions,
+            sizeof(host_binary_motion.start_positions)
+        );
+        host_binary_motion.start_tick = HAL_GetTick();
+        host_binary_motion.last_control_tick = host_binary_motion.start_tick;
+        host_binary_motion.starting = 0U;
+        Servo_MotionSafetyBegin(
+            (uint8_t)((1U << SINGLE_ARM_JOINT_COUNT) - 1U)
         );
         return;
     }
@@ -401,16 +677,45 @@ static void Host_ServiceBinaryMotion(void)
     now = HAL_GetTick();
     if (host_binary_motion.verifying != 0U)
     {
-        uint16_t final_positions[6] = {0U};
-        uint32_t verify_elapsed = now -
-            host_binary_motion.last_control_tick;
-
-        if (verify_elapsed < 100U)
+        HAL_StatusTypeDef safety_status = Servo_MotionSafetyPoll();
+        if (safety_status != HAL_OK)
         {
+            const ServoMotionSafetyDiagnostics *diagnostics =
+                Servo_MotionSafetyGetDiagnostics();
+            host_binary_motion.active = 0U;
+            host_stop_latched = 1U;
+            Servo_MotionSafetyEnd();
+            Host_SendBinarySetpointStatus(
+                host_binary_motion.request_sequence,
+                9U,
+                1U,
+                host_binary_motion.start_tick +
+                    host_binary_motion.duration_ms,
+                diagnostics->servo_id
+            );
             return;
         }
 
-        if (Servo_ReadAllPositions(final_positions) != HAL_OK)
+        now = HAL_GetTick();
+        if (host_binary_motion.verify_sweep_active == 0U)
+        {
+            if ((now - host_binary_motion.last_control_tick) <
+                SERVO_FINAL_SETTLE_SAMPLE_MS)
+            {
+                return;
+            }
+            Servo_PositionSweepBegin(&host_binary_motion.verify_sweep);
+            host_binary_motion.verify_sweep_active = 1U;
+        }
+
+        HAL_StatusTypeDef verify_status = Servo_PositionSweepStep(
+            &host_binary_motion.verify_sweep
+        );
+        if (verify_status == HAL_BUSY)
+        {
+            return;
+        }
+        if (verify_status != HAL_OK)
         {
             host_binary_motion.active = 0U;
             host_stop_latched = 1U;
@@ -426,44 +731,80 @@ static void Host_ServiceBinaryMotion(void)
             return;
         }
 
-        uint8_t maximum_error = 0U;
-        for (uint8_t joint = 0U;
-             joint < servo_joint_count;
-             joint++)
+        host_binary_motion.verify_sweep_active = 0U;
+        now = HAL_GetTick();
+        host_binary_motion.last_control_tick = now;
+
+        uint16_t maximum_error = 0U;
+        for (uint8_t joint = 0U; joint < servo_joint_count; joint++)
         {
             int32_t error = Servo_PositionError(
-                final_positions[joint],
+                host_binary_motion.verify_sweep.positions[joint],
                 host_binary_motion.target_positions[joint]
             );
             if (error < 0)
             {
                 error = -error;
             }
-            if (error > 255)
+            if ((uint16_t)error > maximum_error)
             {
-                error = 255;
-            }
-            if ((uint8_t)error > maximum_error)
-            {
-                maximum_error = (uint8_t)error;
+                maximum_error = (uint16_t)error;
             }
         }
 
+        if (maximum_error <= SERVO_FINAL_ERROR_TOLERANCE_RAW)
+        {
+            if (host_binary_motion.verify_consecutive < UINT8_MAX)
+            {
+                host_binary_motion.verify_consecutive++;
+            }
+        }
+        else
+        {
+            host_binary_motion.verify_consecutive = 0U;
+        }
+
+        if ((host_binary_motion.verify_consecutive >=
+                SERVO_FINAL_SETTLE_CONSECUTIVE) ||
+            ((now - host_binary_motion.verify_start_tick) >=
+                SERVO_FINAL_SETTLE_MAX_MS))
+        {
+            uint8_t reported_error = (maximum_error > UINT8_MAX) ?
+                UINT8_MAX : (uint8_t)maximum_error;
+            host_binary_motion.active = 0U;
+            Servo_MotionSafetyEnd();
+            Host_SendBinarySetpointStatus(
+                host_binary_motion.request_sequence,
+                6U,
+                1U,
+                host_binary_motion.start_tick +
+                    host_binary_motion.duration_ms,
+                reported_error
+            );
+        }
+        return;
+    }
+
+    HAL_StatusTypeDef safety_status = Servo_MotionSafetyPoll();
+    if (safety_status != HAL_OK)
+    {
+        const ServoMotionSafetyDiagnostics *diagnostics =
+            Servo_MotionSafetyGetDiagnostics();
         host_binary_motion.active = 0U;
+        host_stop_latched = 1U;
         Servo_MotionSafetyEnd();
         Host_SendBinarySetpointStatus(
             host_binary_motion.request_sequence,
-            6U,
+            9U,
             1U,
-            host_binary_motion.start_tick +
-                host_binary_motion.duration_ms,
-            maximum_error
+            host_binary_motion.start_tick + host_binary_motion.duration_ms,
+            diagnostics->servo_id
         );
         return;
     }
 
-    if ((uint32_t)(now -
-            host_binary_motion.last_control_tick) <
+    now = HAL_GetTick();
+    if ((uint32_t)(now - host_binary_motion.last_control_tick) <
         control_period_ms)
     {
         return;
@@ -475,25 +816,20 @@ static void Host_ServiceBinaryMotion(void)
         elapsed = host_binary_motion.duration_ms;
     }
 
-    for (uint8_t joint = 0U;
-         joint < servo_joint_count;
-         joint++)
+    for (uint8_t joint = 0U; joint < servo_joint_count; joint++)
     {
         if (elapsed >= host_binary_motion.duration_ms)
         {
-            setpoints[joint] =
-                host_binary_motion.target_positions[joint];
+            setpoints[joint] = host_binary_motion.target_positions[joint];
         }
         else
         {
             int32_t signed_delta =
                 (int32_t)host_binary_motion.target_positions[joint] -
                 (int32_t)host_binary_motion.start_positions[joint];
-            int64_t elapsed_squared =
-                (int64_t)elapsed * elapsed;
+            int64_t elapsed_squared = (int64_t)elapsed * elapsed;
             int64_t smooth_numerator =
-                (3LL * elapsed_squared *
-                    host_binary_motion.duration_ms) -
+                (3LL * elapsed_squared * host_binary_motion.duration_ms) -
                 (2LL * elapsed_squared * elapsed);
             int64_t denominator =
                 (int64_t)host_binary_motion.duration_ms *
@@ -502,12 +838,10 @@ static void Host_ServiceBinaryMotion(void)
             int32_t raw_position =
                 (int32_t)host_binary_motion.start_positions[joint] +
                 (int32_t)(
-                    ((int64_t)signed_delta * smooth_numerator) /
-                    denominator
+                    ((int64_t)signed_delta * smooth_numerator) / denominator
                 );
 
-            if ((raw_position < 0) ||
-                (raw_position > 4095))
+            if ((raw_position < 0) || (raw_position > 4095))
             {
                 host_binary_motion.active = 0U;
                 host_stop_latched = 1U;
@@ -535,30 +869,8 @@ static void Host_ServiceBinaryMotion(void)
             host_binary_motion.request_sequence,
             7U,
             1U,
-            host_binary_motion.start_tick +
-                host_binary_motion.duration_ms,
+            host_binary_motion.start_tick + host_binary_motion.duration_ms,
             0U
-        );
-        return;
-    }
-
-    HAL_StatusTypeDef safety_status = Servo_MotionSafetyPoll();
-
-    if (safety_status != HAL_OK)
-    {
-        const ServoMotionSafetyDiagnostics *diagnostics =
-            Servo_MotionSafetyGetDiagnostics();
-
-        host_binary_motion.active = 0U;
-        host_stop_latched = 1U;
-        Servo_MotionSafetyEnd();
-        Host_SendBinarySetpointStatus(
-            host_binary_motion.request_sequence,
-            9U,
-            1U,
-            host_binary_motion.start_tick +
-                host_binary_motion.duration_ms,
-            diagnostics->servo_id
         );
         return;
     }
@@ -567,7 +879,11 @@ static void Host_ServiceBinaryMotion(void)
     if (elapsed >= host_binary_motion.duration_ms)
     {
         host_binary_motion.verifying = 1U;
-        host_binary_motion.last_control_tick = now;
+        host_binary_motion.verify_consecutive = 0U;
+        host_binary_motion.verify_sweep_active = 0U;
+        host_binary_motion.verify_start_tick = HAL_GetTick();
+        host_binary_motion.last_control_tick =
+            host_binary_motion.verify_start_tick;
     }
 }
 
@@ -755,6 +1071,7 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
                     &host_binary_safety,
                     host_binary_last_heartbeat_ms
                 );
+                Host_SendBinaryState(request->sequence, 0U);
             }
             break;
 
@@ -767,6 +1084,15 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
                      (request->payload[0] == 1U))
             {
                 Host_SendBinaryStateWithPositions(request->sequence);
+            }
+            else if ((request->payload_length == 2U) &&
+                     (request->payload[0] == 2U) &&
+                     (request->payload[1] < servo_joint_count))
+            {
+                Host_SendBinaryDiagnostics(
+                    request->sequence,
+                    request->payload[1]
+                );
             }
             else
             {
@@ -803,6 +1129,10 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
                         health_ok != 0U,
                         expected_hash == Host_CalibrationHash()
                     );
+                if (arm_result == ACTUATOR_SAFETY_OK)
+                {
+                    Host_ResetPositionReadFailure();
+                }
                 Host_SendBinaryArmResponse(
                     request->sequence,
                     arm_result
@@ -869,6 +1199,7 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
                 if (clear_status == 0U)
                 {
                     host_stop_latched = 0U;
+                    Host_ResetPositionReadFailure();
                     if (host_binary_safety.state !=
                         ACTUATOR_STATE_SAFE_DISABLED)
                     {
@@ -908,16 +1239,28 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
             if (request->payload_length == 0U)
             {
                 actuator_safety_result_t disable_result =
-                    actuator_safety_request_disable(
-                        &host_binary_safety
-                    );
+                    ACTUATOR_SAFETY_OK;
 
                 /*
-                 * The safety state and physical STS3215 torque state are one
-                 * transaction.  Do not report success until all six Torque
-                 * Enable registers have been written and read back as zero.
-                 * Mark the trajectory configuration stale so the next ARM
-                 * request must explicitly configure and re-enable servos.
+                 * DISABLE is an idempotent physical safety operation.  A
+                 * logical FAULT/ESTOP latch must never block six-axis torque
+                 * removal, and a successful physical readback must not be
+                 * reported as BAD_STATE.  Preserve the latched logical state;
+                 * only non-faulted states transition to SAFE_DISABLED.
+                 */
+                if ((host_binary_safety.state != ACTUATOR_STATE_FAULT) &&
+                    (host_binary_safety.state != ACTUATOR_STATE_ESTOPPED))
+                {
+                    disable_result = actuator_safety_request_disable(
+                        &host_binary_safety
+                    );
+                }
+
+                /*
+                 * Do not report physical success until all six Torque Enable
+                 * registers have been written and read back as zero.  Mark the
+                 * trajectory configuration stale so the next ARM request must
+                 * explicitly configure and re-enable servos.
                  */
                 host_binary_servos_configured = 0U;
                 if (Servo_DisableTorqueAll() != HAL_OK)
@@ -928,6 +1271,10 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
                         UINT16_C(0xFF02)
                     );
                     disable_result = ACTUATOR_SAFETY_HEALTH_FAILED;
+                }
+                else
+                {
+                    Host_ResetPositionReadFailure();
                 }
 
                 Host_SendBinaryState(
@@ -978,6 +1325,8 @@ void BinaryControl_Init(UART_HandleTypeDef *host_uart)
     host_binary_last_heartbeat_ms = 0U;
     host_binary_mode = 0U;
     host_binary_servos_configured = 0U;
+    host_position_read_failure_streak = 0U;
+    host_position_read_failed_servo_id = 0U;
     memset(&host_binary_motion, 0, sizeof(host_binary_motion));
     Servo_MotionSafetyEnd();
 
@@ -1036,9 +1385,20 @@ void BinaryControl_HandleHostUartError(void)
     {
         __HAL_UART_CLEAR_OREFLAG(binary_host_uart);
         __HAL_UART_SEND_REQ(binary_host_uart, UART_RXDATA_FLUSH_REQUEST);
-        actuator_stream_parser_init(&host_binary_parser);
-        host_binary_rejected_frame_count++;
     }
+
+    /*
+     * The ISR ring reports overrun, framing, noise, rearm, and capacity faults
+     * after HAL may already have cleared the peripheral flag. Every reported RX
+     * fault invalidates the parser and must fail closed regardless of ORE state.
+     */
+    actuator_stream_parser_init(&host_binary_parser);
+    host_binary_rejected_frame_count++;
+    if (actuator_safety_accepts_setpoint(&host_binary_safety))
+    {
+        (void)actuator_safety_request_hold(&host_binary_safety);
+    }
+    host_stop_latched = 1U;
 }
 
 uint8_t BinaryControl_StopIsLatched(void)
@@ -1054,4 +1414,5 @@ void BinaryControl_LatchStop(void)
 void BinaryControl_ClearStopLatch(void)
 {
     host_stop_latched = 0U;
+    Host_ResetPositionReadFailure();
 }

@@ -90,6 +90,116 @@ Pi와 STM32는 `HELLO` 단계에서 `calibration_hash`를 비교한다. 값이 �
 
 Raw feedback은 STM32와 hardware bridge 사이의 측정 경계에서만 사용한다. ROS 2 node는 calibration의 원점과 방향을 적용해 radian으로 변환한 뒤 `/joint_states`에 발행한다. ROS·MoveIt·Isaac Sim 바깥 인터페이스에는 raw 값을 노출하지 않는다.
 
+### Background position-read failure diagnostics
+
+`HELLO_RESPONSE.capabilities`의 bit 8(`0x00000100`)이 1이면 위치 포함
+`GET_STATE`의 서보 읽기 실패 응답은 최소 24-byte `STATE_FEEDBACK`이다. 기본
+20 byte 뒤에 `failed_servo_id`, `consecutive_failure_count`,
+`failure_limit`, `reserved`를 각각 `uint8`로 붙인다. 이 24-byte 형식은
+firmware `0x00021700` 진단과의 호환을 위해 유지한다.
+
+`HELLO_RESPONSE.capabilities`의 bit 9(`0x00000200`)도 1이면 firmware
+`0x00021800`의 UART frame recovery 진단을 지원하며 실패 응답은 40 byte이다.
+앞 24 byte는 위 형식과 같고 뒤 16 byte는 다음과 같다.
+
+| offset | type | field |
+|---:|---|---|
+| 23 | `uint8` | failure reason (`0=none`, `1=TX`, `2=RX timeout`, `3=UART`, `4=header`, `5=servo ID`, `6=length`, `7=servo status`, `8=checksum`, `9=recovery`) |
+| 24 | `uint8` | `HAL_StatusTypeDef` 값 |
+| 25 | `uint8` | 서보 status/error byte |
+| 26 | `uint16` | 누적 UART recovery 횟수 |
+| 28 | `uint16` | 이번 응답 전까지 폐기한 byte 수 |
+| 30 | `uint16` | reserved (`0`) |
+| 32 | `uint32` | `UART_HandleTypeDef.ErrorCode` snapshot |
+| 36 | `uint32` | USART ISR snapshot |
+
+모든 다중 byte 값은 little-endian이다. Host는 payload 길이가 24 byte이면
+기존 필드만 사용하고, 40 byte이면 확장 원인을 함께 표시한다.
+
+한 위치 sweep은 실패한 축을 내부에서 3회 재시도한다. 배경 feedback에서는
+이 sweep 실패가 서로 다른 host feedback 주기에서 3회 연속 발생할 때만 stop을
+latch하며, 중간에 한 번이라도 전체 6축 읽기가 성공하면 누적값을 0으로
+초기화한다. 반면 trajectory 시작 위치와 종료 정착 검증 sweep 실패는 기존처럼
+첫 exhausted sweep에서 즉시 latch한다. 따라서 통신 순간 오류는 축과 누적 횟수를
+남기면서 복구할 수 있고, 지속적인 feedback 상실과 동작 중 검증 실패는 fail-closed로
+유지된다.
+
+각 서보 READ는 최대 50 ms와 64 byte로 제한된 stream parser를 사용한다. Parser는
+stale prefix, 다른 ID의 늦은 응답, 잘못된 길이 또는 checksum frame을 폐기한 뒤
+같은 트랜잭션 안에서 기대한 frame을 다시 찾는다. 끝내 성공하지 못하면 UART를
+abort하고 ORE/NE/PE/FE/RTO 상태와 RX data를 비운 뒤 quiet interval을 거쳐 다음
+트랜잭션을 시작한다. 따라서 단일 손상 frame은 자동 재동기화하고, 완전한 무응답과
+UART 하드웨어 오류는 원인을 보존한 채 기존 3-strike fail-closed 정책으로 넘어간다.
+
+### On-demand 서보 diagnostics
+
+`HELLO_RESPONSE.capabilities`의 bit 4(`0x00000010`)가 1이면 message id
+`51 (DIAGNOSTICS)`를 지원한다. Host는 `GET_STATE` payload 두 바이트
+`02 joint_index`를 보내며 `joint_index`는 `0..joint_count-1`이다. MCU는 한
+요청에서 한 서보만 읽는다. Host는 여섯 관절 요청 사이에 heartbeat를 보내
+500 ms watchdog을 굶기지 않는다. 동작이 active인 동안 diagnostics는 거부한다.
+
+firmware `0x00021200`부터 `DIAGNOSTICS` payload는 48 byte,
+little-endian이다. 기존 30 byte 뒤에 실제 명령 레지스터와 서보 식별·보호 설정을
+붙인다. 이 값은 진단 전용이며 읽기만으로 관절 명령을 만들지 않는다.
+
+| offset | type | field |
+|---:|---|---|
+| 0 | `uint8` | status (`0=정상`, `2=read 실패/동작 중`) |
+| 1 | `uint8` | joint_index |
+| 2 | `uint8` | joint_count |
+| 3 | `uint8` | protocol_version |
+| 4 | `uint32` | calibration_hash |
+| 8 | `uint32` | sample_time_ms |
+| 12 | `uint8` | servo_id |
+| 13 | `uint8` | read_status bitmask |
+| 14 | `uint8` | torque_enable register 40 |
+| 15 | `uint8` | P gain register 21 |
+| 16 | `uint8` | D gain register 22 |
+| 17 | `uint8` | I gain register 23 |
+| 18 | `uint8` | voltage raw (0.1 V) |
+| 19 | `uint8` | temperature (°C) |
+| 20 | `uint16` | position raw |
+| 22 | `uint16` | speed raw |
+| 24 | `uint16` | load raw |
+| 26 | `uint16` | current raw |
+| 28 | `uint16` | runtime torque limit register 48..49 |
+| 30 | `uint16` | goal position register 42..43 |
+| 32 | `uint16` | model number register 3..4 (`STS3215=777`) |
+| 34 | `uint8` | servo firmware major register 0 |
+| 35 | `uint8` | servo firmware minor register 1 |
+| 36 | `uint16` | EEPROM max torque limit register 16..17 |
+| 38 | `uint16` | minimum startup force register 24..25 |
+| 40 | `uint8` | CW dead zone register 26 |
+| 41 | `uint8` | CCW dead zone register 27 |
+| 42 | `uint16` | protection current register 28..29 |
+| 44 | `uint8` | operating mode register 33 |
+| 45 | `uint8` | protective torque register 34 |
+| 46 | `uint8` | protection time register 35 |
+| 47 | `uint8` | overload torque register 36 |
+
+`read_status` bit 0은 P/D/I read, bit 1은 runtime register 40..49 read,
+bit 2는 telemetry 56..70 read, bit 3은 identity register 0..4 read, bit 4는
+EEPROM protection register 13..39 read 실패다. bit 7은 trajectory active라
+진단이 거부됐음을 뜻한다. 진단 실패만으로 위치 명령을 만들거나 자동 재시도하지
+않는다.
+
+### Acknowledged heartbeat
+
+`HELLO_RESPONSE.capabilities`의 bit 5(`0x00000020`)가 1이면 heartbeat는
+확인 응답 방식이다. MCU는 payload가 빈 `HEARTBEAT`를 수락해 watchdog 시각을
+갱신한 직후, 요청과 같은 sequence의 20-byte `STATE_FEEDBACK`을 반환한다.
+Host는 250 ms 이내에 그 ACK를 받고 `status=0`, `stop_latched=0`을 모두 확인해야
+heartbeat 성공으로 인정한다. 단순 UART write 성공은 heartbeat 전달 증거가 아니다.
+
+firmware 0x00021000부터 host LPUART1은 polling이 아니라 RX interrupt와 1024-byte
+ring buffer로 수신한다. ISR은 byte 저장과 다음 수신 rearm만 수행하고 protocol parsing은
+main loop에서 최대 64 byte씩 처리한다. 이 구조는 servo UART 동기 transaction 중에도
+heartbeat frame을 보존한다. Ring overflow, UART error 또는 rearm 실패는 parser reset,
+HOLD와 stop latch로 fail-closed 처리한다. capability bit 6(0x00000040)이 이 계약을
+나타낸다. ACK 누락·sequence 불일치·latched 응답은 host transport 오류이며 자동 동작
+재시도로 이어지지 않는다.
+
 ## 6. Setpoint를 한 번에 적용하는 규칙
 
 `SETPOINT_BATCH` frame 하나에는 좌우 각 6개 actuator의 목표가 들어간다. 한 팔만 움직일 때도 반대쪽 목표를 현재 Hold 목표로 채운다.
@@ -124,6 +234,15 @@ for each sample:
 
 `flags.bit0=1`이면 packet 전체를 검사만 하고 실행하지 않는다. 현재 단일 팔 실행기는 `flags.bit0=0`과 `sample_count=1`만 실행한다. 여러 sample을 queue에 넣고 보간하는 기능은 이후 실시간 제어 단계에서 활성화한다.
 
+firmware `0x00020E00`부터 endpoint는 보간 종료 100 ms 뒤 한 번만 읽지
+않는다. 최대 1000 ms 동안 load/current watchdog를 유지하면서 위치를 읽고,
+최대 관절 오차가 30 raw 이내인 sample이 2회 연속이면 조기 완료한다. 최대
+시간에는 마지막 sample의 최대 오차를 `status=6.detail`로 보고한다.
+`0x00021000`부터 시작 위치와 endpoint 위치 읽기는 main-loop당 한 축의
+cooperative sweep이고, safety telemetry도 16 ms round-robin slot으로 한 축씩
+읽는다. Host Action은 최악 시작 sweep과 settling을 포함하도록 trajectory
+시간 뒤 3.5초의 terminal 여유를 둔다.
+
 - Packet 전체가 유효할 때만 queue에 반영한다.
 - 일부 관절만 따로 반영하지 않는다.
 - Integer 전송 형식에는 NaN이 존재하지 않는다.
@@ -157,6 +276,11 @@ BOOT
 - `HOLD`: 계획된 일시 정지 또는 짧은 통신 이상
 - `SAFE_STOP`: Pi가 요청하는 감속 정지이며 물리 E-stop이 아님
 - `DISABLE`: torque 명령 비활성화 요청
+- firmware `0x00021100`부터 `DISABLE`은 멱등적인 물리 안전 연산이다. 이미
+  `FAULT` 또는 `ESTOPPED`여도 논리 상태와 stop latch를 지우지 않은 채 6축
+  torque OFF write/readback을 수행한다. 물리 readback 성공은 status 0,
+  실패는 status 2로 응답한다. 따라서 status 0은 fault 해제나 motion 허용을
+  뜻하지 않고 오직 6축 torque OFF 확인을 뜻한다.
 - 물리 E-stop: 독립 입력과 전원 계통으로 처리하고 `FAULT_REPORT`로만 상태 보고
 
 Serial message 이름으로 `ESTOP`을 사용하지 않는다. Software packet이 물리 E-stop과 같은 수준의 안전을 보장한다는 오해를 막기 위해서다.

@@ -20,7 +20,9 @@ from single_arm_bridge.protocol import (  # noqa: E402
 )
 from single_arm_bridge.transport import (  # noqa: E402
     ActuatorTransport,
+    HEARTBEAT_RESPONSE_TIMEOUT_S,
     POSITION_STATE_RESPONSE_TIMEOUT_S,
+    PositionReadError,
     StateResponseDeferred,
 )
 
@@ -36,6 +38,8 @@ class FakeSerial:
         async_result_delay_s: float = 0.0,
         drop_state_after_async_result: bool = False,
         terminal_before_safe_stop_ack: bool = False,
+        position_failure_streak: int = 0,
+        position_failure_servo_id: int = 0,
     ) -> None:
         self._responses: list[bytes] = []
         self._ascii_response = b""
@@ -44,9 +48,13 @@ class FakeSerial:
         self._async_result_delay_s = async_result_delay_s
         self._drop_state_after_async_result = drop_state_after_async_result
         self._terminal_before_safe_stop_ack = terminal_before_safe_stop_ack
+        self._position_failure_streak = position_failure_streak
+        self._position_failure_servo_id = position_failure_servo_id
         self._delay_next_async_result = False
         self._async_result_sent = False
         self.get_state_request_count = 0
+        self.heartbeat_request_count = 0
+        self.disable_request_count = 0
 
     @property
     def in_waiting(self) -> int:
@@ -67,7 +75,7 @@ class FakeSerial:
                         4,
                         77,
                         1200,
-                        0x4D62F8D5,
+                        0x8AD27897,
                     ),
                 )
             )
@@ -95,12 +103,70 @@ class FakeSerial:
                 6,
                 0,
                 0,
-                0x00020B00,
-                0x4D62F8D5,
-                0x0000000F,
+                0x00021800,
+                0x8AD27897,
+                0x000003FF,
                 0,
             )
             response_type = MessageType.HELLO_RESPONSE
+        elif request.message_type is MessageType.HEARTBEAT:
+            self.heartbeat_request_count += 1
+            payload = struct.pack(
+                "<BBBBIIII",
+                0,
+                0,
+                6,
+                1,
+                3,
+                self.heartbeat_request_count,
+                0x8AD27897,
+                1200,
+            )
+            response_type = MessageType.STATE_FEEDBACK
+        elif (
+            request.message_type is MessageType.GET_STATE
+            and len(request.payload) == 2
+            and request.payload[0] == 2
+        ):
+            joint_index = request.payload[1]
+            torque_limits = (400, 780, 650, 400, 250, 150)
+            p_gains = (16, 32, 24, 16, 16, 16)
+            payload = struct.pack(
+                "<BBBBII8B7H2B2H2BH4B",
+                0,
+                joint_index,
+                6,
+                1,
+                0x8AD27897,
+                1200 + joint_index,
+                joint_index + 1,
+                0,
+                1,
+                p_gains[joint_index],
+                32,
+                0,
+                120,
+                30,
+                2048 + joint_index,
+                0,
+                100 + joint_index,
+                20 + joint_index,
+                torque_limits[joint_index],
+                2050 + joint_index,
+                777,
+                2,
+                55,
+                1000,
+                20,
+                1,
+                1,
+                500,
+                0,
+                20,
+                100,
+                100,
+            )
+            response_type = MessageType.DIAGNOSTICS
         elif request.message_type is MessageType.GET_STATE:
             self.get_state_request_count += 1
             emit_async_result = (
@@ -122,7 +188,7 @@ class FakeSerial:
                                 4,
                                 77,
                                 1200,
-                                0x4D62F8D5,
+                                0x8AD27897,
                             ),
                         )
                     )
@@ -139,7 +205,7 @@ class FakeSerial:
                 1,
                 3,
                 0,
-                0x4D62F8D5,
+                0x8AD27897,
                 1200,
                 2048,
                 2050,
@@ -147,6 +213,36 @@ class FakeSerial:
                 2047,
                 2051,
                 2045,
+            )
+            if self._position_failure_streak:
+                payload = struct.pack(
+                    "<BBBBIIIIBBBB",
+                    int(self._position_failure_streak >= 3),
+                    2,
+                    6,
+                    1,
+                    3,
+                    0,
+                    0x8AD27897,
+                    1200,
+                    self._position_failure_servo_id,
+                    self._position_failure_streak,
+                    3,
+                    0,
+                )
+            response_type = MessageType.STATE_FEEDBACK
+        elif request.message_type is MessageType.DISABLE:
+            self.disable_request_count += 1
+            payload = struct.pack(
+                "<BBBBIIII",
+                0,
+                0,
+                6,
+                1,
+                1,
+                0,
+                0x8AD27897,
+                1200,
             )
             response_type = MessageType.STATE_FEEDBACK
         elif request.message_type is MessageType.SETPOINT_BATCH:
@@ -159,7 +255,7 @@ class FakeSerial:
                 0,
                 request.sequence,
                 apply_tick,
-                0x4D62F8D5,
+                0x8AD27897,
             )
             response_type = MessageType.SETPOINT_STATUS
         elif request.message_type is MessageType.SAFE_STOP:
@@ -173,7 +269,7 @@ class FakeSerial:
                 1,
                 4,
                 0,
-                0x4D62F8D5,
+                0x8AD27897,
                 1200,
             )
             response_type = MessageType.STATE_FEEDBACK
@@ -186,7 +282,7 @@ class FakeSerial:
                 1,
                 4,
                 0,
-                0x4D62F8D5,
+                0x8AD27897,
                 1200,
             )
             response_type = MessageType.STATE_FEEDBACK
@@ -272,7 +368,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
 
     def test_calibration_hash_and_feedback_conversion(self) -> None:
         calibration = load_calibration(CALIBRATION_PATH)
-        self.assertEqual(calibration.calibration_hash, 0x4D62F8D5)
+        self.assertEqual(calibration.calibration_hash, 0x8AD27897)
         radians = calibration.raw_feedback_to_radians(
             (2048, 2048, 2048, 2048, 2048, 2048)
         )
@@ -281,12 +377,73 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
     def test_transport_enters_binary_mode_and_reads_positions(self) -> None:
         transport = ActuatorTransport(FakeSerial(), response_timeout_s=0.01)
         hello = transport.enter_binary_mode()
-        self.assertEqual(hello.firmware_version, 0x00020B00)
+        self.assertEqual(hello.firmware_version, 0x00021800)
         state = transport.get_state(include_positions=True)
         self.assertEqual(
             state.raw_positions,
             (2048, 2050, 2046, 2047, 2051, 2045),
         )
+
+    def test_transport_reports_transient_position_read_axis_and_streak(self) -> None:
+        transport = ActuatorTransport(
+            FakeSerial(position_failure_streak=1, position_failure_servo_id=3),
+            response_timeout_s=0.01,
+        )
+        transport.enter_binary_mode()
+
+        with self.assertRaises(PositionReadError) as raised:
+            transport.get_state(include_positions=True)
+
+        self.assertEqual(raised.exception.servo_id, 3)
+        self.assertEqual(raised.exception.streak, 1)
+        self.assertEqual(raised.exception.limit, 3)
+        self.assertFalse(raised.exception.stop_latched)
+
+    def test_transport_reports_third_position_read_failure_as_latched(self) -> None:
+        transport = ActuatorTransport(
+            FakeSerial(position_failure_streak=3, position_failure_servo_id=2),
+            response_timeout_s=0.01,
+        )
+        transport.enter_binary_mode()
+
+        with self.assertRaises(PositionReadError) as raised:
+            transport.get_state(include_positions=True)
+
+        self.assertEqual(raised.exception.servo_id, 2)
+        self.assertEqual(raised.exception.streak, 3)
+        self.assertTrue(raised.exception.stop_latched)
+
+    def test_transport_reads_on_demand_servo_diagnostics(self) -> None:
+        transport = ActuatorTransport(FakeSerial(), response_timeout_s=0.01)
+        transport.enter_binary_mode()
+        snapshot = transport.get_diagnostics()
+
+        self.assertEqual(snapshot.joint_count, 6)
+        self.assertEqual(snapshot.calibration_hash, 0x8AD27897)
+        self.assertEqual(len(snapshot.joints), 6)
+        shoulder = snapshot.joints[1]
+        self.assertEqual(shoulder.servo_id, 2)
+        self.assertTrue(shoulder.torque_enabled)
+        self.assertEqual(shoulder.p_gain, 32)
+        self.assertEqual(shoulder.d_gain, 32)
+        self.assertEqual(shoulder.position_raw, 2049)
+        self.assertEqual(shoulder.load_raw, 101)
+        self.assertEqual(shoulder.current_raw, 21)
+        self.assertEqual(shoulder.voltage_raw, 120)
+        self.assertEqual(shoulder.torque_limit_raw, 780)
+        self.assertEqual(shoulder.goal_position_raw, 2051)
+        self.assertEqual(shoulder.model_number, 777)
+        self.assertEqual(shoulder.firmware_major_version, 2)
+        self.assertEqual(shoulder.firmware_minor_version, 55)
+        self.assertEqual(shoulder.maximum_torque_limit_raw, 1000)
+        self.assertEqual(shoulder.minimum_startup_force_raw, 20)
+        self.assertEqual(shoulder.cw_dead_zone_raw, 1)
+        self.assertEqual(shoulder.ccw_dead_zone_raw, 1)
+        self.assertEqual(shoulder.protection_current_raw, 500)
+        self.assertEqual(shoulder.operating_mode, 0)
+        self.assertEqual(shoulder.protective_torque_raw, 20)
+        self.assertEqual(shoulder.protection_time_raw, 100)
+        self.assertEqual(shoulder.overload_torque_raw, 100)
 
     def test_position_get_state_uses_extended_response_timeout(self) -> None:
         transport = ActuatorTransport(FakeSerial(), response_timeout_s=0.12)
@@ -315,7 +472,28 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
             response_timeout_s=0.01,
         )
         hello = transport.enter_binary_mode()
-        self.assertEqual(hello.capabilities, 0x0000000F)
+        self.assertEqual(hello.capabilities, 0x000003FF)
+
+    def test_heartbeat_requires_matching_state_acknowledgement(self) -> None:
+        serial = FakeSerial()
+        transport = ActuatorTransport(serial, response_timeout_s=0.01)
+        transport.enter_binary_mode()
+
+        state = transport.heartbeat()
+
+        self.assertEqual(serial.heartbeat_request_count, 1)
+        self.assertFalse(state.stop_latched)
+        self.assertEqual(state.status_code, 0)
+        self.assertEqual(HEARTBEAT_RESPONSE_TIMEOUT_S, 0.25)
+
+    def test_disable_requires_firmware_acknowledgement(self) -> None:
+        serial = FakeSerial()
+        transport = ActuatorTransport(serial, response_timeout_s=0.01)
+        transport.enter_binary_mode()
+
+        transport.disable()
+
+        self.assertEqual(serial.disable_request_count, 1)
 
     def test_transport_collects_unsolicited_motion_completion(self) -> None:
         serial = FakeSerial()
@@ -358,7 +536,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
         self.assertEqual(accepted.safety_state, 3)
         self.assertGreater(accepted.request_sequence, 0)
         self.assertEqual(accepted.apply_tick_ms, 1500)
-        self.assertEqual(accepted.calibration_hash, 0x4D62F8D5)
+        self.assertEqual(accepted.calibration_hash, 0x8AD27897)
 
     def test_safe_stop_ack_survives_interleaved_terminal_result(self) -> None:
         transport = ActuatorTransport(

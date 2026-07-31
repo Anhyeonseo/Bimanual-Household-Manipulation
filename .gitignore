@@ -38,6 +38,7 @@ compile_commands.json
 *.log
 *.tmp
 *.bak
+*.orig
 *.swp
 .DS_Store
 Thumbs.db

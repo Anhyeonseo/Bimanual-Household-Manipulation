@@ -7,6 +7,7 @@ PACKAGE_ROOT = Path("ros2_ws/src/single_arm_bridge")
 sys.path.insert(0, str(PACKAGE_ROOT))
 
 from single_arm_bridge.action_execution import (  # noqa: E402
+    MAX_FINAL_ERROR_RAW,
     ExecutionError,
     ExecutionOutcome,
     MotionExecutionCore,
@@ -34,7 +35,7 @@ class FakeExecutionTransport:
         self.drain_error = None
         self.accepted_status = 0
         self.accepted_sample_count = 1
-        self.accepted_calibration_hash = 0x4D62F8D5
+        self.accepted_calibration_hash = 0x8AD27897
 
     def send_setpoint(self, positions_urad, duration_ms):
         if self.send_error is not None:
@@ -85,11 +86,11 @@ class SingleArmActionExecutionTests(unittest.TestCase):
 
     @staticmethod
     def hello(
-        calibration_hash=0x4D62F8D5,
-        firmware_version=0x00020B00,
+        calibration_hash=0x8AD27897,
+        firmware_version=0x00021800,
         protocol_version=1,
         joint_count=6,
-        capabilities=0x0000000F,
+        capabilities=0x000003FF,
         stop_latched=False,
     ) -> Hello:
         return Hello(
@@ -117,15 +118,18 @@ class SingleArmActionExecutionTests(unittest.TestCase):
                 TerminalState.ABORTED,
                 42,
                 6,
-                21,
-                "final error 21 exceeds 20 raw",
+                31,
+                "final error 31 exceeds 30 raw",
             )
         )
         self.assertEqual(
             message,
             "ARM_EXECUTION_TERMINAL state=aborted sequence=42 "
-            "status=6 detail=21 reason=final error 21 exceeds 20 raw",
+            "status=6 detail=31 reason=final error 31 exceeds 30 raw",
         )
+
+    def test_completion_tolerance_is_30_raw(self) -> None:
+        self.assertEqual(MAX_FINAL_ERROR_RAW, 30)
 
     def test_identity_mismatch_blocks_before_any_setpoint(self) -> None:
         invalid_hellos = (
@@ -157,11 +161,11 @@ class SingleArmActionExecutionTests(unittest.TestCase):
         self.assertTrue(core.active)
         self.assertIsNone(core.poll())
 
-        transport.queue_result(sequence, status=6, detail=20)
+        transport.queue_result(sequence, status=6, detail=30)
         outcome = core.poll()
         self.assertIsNotNone(outcome)
         self.assertEqual(outcome.state, TerminalState.SUCCEEDED)
-        self.assertEqual(outcome.final_error_raw, 20)
+        self.assertEqual(outcome.final_error_raw, 30)
         self.assertFalse(core.active)
         self.assertFalse(core.blocked)
 
@@ -169,7 +173,7 @@ class SingleArmActionExecutionTests(unittest.TestCase):
         transport = FakeExecutionTransport()
         core = self.make_core(transport)
         sequence = core.start_goal([0.0] * 6, 1000)
-        transport.queue_result(sequence, status=6, detail=21)
+        transport.queue_result(sequence, status=6, detail=31)
         outcome = core.poll()
         self.assertEqual(outcome.state, TerminalState.ABORTED)
         self.assertIn("soft abort without safety latch", outcome.reason)

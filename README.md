@@ -15,17 +15,29 @@ Raspberry Pi 5, ROS 2 Jazzy, STM32G474, 두 대의 SO-ARM101과 세 대의 USB �
 
 ## 현재 상태
 
-- 완료 범위: NUCLEO-G474RE 기반 왼팔 STS3215 6축 제어와 단계 6 Top 카메라 인식
-- 펌웨어: binary protocol v1, COBS/CRC-32C, 500ms heartbeat, SAFE_STOP, 물리 torque-disable와 6축 절대 위치 명령
-- 보정(calibration): 홈 raw 2048, µrad 관절 좌표 변환, 배포 hash `0x4D62F8D5`
-- 검증 펌웨어: `0x00020B00`, Shoulder/Elbow 확장 operational limit, identity/READ_ONLY/MOTION_ENABLED/축별 소각도 실기 통과
-- ROS 2: Pi bridge의 `/joint_states`, READ_ONLY 차단, `/clear_fault`, MoveIt single-point 실행과 fail-closed feedback 처리 통과
-- 카메라: 3대 MJPEG capture, hot-plug 복구, Top eye-to-hand·table–base 등록과 검은 펜 위치 검증 통과
-- 성능: RGB 3개 topic과 STM32 bridge 동시 부하에서 CPU 평균 6.38%, `/joint_states` 5.008Hz, heartbeat 위반 0
-- 현재 simulation: 왼팔 URDF/Xacro, 카메라 장착물, MoveIt mock, Isaac Sim 6.0.1 backend 검증 완료
-- 현재 단계: 단계 6 완료, 단계 7의 shadow target·도달영역·확장 범위 plan-only 및 제한된 축별 실기까지 통과
-- 다음 gate: 자동 실행 없이 분할한 pregrasp 접근을 검증한 뒤 grasp/place 상태 머신과 50회 반복 시험
-- 확장 방향: 동일한 µrad 관절 규격을 사용해 왼팔 실물, 향후 양팔 실물, Isaac Sim backend를 교체할 수 있게 구성
+- 완료 범위: NUCLEO-G474RE 기반 왼팔 STS3215 6축 제어, 단계 6 Top
+  카메라 인식, 단계 7 감독형 Pick/Place 시운전 1회
+- 현재 장착 펌웨어: `0x00021800`; protocol `1`, calibration
+  `0x8AD27897`, capabilities `0x000003FF`
+- 펌웨어: COBS/CRC-32C, acknowledged heartbeat, SAFE_STOP, 물리
+  torque-disable, cooperative motion, 서보 UART frame 재동기화·완전 복구와
+  실패 원인 진단
+- 제어 설정: Shoulder P32/torque 780, Elbow P28/torque 650. 실제 grasp,
+  약 20 mm lift, Place, release, retreat와 q0 복귀 통과
+- ROS 2: Pi bridge의 `/joint_states`, READ_ONLY 차단, MoveIt 표준 Action,
+  commanded gripper hold, fail-closed feedback와 무경고 shutdown 통과
+- 카메라: 3대 MJPEG capture, hot-plug 복구, Top eye-to-hand·table–base
+  등록과 검은 펜 위치 검증 통과
+- 성능: RGB 3개 topic과 STM32 bridge 동시 부하에서 CPU 평균 6.38%,
+  `/joint_states` 5.008 Hz, heartbeat 위반 0
+- simulation: 동일한 왼팔 URDF/Xacro q0 계약, 카메라 장착물, MoveIt mock,
+  Isaac Sim 6.0.1 backend 검증 완료
+- 단계 7 내부 시운전: **100%**. 단, 로드맵의 정식 합격 조건인 50회 중
+  90% 이상 반복 시험은 미실행이므로 검증 매트릭스 상태는 `부분 통과`
+- 다음 gate: single-point 정착 체인을 multi-point/buffered trajectory 계약으로
+  교체·검증한 뒤 50회 반복 benchmark 수행
+- 확장 방향: 동일한 µrad 관절 규격을 사용해 왼팔 실물, 향후 양팔 실물,
+  Isaac Sim backend를 교체할 수 있게 구성
 
 ## 새 개발 환경 준비
 
@@ -110,6 +122,11 @@ cp bridge.local.yaml.example bridge.local.yaml
 - [단계 5 STM32 READ_ONLY 실기 결과](docs/test-results/2026-07-25-phase5-stm32-read-only.md)
 - [단계 6 Top 물체 좌표 검증](docs/test-results/2026-07-30-top-object-ground-truth-validation.md)
 - [단계 7 물리 범위 재검증·배포 결과](docs/test-results/2026-07-30-physical-range-revalidation.md)
+- [단계 7 Shoulder 근본 원인과 0x00020E00 후보](docs/test-results/2026-07-30-stage7-shoulder-root-cause-remediation.md)
+- [단계 7 감독형 실제 Pick/Place 1회 완주](docs/test-results/2026-07-31-stage7-supervised-pick-place-complete.md)
+- [0x00020E00 물리 거절: heartbeat RX starvation](docs/test-results/2026-07-31-stm32-0x00020e00-rejected-heartbeat-rx.md)
+- [0x00020F00 acknowledged-heartbeat 후보와 물리 거절](docs/test-results/2026-07-31-stm32-0x00020f00-heartbeat-ack-candidate.md)
+- [0x00021000 interrupt-buffered cooperative-motion 로컬 후보](docs/test-results/2026-07-31-stm32-0x00021000-interrupt-buffered-cooperative-motion-candidate.md)
 - [eye-to-hand 보정 세션 정리 기록](docs/test-results/2026-07-30-top-eye-to-hand-session-cleanup.md)
 - [로컬 하드웨어 설정](docs/LOCAL_HARDWARE_CONFIG.md)
 - [제3자 license 고지](THIRD_PARTY_NOTICES.md)

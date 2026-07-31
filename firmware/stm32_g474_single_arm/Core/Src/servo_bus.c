@@ -1,14 +1,25 @@
 #include "servo_bus.h"
+#include "servo_response_parser.h"
 
 #include <stddef.h>
 #include <string.h>
 
+#define SERVO_BUS_READ_TIMEOUT_MS UINT32_C(50)
+#define SERVO_BUS_MAX_RX_BYTES UINT16_C(64)
+#define SERVO_BUS_RECOVERY_QUIET_MS UINT32_C(2)
+#define SERVO_BUS_WRITE_REPLY_SETTLE_MS UINT32_C(2)
+
 static UART_HandleTypeDef *servo_uart_handle = NULL;
 static ServoStopRequestedFn servo_stop_requested = NULL;
 static ServoReadFailureFn servo_read_failure = NULL;
+static uint16_t servo_bus_recovery_count = 0U;
+static ServoBusDiagnostics servo_bus_diagnostics = {
+    SERVO_BUS_FAILURE_NONE, 0U, 0U, 0U, 0U, 0U, 0U, 0U
+};
 
 static uint8_t servo_motion_safety_mask = 0U;
 static uint32_t servo_motion_safety_last_sample_ms = 0U;
+static uint8_t servo_motion_safety_next_joint = 0U;
 static uint8_t servo_load_limit_counts[SINGLE_ARM_JOINT_COUNT] = {0U};
 static uint8_t servo_current_limit_counts[SINGLE_ARM_JOINT_COUNT] = {0U};
 static ServoMotionSafetyDiagnostics servo_motion_safety_diagnostics = {
@@ -17,8 +28,10 @@ static ServoMotionSafetyDiagnostics servo_motion_safety_diagnostics = {
 
 const ServoJointConfig servo_joints[SINGLE_ARM_JOINT_COUNT] = {
     {1U, "BASE",        1U, 2048U, 2048U, 2610U, 16U,  1,  34U,  600U, 400U},
-    {2U, "SHOULDER",    1U, 2048U, 1988U, 3766U, 16U,  1,  34U, 1200U, 650U},
-    {3U, "ELBOW",       1U, 2048U, 627U, 2258U, 24U, -1,  34U, 1000U, 550U},
+    {2U, "SHOULDER",    1U, 2048U, 1988U, 3766U, 32U,  1,  34U, 1200U,
+        SERVO_SHOULDER_TORQUE_LIMIT_RAW},
+    {3U, "ELBOW",       1U, 2048U, 627U, 2258U, 28U, -1,  34U, 1000U,
+        SERVO_ELBOW_TORQUE_LIMIT_RAW},
     {4U, "WRIST_FLEX",  1U, 2048U, 1194U, 2048U, 16U, -1,  34U,  800U, 400U},
     {5U, "WRIST_ROLL",  1U, 2048U, 1874U, 2219U, 16U,  1,  34U,  500U, 250U},
     {6U, "GRIPPER",     1U, 2048U, 1866U, 2048U, 16U, -1,  34U,  800U, 150U}
@@ -37,12 +50,119 @@ void ServoBus_Init(
     servo_stop_requested = stop_requested;
     servo_read_failure = read_failure;
     servo_last_all_read_failed_id = 0U;
+    servo_bus_recovery_count = 0U;
+    memset(&servo_bus_diagnostics, 0, sizeof(servo_bus_diagnostics));
     Servo_MotionSafetyEnd();
     memset(
         &servo_motion_safety_diagnostics,
         0,
         sizeof(servo_motion_safety_diagnostics)
     );
+}
+
+const ServoBusDiagnostics *ServoBus_GetDiagnostics(void)
+{
+    return &servo_bus_diagnostics;
+}
+
+static void ServoBus_ClearRxState(void)
+{
+    if (servo_uart_handle == NULL)
+    {
+        return;
+    }
+
+    __HAL_UART_CLEAR_FLAG(
+        servo_uart_handle,
+        UART_CLEAR_OREF |
+        UART_CLEAR_NEF |
+        UART_CLEAR_PEF |
+        UART_CLEAR_FEF |
+        UART_CLEAR_RTOF
+    );
+    __HAL_UART_SEND_REQ(
+        servo_uart_handle,
+        UART_RXDATA_FLUSH_REQUEST
+    );
+}
+
+static void ServoBus_BeginTransaction(uint8_t servo_id)
+{
+    memset(&servo_bus_diagnostics, 0, sizeof(servo_bus_diagnostics));
+    servo_bus_diagnostics.servo_id = servo_id;
+    servo_bus_diagnostics.recovery_count = servo_bus_recovery_count;
+    ServoBus_ClearRxState();
+}
+
+static void ServoBus_RecordFailure(
+    ServoBusFailureReason reason,
+    uint8_t servo_id,
+    HAL_StatusTypeDef hal_status,
+    uint8_t servo_status,
+    uint16_t discarded_bytes
+)
+{
+    servo_bus_diagnostics.reason = reason;
+    servo_bus_diagnostics.servo_id = servo_id;
+    servo_bus_diagnostics.hal_status = (uint8_t)hal_status;
+    servo_bus_diagnostics.servo_status = servo_status;
+    servo_bus_diagnostics.discarded_bytes = discarded_bytes;
+
+    if (servo_uart_handle != NULL)
+    {
+        servo_bus_diagnostics.uart_error_code =
+            servo_uart_handle->ErrorCode;
+        servo_bus_diagnostics.uart_isr =
+            servo_uart_handle->Instance->ISR;
+    }
+}
+
+static HAL_StatusTypeDef ServoBus_Recover(void)
+{
+    if (servo_uart_handle == NULL)
+    {
+        servo_bus_diagnostics.reason = SERVO_BUS_FAILURE_RECOVERY;
+        return HAL_ERROR;
+    }
+
+    HAL_StatusTypeDef status = HAL_UART_Abort(servo_uart_handle);
+    if (servo_bus_recovery_count < UINT16_MAX)
+    {
+        servo_bus_recovery_count++;
+    }
+    servo_bus_diagnostics.recovery_count = servo_bus_recovery_count;
+
+    ServoBus_ClearRxState();
+    HAL_Delay(SERVO_BUS_RECOVERY_QUIET_MS);
+    ServoBus_ClearRxState();
+
+    if (status != HAL_OK)
+    {
+        servo_bus_diagnostics.reason = SERVO_BUS_FAILURE_RECOVERY;
+        servo_bus_diagnostics.hal_status = (uint8_t)status;
+        return status;
+    }
+    return HAL_OK;
+}
+
+static ServoBusFailureReason ServoBus_MapRejectReason(
+    ServoResponseRejectReason reason
+)
+{
+    switch (reason)
+    {
+        case SERVO_RESPONSE_REJECT_HEADER:
+            return SERVO_BUS_FAILURE_HEADER;
+        case SERVO_RESPONSE_REJECT_ID:
+            return SERVO_BUS_FAILURE_ID;
+        case SERVO_RESPONSE_REJECT_LENGTH:
+            return SERVO_BUS_FAILURE_LENGTH;
+        case SERVO_RESPONSE_REJECT_CHECKSUM:
+            return SERVO_BUS_FAILURE_CHECKSUM;
+        case SERVO_RESPONSE_REJECT_NONE:
+        default:
+            return SERVO_BUS_FAILURE_RX_TIMEOUT;
+    }
 }
 
 static uint8_t Servo_Checksum(
@@ -275,7 +395,10 @@ HAL_StatusTypeDef Servo_ReadData(
     uint8_t *data
 )
 {
-    if ((data_length == 0U) || (data_length > 16U))
+    if ((servo_uart_handle == NULL) ||
+        (data == NULL) ||
+        (data_length == 0U) ||
+        (data_length > 16U))
     {
         return HAL_ERROR;
     }
@@ -285,12 +408,12 @@ HAL_StatusTypeDef Servo_ReadData(
         0x02U, 0x00U, 0x00U, 0x00U
     };
 
-    uint8_t reply[22] = {0U};
-
     request[2] = servo_id;
     request[5] = start_address;
     request[6] = data_length;
     request[7] = Servo_Checksum(request, 6U);
+
+    ServoBus_BeginTransaction(servo_id);
 
     HAL_StatusTypeDef status = HAL_UART_Transmit(
         servo_uart_handle,
@@ -301,43 +424,114 @@ HAL_StatusTypeDef Servo_ReadData(
 
     if (status != HAL_OK)
     {
+        ServoBus_RecordFailure(
+            SERVO_BUS_FAILURE_TX,
+            servo_id,
+            status,
+            0U,
+            0U
+        );
+        (void)ServoBus_Recover();
         return status;
     }
 
-    uint16_t reply_length = (uint16_t)data_length + 6U;
+    ServoResponseParser parser;
+    ServoResponseParser_Init(&parser, servo_id, data_length);
+    uint32_t start_tick = HAL_GetTick();
+    HAL_StatusTypeDef receive_status = HAL_TIMEOUT;
 
-    status = HAL_UART_Receive(
-        servo_uart_handle,
-        reply,
-        reply_length,
-        100U
-    );
-
-    if (status != HAL_OK)
+    for (uint16_t received = 0U;
+         received < SERVO_BUS_MAX_RX_BYTES;
+         received++)
     {
-        return status;
+        uint32_t elapsed = HAL_GetTick() - start_tick;
+        if (elapsed >= SERVO_BUS_READ_TIMEOUT_MS)
+        {
+            break;
+        }
+
+        uint8_t byte = 0U;
+        receive_status = HAL_UART_Receive(
+            servo_uart_handle,
+            &byte,
+            1U,
+            SERVO_BUS_READ_TIMEOUT_MS - elapsed
+        );
+        if (receive_status != HAL_OK)
+        {
+            uint32_t uart_errors = servo_uart_handle->ErrorCode;
+            uint32_t uart_flags = servo_uart_handle->Instance->ISR &
+                (UART_FLAG_PE |
+                 UART_FLAG_FE |
+                 UART_FLAG_NE |
+                 UART_FLAG_ORE |
+                 UART_FLAG_RTOF);
+            ServoBusFailureReason failure_reason =
+                SERVO_BUS_FAILURE_RX_TIMEOUT;
+            if ((uart_errors != HAL_UART_ERROR_NONE) ||
+                (uart_flags != 0U))
+            {
+                failure_reason = SERVO_BUS_FAILURE_UART;
+            }
+            else if (parser.last_reject != SERVO_RESPONSE_REJECT_NONE)
+            {
+                /*
+                 * Preserve the parser's concrete rejection cause when a
+                 * corrupt or stale frame is followed by silence. Reporting
+                 * only the final byte timeout would hide the evidence needed
+                 * to distinguish desynchronization from a disconnected bus.
+                 */
+                failure_reason = ServoBus_MapRejectReason(
+                    parser.last_reject
+                );
+            }
+            ServoBus_RecordFailure(
+                failure_reason,
+                servo_id,
+                receive_status,
+                0U,
+                parser.discarded_bytes
+            );
+            break;
+        }
+
+        ServoResponseParseResult parse_result =
+            ServoResponseParser_Push(&parser, byte);
+        if (parse_result == SERVO_RESPONSE_FRAME_READY)
+        {
+            memcpy(data, ServoResponseParser_Data(&parser), data_length);
+            servo_bus_diagnostics.discarded_bytes =
+                parser.discarded_bytes;
+            return HAL_OK;
+        }
+        if (parse_result == SERVO_RESPONSE_STATUS_ERROR)
+        {
+            ServoBus_RecordFailure(
+                SERVO_BUS_FAILURE_STATUS,
+                servo_id,
+                HAL_ERROR,
+                parser.servo_status,
+                parser.discarded_bytes
+            );
+            (void)ServoBus_Recover();
+            return HAL_ERROR;
+        }
     }
 
-    if ((reply[0] != 0xFFU) ||
-        (reply[1] != 0xFFU) ||
-        (reply[2] != servo_id) ||
-        (reply[3] != (uint8_t)(data_length + 2U)) ||
-        (reply[4] != 0x00U) ||
-        (reply[data_length + 5U] !=
-            Servo_Checksum(
-                reply,
-                (uint8_t)(data_length + 4U)
-            )))
+    HAL_StatusTypeDef terminal_status =
+        (receive_status == HAL_OK) ? HAL_ERROR : receive_status;
+    if (servo_bus_diagnostics.reason == SERVO_BUS_FAILURE_NONE)
     {
-        return HAL_ERROR;
+        ServoBus_RecordFailure(
+            ServoBus_MapRejectReason(parser.last_reject),
+            servo_id,
+            terminal_status,
+            0U,
+            parser.discarded_bytes
+        );
     }
-
-    for (uint8_t i = 0U; i < data_length; i++)
-    {
-        data[i] = reply[5U + i];
-    }
-
-    return HAL_OK;
+    (void)ServoBus_Recover();
+    return terminal_status;
 }
 
 HAL_StatusTypeDef Servo_WriteData(
@@ -347,13 +541,15 @@ HAL_StatusTypeDef Servo_WriteData(
     uint8_t data_length
 )
 {
-    if ((data_length == 0U) || (data_length > 16U))
+    if ((servo_uart_handle == NULL) ||
+        (data == NULL) ||
+        (data_length == 0U) ||
+        (data_length > 16U))
     {
         return HAL_ERROR;
     }
 
     uint8_t packet[23] = {0U};
-    uint8_t status_reply[6] = {0U};
 
     packet[0] = 0xFFU;
     packet[1] = 0xFFU;
@@ -374,6 +570,8 @@ HAL_StatusTypeDef Servo_WriteData(
         (uint8_t)(checksum_index - 1U)
     );
 
+    ServoBus_BeginTransaction(servo_id);
+
     HAL_StatusTypeDef status = HAL_UART_Transmit(
         servo_uart_handle,
         packet,
@@ -381,18 +579,28 @@ HAL_StatusTypeDef Servo_WriteData(
         100U
     );
 
-    if (status == HAL_OK)
+    if (status != HAL_OK)
     {
-        /* WRITE 응답이 설정된 경우 수신 버퍼에서 제거 */
-        (void)HAL_UART_Receive(
-            servo_uart_handle,
-            status_reply,
-            sizeof(status_reply),
-            2U
+        ServoBus_RecordFailure(
+            SERVO_BUS_FAILURE_TX,
+            servo_id,
+            status,
+            0U,
+            0U
         );
+        (void)ServoBus_Recover();
+        return status;
     }
 
-    return status;
+    /*
+     * Safety-critical callers verify runtime writes by register readback. Do
+     * not start a fixed six-byte receive that can time out halfway through a
+     * late optional status frame and poison the next READ. Let an optional
+     * reply finish on the wire, then discard it atomically.
+     */
+    HAL_Delay(SERVO_BUS_WRITE_REPLY_SETTLE_MS);
+    ServoBus_ClearRxState();
+    return HAL_OK;
 }
 
 HAL_StatusTypeDef Servo_ReadPosition(
@@ -495,8 +703,9 @@ static uint16_t Servo_CurrentMagnitude(uint16_t current_raw)
 void Servo_MotionSafetyBegin(uint8_t joint_mask)
 {
     servo_motion_safety_mask = joint_mask;
+    servo_motion_safety_next_joint = 0U;
     servo_motion_safety_last_sample_ms =
-        HAL_GetTick() - SERVO_MOTION_SAFETY_SAMPLE_MS;
+        HAL_GetTick() - SERVO_MOTION_SAFETY_SLOT_MS;
 
     memset(
         servo_load_limit_counts,
@@ -518,6 +727,7 @@ void Servo_MotionSafetyBegin(uint8_t joint_mask)
 void Servo_MotionSafetyEnd(void)
 {
     servo_motion_safety_mask = 0U;
+    servo_motion_safety_next_joint = 0U;
 }
 
 const ServoMotionSafetyDiagnostics *Servo_MotionSafetyGetDiagnostics(void)
@@ -531,15 +741,26 @@ HAL_StatusTypeDef Servo_MotionSafetyPoll(void)
 
     if ((servo_motion_safety_mask == 0U) ||
         ((now - servo_motion_safety_last_sample_ms) <
-            SERVO_MOTION_SAFETY_SAMPLE_MS))
+            SERVO_MOTION_SAFETY_SLOT_MS))
     {
         return HAL_OK;
     }
 
     servo_motion_safety_last_sample_ms = now;
 
-    for (uint8_t i = 0U; i < servo_joint_count; i++)
+    /*
+     * Sample exactly one enabled joint per call. A six-joint synchronous sweep
+     * can occupy the main loop long enough to starve host traffic. Round-robin
+     * slots retain approximately the original 100 ms per-joint cadence while
+     * bounding one service call to one servo transaction.
+     */
+    for (uint8_t checked = 0U; checked < servo_joint_count; checked++)
     {
+        uint8_t i = servo_motion_safety_next_joint;
+        servo_motion_safety_next_joint = (uint8_t)(
+            (servo_motion_safety_next_joint + 1U) % servo_joint_count
+        );
+
         if ((servo_motion_safety_mask & (uint8_t)(1U << i)) == 0U)
         {
             continue;
@@ -569,25 +790,18 @@ HAL_StatusTypeDef Servo_MotionSafetyPoll(void)
             return HAL_ERROR;
         }
 
-        uint16_t load_magnitude =
-            (uint16_t)(load_raw & 0x03FFU);
-        uint16_t current_magnitude =
-            Servo_CurrentMagnitude(current_raw);
+        uint16_t load_magnitude = (uint16_t)(load_raw & 0x03FFU);
+        uint16_t current_magnitude = Servo_CurrentMagnitude(current_raw);
 
-        servo_motion_safety_diagnostics.servo_id =
-            servo_joints[i].id;
-        servo_motion_safety_diagnostics.last_load_raw =
-            load_magnitude;
-        servo_motion_safety_diagnostics.last_current_raw =
-            current_magnitude;
+        servo_motion_safety_diagnostics.servo_id = servo_joints[i].id;
+        servo_motion_safety_diagnostics.last_load_raw = load_magnitude;
+        servo_motion_safety_diagnostics.last_current_raw = current_magnitude;
 
         if (load_magnitude >
             servo_motion_safety_diagnostics.maximum_load_raw)
         {
-            servo_motion_safety_diagnostics.maximum_load_raw =
-                load_magnitude;
+            servo_motion_safety_diagnostics.maximum_load_raw = load_magnitude;
         }
-
         if (current_magnitude >
             servo_motion_safety_diagnostics.maximum_current_raw)
         {
@@ -626,7 +840,6 @@ HAL_StatusTypeDef Servo_MotionSafetyPoll(void)
                 SERVO_MOTION_SAFETY_LOAD_LIMIT;
             return HAL_BUSY;
         }
-
         if (servo_current_limit_counts[i] >=
             SERVO_MOTION_LIMIT_CONSECUTIVE)
         {
@@ -634,6 +847,7 @@ HAL_StatusTypeDef Servo_MotionSafetyPoll(void)
                 SERVO_MOTION_SAFETY_CURRENT_LIMIT;
             return HAL_BUSY;
         }
+        return HAL_OK;
     }
 
     return HAL_OK;
@@ -821,6 +1035,7 @@ HAL_StatusTypeDef Servo_ConfigureForTrajectory(
     HAL_Delay(20U);
 
     uint8_t pid_readback[3] = {0U};
+    uint8_t torque_limit_readback[2] = {0U};
 
     if ((Servo_ReadData(
             servo_id,
@@ -830,12 +1045,76 @@ HAL_StatusTypeDef Servo_ConfigureForTrajectory(
         ) != HAL_OK) ||
         (pid_readback[0] != p_gain) ||
         (pid_readback[1] != 32U) ||
-        (pid_readback[2] != 0U))
+        (pid_readback[2] != 0U) ||
+        (Servo_ReadData(
+            servo_id,
+            48U,
+            sizeof(torque_limit_readback),
+            torque_limit_readback
+        ) != HAL_OK) ||
+        (torque_limit_readback[0] !=
+            (uint8_t)(torque_limit & 0xFFU)) ||
+        (torque_limit_readback[1] !=
+            (uint8_t)((torque_limit >> 8) & 0xFFU)))
     {
         return HAL_ERROR;
     }
 
     return HAL_OK;
+}
+
+void Servo_PositionSweepBegin(ServoPositionSweep *sweep)
+{
+    if (sweep == NULL)
+    {
+        return;
+    }
+
+    memset(sweep, 0, sizeof(*sweep));
+    servo_last_all_read_failed_id = 0U;
+}
+
+HAL_StatusTypeDef Servo_PositionSweepStep(ServoPositionSweep *sweep)
+{
+    if (sweep == NULL)
+    {
+        return HAL_ERROR;
+    }
+    if (sweep->next_joint >= servo_joint_count)
+    {
+        return HAL_OK;
+    }
+
+    uint8_t joint = sweep->next_joint;
+    uint16_t position = 0U;
+
+    HAL_Delay(10U);
+    HAL_StatusTypeDef read_status = Servo_ReadPosition(
+        servo_joints[joint].id,
+        &position
+    );
+
+    if (read_status == HAL_OK)
+    {
+        sweep->positions[joint] = position;
+        sweep->next_joint++;
+        sweep->attempt = 0U;
+        return (sweep->next_joint >= servo_joint_count) ?
+            HAL_OK : HAL_BUSY;
+    }
+
+    sweep->attempt++;
+    if (sweep->attempt < 3U)
+    {
+        return HAL_BUSY;
+    }
+
+    servo_last_all_read_failed_id = servo_joints[joint].id;
+    if (servo_read_failure != NULL)
+    {
+        servo_read_failure(servo_last_all_read_failed_id);
+    }
+    return HAL_ERROR;
 }
 
 HAL_StatusTypeDef Servo_ReadAllPositions(
@@ -847,48 +1126,19 @@ HAL_StatusTypeDef Servo_ReadAllPositions(
         return HAL_ERROR;
     }
 
-    servo_last_all_read_failed_id = 0U;
+    ServoPositionSweep sweep;
+    Servo_PositionSweepBegin(&sweep);
 
-    for (uint8_t i = 0U; i < servo_joint_count; i++)
+    HAL_StatusTypeDef status = HAL_BUSY;
+    while (status == HAL_BUSY)
     {
-        HAL_StatusTypeDef read_status = HAL_ERROR;
-
-        for (uint8_t attempt = 0U; attempt < 3U; attempt++)
-        {
-            HAL_Delay(10U);
-
-            read_status = Servo_ReadPosition(
-                servo_joints[i].id,
-                &positions[i]
-            );
-
-            if (read_status == HAL_OK)
-            {
-                break;
-            }
-
-            __HAL_UART_CLEAR_OREFLAG(servo_uart_handle);
-            __HAL_UART_SEND_REQ(
-                servo_uart_handle,
-                UART_RXDATA_FLUSH_REQUEST
-            );
-        }
-
-        if (read_status != HAL_OK)
-        {
-            servo_last_all_read_failed_id =
-                servo_joints[i].id;
-
-            if (servo_read_failure != NULL)
-            {
-                servo_read_failure(servo_last_all_read_failed_id);
-            }
-
-            return read_status;
-        }
+        status = Servo_PositionSweepStep(&sweep);
     }
-
-    return HAL_OK;
+    if (status == HAL_OK)
+    {
+        memcpy(positions, sweep.positions, sizeof(sweep.positions));
+    }
+    return status;
 }
 
 HAL_StatusTypeDef Servo_SyncWritePositions(

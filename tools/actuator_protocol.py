@@ -19,6 +19,8 @@ HEADER = struct.Struct("<HBBHHII")
 CRC = struct.Struct("<I")
 STATE_FEEDBACK_BASE = struct.Struct("<BBBBIIII")
 STATE_FEEDBACK_POSITIONS = struct.Struct("<6H")
+STATE_FEEDBACK_POSITION_READ_FAILURE_LEGACY = struct.Struct("<BBBB")
+STATE_FEEDBACK_POSITION_READ_FAILURE = struct.Struct("<BBBBBBHH2xII")
 
 
 class MessageType(IntEnum):
@@ -69,16 +71,36 @@ class StateFeedback:
     calibration_hash: int
     last_heartbeat_ms: int
     raw_positions: tuple[int, ...] | None = None
+    position_read_failed_servo_id: int | None = None
+    position_read_failure_streak: int = 0
+    position_read_failure_limit: int = 0
+    position_read_failure_reason: int = 0
+    position_read_hal_status: int = 0
+    position_read_servo_status: int = 0
+    position_read_recovery_count: int = 0
+    position_read_discarded_bytes: int = 0
+    position_read_uart_error_code: int = 0
+    position_read_uart_isr: int = 0
 
 
 def parse_state_feedback(payload: bytes) -> StateFeedback:
-    """Parse legacy state or capability-bit-3 position feedback."""
+    """Parse state, position feedback, or position-read failure diagnostics."""
 
     base_size = STATE_FEEDBACK_BASE.size
     position_size = STATE_FEEDBACK_POSITIONS.size
-    if len(payload) not in (base_size, base_size + position_size):
+    legacy_failure_size = STATE_FEEDBACK_POSITION_READ_FAILURE_LEGACY.size
+    failure_size = STATE_FEEDBACK_POSITION_READ_FAILURE.size
+    valid_lengths = (
+        base_size,
+        base_size + legacy_failure_size,
+        base_size + failure_size,
+        base_size + position_size,
+    )
+    if len(payload) not in valid_lengths:
         raise ProtocolError(
-            f"STATE_FEEDBACK payload must be {base_size} or "
+            "STATE_FEEDBACK payload must be "
+            f"{base_size}, {base_size + legacy_failure_size}, "
+            f"{base_size + failure_size}, or "
             f"{base_size + position_size} bytes"
         )
 
@@ -94,8 +116,40 @@ def parse_state_feedback(payload: bytes) -> StateFeedback:
     ) = STATE_FEEDBACK_BASE.unpack_from(payload)
 
     raw_positions = None
+    failed_servo_id = None
+    failure_streak = 0
+    failure_limit = 0
+    failure_reason = 0
+    hal_status = 0
+    servo_status = 0
+    recovery_count = 0
+    discarded_bytes = 0
+    uart_error_code = 0
+    uart_isr = 0
     if len(payload) == base_size + position_size:
         raw_positions = STATE_FEEDBACK_POSITIONS.unpack_from(payload, base_size)
+    elif len(payload) == base_size + legacy_failure_size:
+        (
+            failed_servo_id,
+            failure_streak,
+            failure_limit,
+            _,
+        ) = STATE_FEEDBACK_POSITION_READ_FAILURE_LEGACY.unpack_from(
+            payload, base_size
+        )
+    elif len(payload) == base_size + failure_size:
+        (
+            failed_servo_id,
+            failure_streak,
+            failure_limit,
+            failure_reason,
+            hal_status,
+            servo_status,
+            recovery_count,
+            discarded_bytes,
+            uart_error_code,
+            uart_isr,
+        ) = STATE_FEEDBACK_POSITION_READ_FAILURE.unpack_from(payload, base_size)
 
     return StateFeedback(
         stop_latched=stop_latched != 0,
@@ -107,6 +161,16 @@ def parse_state_feedback(payload: bytes) -> StateFeedback:
         calibration_hash=calibration_hash,
         last_heartbeat_ms=last_heartbeat_ms,
         raw_positions=raw_positions,
+        position_read_failed_servo_id=failed_servo_id,
+        position_read_failure_streak=failure_streak,
+        position_read_failure_limit=failure_limit,
+        position_read_failure_reason=failure_reason,
+        position_read_hal_status=hal_status,
+        position_read_servo_status=servo_status,
+        position_read_recovery_count=recovery_count,
+        position_read_discarded_bytes=discarded_bytes,
+        position_read_uart_error_code=uart_error_code,
+        position_read_uart_isr=uart_isr,
     )
 
 
