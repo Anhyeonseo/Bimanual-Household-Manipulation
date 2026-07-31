@@ -1,4 +1,4 @@
-# 화면 없이 운영하는(Headless) 양팔 로봇 조작 시스템
+# Headless 양팔 로봇 조작 시스템
 
 Raspberry Pi 5, ROS 2 Jazzy, STM32G474, 두 대의 SO-ARM101과 세 대의 USB 카메라를 통합하는 멀티카메라 듀얼암 로봇 프로젝트다.
 
