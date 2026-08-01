@@ -91,8 +91,9 @@ STM32
 2. 시간축, queue, cancel, HOLD, continuous diagnostics와 tracking error 계약을
    단위 시험·mock·plan-only·제한 실기로 검증한다.
 3. Pick/Place TCP-to-contact offset을 분리하고 Place 후보 0.015 m를 다시 계측한다.
-4. 반사·무늬 배경에서 펜을 검출하도록 명도+형상 backend를 강화하고,
-   필요하면 YOLO-OBB/segmentation ONNX backend를 같은 출력 계약 뒤에 추가한다.
+4. 반사·무늬 배경 dataset의 SHA·환경 label·miss/false-positive·pose 오차
+   평가 계약을 먼저 고정한 뒤 명도+형상 backend를 강화하고, 필요하면
+   YOLO-OBB/segmentation ONNX backend를 같은 출력 계약 뒤에 추가한다.
 5. 왼쪽 손목 카메라 eye-in-hand와 마지막 수 cm의 bounded visual correction을
    검증한다.
 6. 10회 pilot 뒤 50회 benchmark에서 Pick/Place 각각 90% 이상,
@@ -164,7 +165,8 @@ STM32
 
 ## 5. 바로 다음 작업
 
-다음 구현 이슈는 로봇을 움직이지 않는
-“Pi 5 3카메라·정책 실행 자원 기준선”으로 시작한다. 그 다음 작은 이슈로
-“반사·무늬 배경 펜 검출”, “연속 trajectory 계약”, “Place Z offset”을 각각
-분리한다. Git issue, branch, commit과 PR 조작은 사용자가 직접 수행한다.
+3카메라+bridge 30분 자원 기준선은 통과했다. 현재 작은 이슈는 로봇을
+움직이지 않는 “반사·무늬 배경 펜 검출 데이터 기준선”이며, 다음 이슈에서
+같은 dataset으로 detector backend를 비교한다. 이후 “연속 trajectory 계약”과
+“Place Z offset”을 각각 분리한다. Git issue, branch, commit과 PR 조작은
+사용자가 직접 수행한다.
