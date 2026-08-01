@@ -22,3 +22,11 @@
 
 2026-07-24에 단일 팔 side를 왼팔로 확정했다. 구현 순서는 유지하며 side
 선정 근거는 [ADR-0008](0008-left-arm-first.md)에 기록한다.
+
+## 2026-08-01 구체화
+
+왼팔 감독형 Pick/Place 시운전이 완료되고 오른팔이 정상 복구되었다. policy는
+데스크탑에서 충분히 학습한 뒤 ONNX로 내보내 Pi 5에서 추론한다. 따라서
+구현 순서는 왼팔 생산 기준선, Pi 3카메라·policy 자원 기준선, 오른팔 단독
+동등성, 양팔 통합과 policy 권한 확대 순으로 구체화한다. 상세 역할과 gate는
+[ADR-0012](0012-arm-integration-and-pi-policy-deployment.md)를 따른다.

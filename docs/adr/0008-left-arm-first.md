@@ -1,4 +1,4 @@
-# ADR-0008: 정상인 왼팔 단일 팔 우선
+# ADR-0008: 왼팔 단일 팔 기준선 우선
 
 - 상태: 채택
 - 날짜: 2026-07-24
@@ -34,3 +34,15 @@ rename/migration보다 위험이 낮다. 먼저 단일 팔 vertical slice를 완
 - 과거 문서의 오른팔 우선 기록은 당시 기록으로 남기되 현재 계획과 헌장은
   왼팔 우선으로 갱신한다.
 - 양팔 완료 기준은 변경하지 않는다.
+
+## 2026-08-01 상태 변화
+
+사용자가 오른팔의 정상 작동을 확인했다. 이 변화는 왼팔 우선 결정을
+취소하지 않는다. 왼팔은 이미 firmware, calibration, simulation, MoveIt과
+감독형 Pick/Place 증거가 있으므로 연속 trajectory·perception·Visual Servo와
+50회 benchmark까지 기준선을 먼저 닫는다.
+
+그 다음 오른팔은 정상이라는 보고를 출발점으로 삼되 ID, 방향, q0, range,
+torque/PID, URDF/MoveIt/Isaac, READ_ONLY와 제한 motion을 독립 검증한다.
+두 팔이 단독 기준선을 모두 통과하기 전에는 양팔 motion을 허용하지 않는다.
+통합 순서는 [ADR-0012](0012-arm-integration-and-pi-policy-deployment.md)를 따른다.

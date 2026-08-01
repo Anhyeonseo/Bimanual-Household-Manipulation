@@ -2,7 +2,7 @@
 
 Raspberry Pi 5, ROS 2 Jazzy, STM32G474, 두 대의 SO-ARM101과 세 대의 USB 카메라를 통합하는 멀티카메라 듀얼암 로봇 프로젝트다.
 
-첫 기능 목표는 현재 정상인 왼팔로 마커펜을 옮기는 Pick and Place다. 이후 손목 카메라를 이용한 Visual Servo, Raspberry Pi Headless 운영, 양팔 병렬 작업, Isaac Sim/Isaac Lab policy, 수건 접기 순으로 확장한다.
+첫 생산 기준선은 왼팔의 재현 가능한 마커펜 Pick and Place다. 오른팔은 현재 물리적으로 정상 동작하며, 왼팔 기준선을 완성한 뒤 같은 단독 수락 gate를 통과시키고 양팔로 통합한다.
 
 ## 핵심 원칙
 
@@ -17,6 +17,8 @@ Raspberry Pi 5, ROS 2 Jazzy, STM32G474, 두 대의 SO-ARM101과 세 대의 USB �
 
 - 완료 범위: NUCLEO-G474RE 기반 왼팔 STS3215 6축 제어, 단계 6 Top
   카메라 인식, 단계 7 감독형 Pick/Place 시운전 1회
+- 오른팔: 사용자가 현재 정상 작동을 확인했다. 다음 확장 대상이지만 왼팔과
+  같은 calibration·모델·MoveIt·STM32·반복 실기 gate는 아직 미실행
 - 현재 장착 펌웨어: `0x00021800`; protocol `1`, calibration
   `0x8AD27897`, capabilities `0x000003FF`
 - 펌웨어: COBS/CRC-32C, acknowledged heartbeat, SAFE_STOP, 물리
@@ -27,15 +29,20 @@ Raspberry Pi 5, ROS 2 Jazzy, STM32G474, 두 대의 SO-ARM101과 세 대의 USB �
 - ROS 2: Pi bridge의 `/joint_states`, READ_ONLY 차단, MoveIt 표준 Action,
   commanded gripper hold, fail-closed feedback와 무경고 shutdown 통과
 - 카메라: 3대 MJPEG capture, hot-plug 복구, Top eye-to-hand·table–base
-  등록과 검은 펜 위치 검증 통과
+  등록과 기존 작업대의 검은 펜 위치 검증 통과. 2026-08-01 대리석 무늬
+  배경 재검증에서는 영상은 정상이지만 기존 임계값 검출기가 복수 후보를
+  검출해 fail-closed했으며 강건한 detector upgrade가 남음
 - 성능: RGB 3개 topic과 STM32 bridge 동시 부하에서 CPU 평균 6.38%,
   `/joint_states` 5.008 Hz, heartbeat 위반 0
 - simulation: 동일한 왼팔 URDF/Xacro q0 계약, 카메라 장착물, MoveIt mock,
   Isaac Sim 6.0.1 backend 검증 완료
 - 단계 7 내부 시운전: **100%**. 단, 로드맵의 정식 합격 조건인 50회 중
   90% 이상 반복 시험은 미실행이므로 검증 매트릭스 상태는 `부분 통과`
-- 다음 gate: single-point 정착 체인을 multi-point/buffered trajectory 계약으로
-  교체·검증한 뒤 50회 반복 benchmark 수행
+- 현재 분기점: 왼팔 생산 기준선 완성 → 오른팔 단독 동등성 검증 → 양팔
+  통합 순서로 진행
+- 다음 gate: Pi 5의 3카메라·policy ONNX 자원 기준선, 반사·무늬 배경의
+  강건한 펜 검출, multi-point/buffered trajectory와 Place 접촉 Z 보정을
+  작은 이슈로 분리해 검증한 뒤 왼팔 50회 benchmark 수행
 - 확장 방향: 동일한 µrad 관절 규격을 사용해 왼팔 실물, 향후 양팔 실물,
   Isaac Sim backend를 교체할 수 있게 구성
 
@@ -103,6 +110,7 @@ cp bridge.local.yaml.example bridge.local.yaml
 ## 문서 안내
 
 - [프로젝트 헌장](docs/PROJECT_CHARTER.md)
+- [현재 분기점과 남은 로드맵](docs/CURRENT_STATE_AND_NEXT_ROADMAP.md)
 - [전체 로드맵](docs/ROADMAP.md)
 - [하드웨어 인벤토리](docs/HARDWARE_INVENTORY.md)
 - [단계 0 하드웨어 검사](docs/checklists/PHASE_0_HARDWARE_BASELINE.md)
@@ -153,8 +161,11 @@ Manipulation/
 └── requirements-host.txt
 ```
 
-Isaac Lab policy는 단계 11에서 추가한다. 현재 `isaac_sim/`은 단계 4에서
-검증한 왼팔 simulation asset만 포함한다.
+Isaac Sim/Isaac Lab 학습과 평가는 데스크탑에서 수행하고, 검증된 policy만
+ONNX deployment bundle로 Raspberry Pi 5에 배포한다. 실제 policy의 입력,
+출력과 `control_dt`는 Pi 자원 기준선에서 동결한다. 현재 `isaac_sim/`은
+단계 4에서 검증한 왼팔 simulation asset을 포함하며, 오른팔은 단독 동등성
+gate 뒤에 통합한다.
 
 ## 자동 판정
 

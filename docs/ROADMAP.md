@@ -6,6 +6,27 @@
 - 수치 결과는 `benchmark/results/`에 원본과 요약을 분리해 보관한다.
 - 실제 하드웨어 활성화는 이전 단계의 완료 조건을 충족한 뒤 진행한다.
 
+## 2026-08-01 현재 분기점
+
+- 왼팔은 `0x00021800 / 0x8AD27897`, Shoulder P32, Elbow P28 기준으로
+  감독형 Pick–20 mm lift–Place–release–retreat–q0 전 과정을 1회 완주했다.
+  7단계 시운전 체크리스트는 100%지만 50회 중 90% 이상이라는 정식 반복성
+  기준은 아직 통과하지 않았으므로 단계 7 상태는 `부분 통과`다.
+- 현재 11구간 q0 복귀 같은 촘촘한 single-point 연쇄는 안전한 시운전 수단이지
+  최종 운용 방식이 아니다. 왼팔에서 시간축·queue·cancel/stop semantics가
+  검증된 multi-point/buffered trajectory를 먼저 완성한다.
+- 사용자는 오른팔이 정상 동작한다고 확인했다. 다만 저장소의 정식 수락은
+  identity·calibration·모델/MoveIt·READ_ONLY/MOTION_ENABLED·단독 Pick/Place
+  반복성 증거가 갖춰진 뒤로 분리한다.
+- 통합 순서는 **왼팔 생산 기준선 → 오른팔 단독 동등성 → 양팔 통합**으로 한다.
+  양팔을 동시에 디버깅하며 단일 팔 결함을 가리는 방식은 사용하지 않는다.
+- Isaac Sim/Isaac Lab 학습은 데스크탑에서 수행하고, 검증된 policy만 ONNX
+  배포 묶음으로 Pi 5에 넣어 실제 추론한다. Pi에서 Isaac 학습이나 시뮬레이터를
+  실행하지 않는다.
+- 상세 상태와 남은 gate는
+  [현재 상태와 남은 로드맵](CURRENT_STATE_AND_NEXT_ROADMAP.md), 결정 근거는
+  [ADR-0012](adr/0012-arm-integration-and-pi-policy-deployment.md)를 따른다.
+
 ## 단계 0 — 하드웨어 기준선과 요구사항 동결
 
 - 서보 12축의 ID, 방향, raw 범위와 상태값(feedback) 확인
@@ -28,7 +49,7 @@
 - 단일 팔 UART와 6축 동시 쓰기/읽기
 - 공통 제어 주기(tick)와 크기가 제한된 trajectory buffer
 - 완료 조건: 단일 팔 통신·동작·SAFE_STOP 실기 시험과 protocol 자동 시험 통과
-- 양팔용 독립 UART와 8시간 반복 시험은 단계 10에서 추가
+- 양팔용 독립 UART와 8시간 반복 시험은 단계 11에서 추가
 
 ## 단계 3 — Pi 카메라 관리와 성능 기준선
 
@@ -230,35 +251,63 @@
   [감독형 실제 Pick/Place](test-results/2026-07-31-stage7-supervised-pick-place-complete.md)에
   기록했다.
 
-## 단계 8 — 손목(Wrist) 카메라 Visual Servo
+## 단계 8 — 왼팔 생산 기준선과 Visual Servo
 
-- 손목 카메라 위치 보정(eye-in-hand calibration)
-- 현재 사용하는 손목 카메라만 처리하도록 일정 관리
-- 크기가 제한된 Cartesian 좌표 보정
-- 완료 조건: 오래됐거나 신뢰도가 낮은 입력을 차단하고 최종 정렬 오차 목표 충족
+- single-point 연쇄를 multi-point/buffered trajectory로 교체하고 시간축,
+  queue, cancel, soft-abort, SAFE_STOP 계약을 실물에서 검증
+- Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
+  plan-only·충돌 검사·제한 실기 순서로 보정
+- 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반
+  후보 생성과 소형 ONNX 검출기를 비교하고 fail-closed gate 유지
+- 왼쪽 손목 카메라 eye-in-hand 보정과 마지막 수 cm의 제한된 Cartesian
+  visual residual 구현
+- 10회 예비 반복 뒤 50회 Pick/Place에서 각각 90% 이상, 비명령 동작·충돌
+  0회 달성
+- 완료 조건: 카메라 각도·높이·물체 Z를 고정한 채 배경·조명만 다른
+  집/시연 환경에서도 왼팔이 같은 성능으로 재현되고, 7단계의 정식 반복성
+  gate가 통과
 
-## 단계 9 — Raspberry Pi Headless 통합
+## 단계 9 — Pi 5 세 카메라·Policy Runtime·Headless 기준선
 
-- ARM64 Release build와 ONNX Runtime, systemd, udev, journald 설정
-- watchdog, 재연결, 원격 제어, 안전 종료
-- 완료 조건: 반복해서 부팅해도 `STANDBY` 유지, fault 강제 발생 시험, 8시간/24시간 장시간 시험 통과
+- Top·왼쪽 손목·오른쪽 손목 카메라의 압축 latest-frame slot과 phase
+  scheduler를 유지하고 필요한 영상만 decode/inference
+- 데스크탑에서 학습·평가한 policy를 versioned ONNX deployment bundle로
+  내보내 Pi 5에서 실제 inference
+- 학습 입력이 구조화 상태면 구조화 상태 계약을, 세 RGB tensor면 전처리·
+  정규화·shape·camera order를 포함한 동일 observation 계약을 보존
+- ARM64 Release build, systemd, udev, journald, watchdog, 재연결,
+  원격 제어와 안전 종료 구성
+- 3카메라+검출기+policy+MoveIt+bridge 동시 부하에서 latency p50/p95/max,
+  CPU, memory, 온도, USB reset, heartbeat를 계측
+- 완료 조건: 반복 부팅 STANDBY, 30분 부하, 8시간 후 24시간 시험,
+  heartbeat 위반 0회와 stale policy/vision 출력의 100% 차단
 
-## 단계 10 — 양팔 병렬·공유 영역
+## 단계 10 — 오른팔 단독 동등성
 
-- 왼팔 단독 기준 통과
-- 공통 MCU 제어 주기, 실제 시작 시각 차이 측정
-- 개별 작업 영역에서 병렬 실행하고 공유 영역은 하나의 계획으로 실행
-- 완료 조건: 충돌 0회, 한 팔 fault 발생 시 양팔 동시 정지
+- 오른팔 6축 ID·방향·raw limit·q0·전원·온도·PID/torque readback 확정
+- 오른팔 URDF/MoveIt/Isaac FK와 실제 encoder→ROS→모델 parity 검증
+- READ_ONLY physical disable, MOTION_ENABLED 무동작, 단일 축 격리 이동,
+  multi-point trajectory, cancel/stop/fault 복구 검증
+- 오른쪽 손목 카메라 eye-in-hand 보정과 오른팔 단독 Pick/Place 반복 시험
+- 완료 조건: 왼팔과 동일한 하드웨어·모델·안전·태스크 수락 기준을 오른팔이
+  독립적으로 통과
 
-## 단계 11 — Isaac Lab policy와 Edge 추론
+## 단계 11 — 양팔 통합과 Policy 권한 확대
 
-- 구조화 상태(structured-state) policy
-- 시뮬레이션 → 저장 데이터 평가 → 실제 명령 없는 비교(shadow) → 제한된 보정값 적용 순서로 진행
-- ONNX로 내보낸 뒤 Raspberry Pi 추론 지연 시간 검증
-- 완료 조건: 재현 가능한 기준 동작과 비교해 수치상 개선
+- 왼팔·오른팔 단독 기준선이 모두 통과한 뒤 dual planning group과 공유
+  collision scene 활성화
+- 개별 작업 영역에서는 병렬 실행하고 공유 영역에서는 하나의 조정된 계획 사용
+- 공통 시간 기준의 실제 시작 시각 차이와 한 팔 fault 시 양팔 동시 정지 검증
+- policy는 저장 데이터 평가 → Pi shadow mode → 제한된 residual/팔 선택
+  순서로만 권한 확대
+- MoveIt은 전역 충돌 회피 경로, policy/visual servo는 bounded residual,
+  STM32는 servo timing·watchdog·latch를 담당
+- 완료 조건: 충돌 0회, 연동 정지 100%, baseline 대비 policy의 수치상 개선,
+  policy 장애 시 Hold 또는 검증된 비정책 경로로만 전이
 
 ## 단계 12 — 수건 접기와 최종 포트폴리오
 
 - 영역 분할(segmentation), 특징점(keypoint), 수건 상태, 양팔 grasp
 - 단계별 fold와 재인식
-- 최종 benchmark, 영상, 아키텍처·장애복구 보고서
+- 환경·카메라·모델·policy bundle을 고정한 재현성 시연
+- 최종 benchmark, 영상, 아키텍처·장애복구·자원 사용 보고서
