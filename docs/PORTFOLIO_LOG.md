@@ -786,3 +786,24 @@
 - 증거:
   `docs/test-results/2026-08-02-pi-runtime-camera-only-30m.md`,
   `artifacts/stage9/2026-08-02/pi_runtime_camera_only_30m.json`.
+
+
+## 2026-08-02 — 시연 환경 Top 펜 holdout·legacy 기준선
+
+- Top 카메라 각도·높이와 작업대–base 기하를 고정하고 배경 2종, 조명 3종,
+  반사 조건에서 positive 12장과 hard-negative 6장을 수집했다.
+- 같은 조건의 펜 제거 영상과의 차영상으로 positive 후보를 만든 뒤 사용자가
+  12장 모두의 box와 center를 승인했다.
+- yaw는 뚜껑 방향이 아니라 180도 대칭인 무방향 장축(`modulo pi`)으로
+  정의하고, 뚜껑 방향은 label하지 않았다.
+- 기존 `legacy_dark_threshold`는 positive miss 12/12(100%), hard-negative
+  false positive 4/6(66.7%), processing error 2건으로 예상 실패했다.
+- 결과는 카메라 송출 문제가 아니라 대리석 무늬·반사·방해물에 대한 기존
+  검출기의 일반화 부족을 수치로 고정한다.
+- 이 18장은 학습에 사용하지 않는 holdout이며, 다음 경량 YOLO-OBB/ONNX
+  후보를 같은 계약으로 비교한다.
+- 로봇 명령, bridge, MoveIt과 12 V 동작은 없었다.
+- 증거:
+  `docs/test-results/2026-08-02-top-pen-holdout-legacy-baseline.md`,
+  `artifacts/stage8/top_pen_dataset/manifest.json`,
+  `artifacts/stage8/top_pen_detection_legacy_baseline.json`.
