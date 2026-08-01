@@ -9,5 +9,6 @@
 | STM32G4 CMSIS Device | `firmware/stm32_g474_single_arm/Drivers/CMSIS/Device/ST/STM32G4xx` | Apache-2.0, 해당 디렉터리의 `LICENSE.txt` 참조 |
 | STM32G4 HAL Driver | `firmware/stm32_g474_single_arm/Drivers/STM32G4xx_HAL_Driver` | BSD-3-Clause, 해당 디렉터리의 `LICENSE.txt` 참조 |
 | STM32G4 NUCLEO BSP | `firmware/stm32_g474_single_arm/Drivers/BSP/STM32G4xx_Nucleo` | 각 source file의 STMicroelectronics 저작권 및 license 표시 참조 |
+| Ultralytics 8.4.67 (선택적 워크스테이션 학습 도구, Pi runtime·저장소에 vendoring하지 않음) | `requirements-training.txt`, `tools/train_export_top_pen_yolo_obb.py` | AGPL-3.0 또는 별도 Enterprise license; 배포 조건은 사용 환경에서 별도 확인 |
 
 STMicroelectronics, STM32와 각 제품명은 해당 권리자의 상표다. 이 프로젝트는 STMicroelectronics의 공식 후원 프로젝트가 아니다.
