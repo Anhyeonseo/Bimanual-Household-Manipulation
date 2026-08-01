@@ -28,8 +28,8 @@
 | CAM-003 | 단계 3 | 제어 격리 | 카메라 부하 중 heartbeat 위반 0 | 통과 | [카메라 decode·DDS 제어 격리 결과](test-results/2026-07-21-camera-decode-control-load.md) |
 | CAM-004 | 단계 3 | 추론 일정 | 모든 작업 상태 합계 12Hz 이하 | 통과 | `config/camera_schedule.json` 정적 검증 |
 | CAM-005 | 단계 3 | frame 최신성 | 상태별 p95/max 기록 | 통과 | [phase scheduler·선택적 decode 결과](test-results/2026-07-21-camera-phase-decode-latency.md) |
-| RES-001 | 단계 3/9 | Pi 자원 한도 | CPU/memory/temperature 기준 충족 | 부분 통과 | [decode·DDS 부하 결과](test-results/2026-07-21-camera-decode-control-load.md) 통과, 실제 inference·MoveIt·장시간 부하는 미실행 |
-| RES-002 | 단계 9 | Pi 실제 통합 부하 | 3카메라+검출기+배포 policy+MoveIt+bridge에서 heartbeat 위반·throttling·swap 0 | 미실행 | 카메라 수집 기준선만 통과. 실제 ONNX policy bundle 확정 후 측정 |
+| RES-001 | 단계 3/9 | Pi 자원 한도 | CPU/memory/temperature 기준 충족 | 부분 통과 | [3카메라·bridge 30분 기준선](test-results/2026-08-02-pi-runtime-camera-only-30m.md): CPU 평균 7.94%, 온도 최대 40.8°C, swap·throttling 0. 실제 inference·MoveIt·8시간 시험은 미실행 |
+| RES-002 | 단계 9 | Pi 실제 통합 부하 | 3카메라+검출기+배포 policy+MoveIt+bridge에서 heartbeat 위반·throttling·swap 0 | 부분 통과 | [3카메라·bridge 30분 기준선](test-results/2026-08-02-pi-runtime-camera-only-30m.md) 통과. detector·MoveIt·실제 ONNX policy shadow 미포함 |
 | POL-001 | 단계 9/11 | policy observation 계약 | 학습과 배포의 camera order·전처리·shape·normalization 또는 structured schema 일치, deadline 기록 | 미실행 | [ADR-0012](adr/0012-arm-integration-and-pi-policy-deployment.md) |
 | POL-002 | 단계 9/11 | Pi policy shadow mode | stale/deadline/범위 초과 출력 100% 차단, 실제 명령 0 | 미실행 |  |
 | MOT-001 | 단계 5 | 단일 시험 왼팔 trajectory | 반복 실행 성공 | 통과 | [단계 5 실기 결과](test-results/2026-07-25-phase5-stm32-read-only.md) |

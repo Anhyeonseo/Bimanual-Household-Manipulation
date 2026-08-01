@@ -160,11 +160,20 @@ def status_values(status: Any) -> dict[str, str]:
     return {item.key: item.value for item in status.values}
 
 
+def ros_uint8(value: Any) -> int:
+    """Normalize ROS 2 byte fields exposed as int or one-byte bytes."""
+    if isinstance(value, (bytes, bytearray)):
+        if len(value) != 1:
+            raise ValueError(f"ROS uint8 field must contain exactly one byte: {value!r}")
+        return value[0]
+    return int(value)
+
+
 def diagnostic_map(message: Any | None) -> dict[str, tuple[int, str, dict[str, str]]]:
     if message is None:
         return {}
     return {
-        status.name: (int(status.level), status.message, status_values(status))
+        status.name: (ros_uint8(status.level), status.message, status_values(status))
         for status in message.status
     }
 
@@ -384,7 +393,7 @@ def main() -> int:
         measurements.bridge_error_events.append(
             {
                 "category": category,
-                "level": int(message.level),
+                "level": ros_uint8(message.level),
                 "message": message.msg,
             }
         )
