@@ -100,14 +100,17 @@ STM32
 
 ### B. Pi 5 3카메라·정책 실행 기준선
 
-1. 세 카메라의 stable identity, USB topology, mode, FPS와 phase별 필요도를 기록한다.
-2. camera frame age, decode/preprocess 시간, CPU, memory, 온도와 throttling을
-   machine-readable artifact로 남긴다.
+1. 세 카메라의 stable identity, USB topology, mode, FPS와 phase별 필요도를
+   기록했다.
+2. 3카메라+STM32 READ_ONLY 30분 시험에서 frame age, decode 시간, CPU,
+   memory, 온도, throttling을 machine-readable artifact로 남겼다.
 3. policy ONNX의 입력·출력, joint order, action scale, control_dt, stale/deadline
    규칙을 manifest로 동결한다.
 4. Pi에서 실제 모델 warm-up과 반복 inference의 p50/p95/max를 측정한다.
-5. camera/perception/policy 부하 중 STM32 heartbeat/feedback 오류 0회를 확인한다.
-6. 30분 시험 뒤 8시간 soak, 이후 headless 재부팅 반복 gate를 수행한다.
+5. camera-only 부하에서 STM32 heartbeat/feedback 오류 0회를 확인했다.
+   detector/policy 동시 부하는 후속 gate다.
+6. camera-only 30분 시험은 통과했다. 다음은 policy shadow 30분, 8시간 soak,
+   headless 재부팅 반복 gate다.
 
 ### C. 오른팔 단독 동등성 검증
 

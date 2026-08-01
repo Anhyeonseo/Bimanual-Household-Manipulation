@@ -770,3 +770,19 @@
 - 다음 구현 순서는 1) 무동작 Pi 5 실제 자원 기준선,
   2) 시연 배경에 강한 펜 검출, 3) multi-point/buffered trajectory,
   4) Pick/Place 접촉 Z 분리 보정이다.
+
+## 2026-08-02 — Pi 5 3카메라·STM32 READ_ONLY 30분 기준선
+
+- 진단 전용 `RUNTIME_BASELINE` phase에서 Top 6 Hz, 양 손목 각 5 Hz RGB
+  decode·DDS와 STM32 READ_ONLY bridge를 1,800초 동시 실행했다.
+- CPU 평균/p95/최대는 7.94/10.34/34.98%, memory 사용 최대 644.21 MB,
+  가용 최소 3,339.75 MB, 온도 최대 40.8°C였다.
+- swap, throttling, 카메라 reconnect/decode 실패와 bridge
+  heartbeat·feedback·safety-latch 오류는 모두 0이었다.
+- `/joint_states`는 5.00049 Hz, 최대 간격 206.41 ms를 유지했다.
+- robot command publisher는 0이며 측정 도구는 `/camera_phase`만 발행했다.
+- 실제 detector·MoveIt·ONNX policy는 없었으므로 전체 통합 자원 gate는
+  부분 통과다. 다음은 deployment manifest를 동결한 policy shadow 계측이다.
+- 증거:
+  `docs/test-results/2026-08-02-pi-runtime-camera-only-30m.md`,
+  `artifacts/stage9/2026-08-02/pi_runtime_camera_only_30m.json`.

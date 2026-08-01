@@ -32,16 +32,17 @@ Raspberry Pi 5, ROS 2 Jazzy, STM32G474, 두 대의 SO-ARM101과 세 대의 USB �
   등록과 기존 작업대의 검은 펜 위치 검증 통과. 2026-08-01 대리석 무늬
   배경 재검증에서는 영상은 정상이지만 기존 임계값 검출기가 복수 후보를
   검출해 fail-closed했으며 강건한 detector upgrade가 남음
-- 성능: RGB 3개 topic과 STM32 bridge 동시 부하에서 CPU 평균 6.38%,
-  `/joint_states` 5.008 Hz, heartbeat 위반 0
+- 성능: RGB 3개 topic과 STM32 READ_ONLY bridge 30분 동시 부하에서 CPU 평균
+  7.94%, 온도 최대 40.8°C, `/joint_states` 5.00049 Hz, 카메라 reconnect와
+  heartbeat·feedback 오류, swap, throttling 모두 0
 - simulation: 동일한 왼팔 URDF/Xacro q0 계약, 카메라 장착물, MoveIt mock,
   Isaac Sim 6.0.1 backend 검증 완료
 - 단계 7 내부 시운전: **100%**. 단, 로드맵의 정식 합격 조건인 50회 중
   90% 이상 반복 시험은 미실행이므로 검증 매트릭스 상태는 `부분 통과`
 - 현재 분기점: 왼팔 생산 기준선 완성 → 오른팔 단독 동등성 검증 → 양팔
   통합 순서로 진행
-- 다음 gate: Pi 5의 3카메라·policy ONNX 자원 기준선, 반사·무늬 배경의
-  강건한 펜 검출, multi-point/buffered trajectory와 Place 접촉 Z 보정을
+- 다음 gate: Pi 5의 detector·MoveIt·policy ONNX shadow 자원 기준선,
+  반사·무늬 배경의 강건한 펜 검출, multi-point/buffered trajectory와 Place 접촉 Z 보정을
   작은 이슈로 분리해 검증한 뒤 왼팔 50회 benchmark 수행
 - 확장 방향: 동일한 µrad 관절 규격을 사용해 왼팔 실물, 향후 양팔 실물,
   Isaac Sim backend를 교체할 수 있게 구성

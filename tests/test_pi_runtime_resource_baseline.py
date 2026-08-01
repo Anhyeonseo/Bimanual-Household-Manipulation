@@ -15,6 +15,7 @@ from tools.pi_runtime_resource_baseline import (
     policy_counter_delta_entry,
     read_process_rss_mb,
     read_throttled_flags,
+    ros_uint8,
     summarize,
     validate_policy_shadow,
     write_report,
@@ -77,6 +78,13 @@ class PiRuntimeResourceBaselineTests(unittest.TestCase):
             "feedback",
         )
         self.assertIsNone(classify_bridge_error("camera_manager", "feedback error"))
+
+    def test_ros_uint8_accepts_integer_and_one_byte_value(self):
+        self.assertEqual(ros_uint8(2), 2)
+        self.assertEqual(ros_uint8(b"\x00"), 0)
+        self.assertEqual(ros_uint8(bytearray(b"\xff")), 255)
+        with self.assertRaises(ValueError):
+            ros_uint8(b"")
 
     def test_process_spec(self):
         self.assertEqual(parse_process_spec("camera=123"), ("camera", 123))
