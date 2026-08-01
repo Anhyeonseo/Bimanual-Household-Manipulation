@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "topic": "/policy_runtime/diagnostics",
+  "status_name": "policy_runtime/shadow",
+  "required_mode": "SHADOW",
+  "counter_semantics": "monotonic; acceptance uses end-minus-warmup-baseline deltas",
+  "latency_window_semantics": "p50/p95/max cover the current camera phase, including warmup",
+  "required_values": {
+    "mode": "string",
+    "model_sha256": "sha256",
+    "observation_contract_sha256": "sha256",
+    "inference_count": "nonnegative_integer",
+    "inference_p50_ms": "nonnegative_number",
+    "inference_p95_ms": "nonnegative_number",
+    "inference_max_ms": "nonnegative_number",
+    "deadline_misses": "nonnegative_integer",
+    "stale_observations": "nonnegative_integer",
+    "rejected_outputs": "nonnegative_integer",
+    "command_publications": "nonnegative_integer"
+  },
+  "acceptance": {
+    "diagnostic_level": 0,
+    "deadline_misses": 0,
+    "command_publications": 0,
+    "minimum_rate_fraction": 0.9,
+    "maximum_inference_p95_ms": 80.0
+  }
+}

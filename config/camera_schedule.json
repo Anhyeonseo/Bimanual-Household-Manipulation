@@ -63,6 +63,12 @@
       "wrist_b": {"decode_hz": 5, "inference_hz": 4},
       "policy_hz": 0
     },
+    "RUNTIME_BASELINE": {
+      "top": {"decode_hz": 6, "inference_hz": 4},
+      "wrist_a": {"decode_hz": 5, "inference_hz": 4},
+      "wrist_b": {"decode_hz": 5, "inference_hz": 4},
+      "policy_hz": 10
+    },
     "POLICY_ASSIST": {
       "top": {"decode_hz": 6, "inference_hz": 4},
       "wrist_a": {"decode_hz": 0, "inference_hz": 0},

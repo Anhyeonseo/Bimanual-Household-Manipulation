@@ -183,6 +183,7 @@ Policy와 영상 추론을 동시에 실행할 수는 있지만, 영상 처리 t
 | TRANSFER_RIGHT | 2Hz | 0 | 1Hz | OFF | 운반 상태 확인 |
 | VERIFY_RIGHT | 4Hz | 0 | 4Hz | OFF | grasp/place 결과 확인 |
 | DUAL_PRIVATE | 4Hz | 4Hz | 4Hz | OFF | 양팔 영상을 번갈아 처리 |
+| RUNTIME_BASELINE | 4Hz | 4Hz | 4Hz | 10Hz | 3카메라+policy 무동작 자원 계측 전용 |
 | POLICY_ASSIST | 4Hz | 0 | 6Hz | 10Hz | 구조화 상태 보정값 평가 |
 
 Policy 학습과 검증은 데스크탑에서 끝낸다. Pi에서는 deployment bundle을
@@ -279,6 +280,10 @@ mount 또는 물체 높이가 바뀌면 재현성 시험이 아니라 재보정 
   문제가 아니라 검출기 일반화 문제로 분리한다.
 - 다음 구현은 먼저 로봇을 움직이지 않고 Top+양 손목 capture, 선택 decode,
   후보 검출기와 실제 policy ONNX를 함께 구동해 Pi 5 자원 기준선을 잰다.
+- `tools/pi_runtime_resource_baseline.py`와 진단 전용
+  `RUNTIME_BASELINE` phase를 추가했다. 카메라-only 계측은 즉시 가능하며,
+  실제 ONNX bundle이 들어오면 동일 도구의 `--require-policy` gate로
+  `config/policy_shadow_diagnostics_contract.json` 계약까지 함께 검증한다.
 - 기록 항목은 카메라별 frame age, decode/detector/policy p50·p95·max,
   전체·process별 CPU와 RSS, 온도/throttling, USB reset, serial RTT와
   heartbeat 최대 간격이다.

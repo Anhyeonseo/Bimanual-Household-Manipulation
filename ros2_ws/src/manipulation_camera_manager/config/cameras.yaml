@@ -16,7 +16,7 @@ camera_manager:
     limits.max_decode_p95_ms: 50.0
     vision.max_total_inference_hz: 12.0
     initial_phase: STANDBY
-    phase_names: [STANDBY, SEARCH, APPROACH_RIGHT, VISUAL_ALIGN_RIGHT, TRANSFER_RIGHT, VERIFY_RIGHT, DUAL_PRIVATE, POLICY_ASSIST]
+    phase_names: [STANDBY, SEARCH, APPROACH_RIGHT, VISUAL_ALIGN_RIGHT, TRANSFER_RIGHT, VERIFY_RIGHT, DUAL_PRIVATE, RUNTIME_BASELINE, POLICY_ASSIST]
     top.device_path: /dev/v4l/by-path/platform-xhci-hcd.1-usb-0:1.1:1.0-video-index0
     wrist_a.device_path: /dev/v4l/by-path/platform-xhci-hcd.1-usb-0:1.2:1.0-video-index0
     wrist_b.device_path: /dev/v4l/by-path/platform-xhci-hcd.1-usb-0:1.3:1.0-video-index0
@@ -62,6 +62,12 @@ camera_manager:
     schedule.DUAL_PRIVATE.wrist_a.inference_hz: 4.0
     schedule.DUAL_PRIVATE.wrist_b.decode_hz: 5.0
     schedule.DUAL_PRIVATE.wrist_b.inference_hz: 4.0
+    schedule.RUNTIME_BASELINE.top.decode_hz: 6.0
+    schedule.RUNTIME_BASELINE.top.inference_hz: 4.0
+    schedule.RUNTIME_BASELINE.wrist_a.decode_hz: 5.0
+    schedule.RUNTIME_BASELINE.wrist_a.inference_hz: 4.0
+    schedule.RUNTIME_BASELINE.wrist_b.decode_hz: 5.0
+    schedule.RUNTIME_BASELINE.wrist_b.inference_hz: 4.0
     schedule.POLICY_ASSIST.top.decode_hz: 6.0
     schedule.POLICY_ASSIST.top.inference_hz: 4.0
     schedule.POLICY_ASSIST.wrist_a.decode_hz: 0.0

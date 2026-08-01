@@ -29,6 +29,7 @@
 - `TRANSFER_RIGHT`
 - `VERIFY_RIGHT`
 - `DUAL_PRIVATE`
+- `RUNTIME_BASELINE`
 - `POLICY_ASSIST`
 
 실행에 사용하는 규칙은 `config/cameras.yaml`에 있다. 프로젝트 최상위의 `config/camera_schedule.json`은 vision/policy 전체 설계를 위한 같은 값의 기준 문서다.
@@ -172,3 +173,45 @@ ros2 topic echo --once /camera_diagnostics
 - `reconnect_count`, `driver_frames_dropped`: USB 복구와 driver frame 손실 횟수
 
 기본 경고 기준은 frame age p95 200 ms, JPEG decode p95 50 ms다. 현재 phase에서 디코딩하지 않는 카메라의 지연 통계는 `-1`이 정상이다.
+
+## Pi 5 무동작 통합 자원 기준선
+
+`RUNTIME_BASELINE`은 생산 동작용이 아니라 Top·양 손목 카메라와 10 Hz
+policy shadow를 동시에 계측하는 진단 전용 phase다. 아래 도구는
+`/camera_phase`만 발행하고 팔·그리퍼 명령 endpoint를 만들지 않는다.
+
+실제 ONNX runtime이 아직 없을 때는 먼저 카메라·DDS·STM32 상태 기준선을 잰다.
+
+```bash
+cd ~/Manipulation
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+
+python3 SO101-Bimanual-Manipulation/tools/pi_runtime_resource_baseline.py \
+  --phase RUNTIME_BASELINE \
+  --duration 1800 \
+  --warmup 10 \
+  --require-throttling-status \
+  --output SO101-Bimanual-Manipulation/artifacts/stage9/pi_runtime_camera_only.json
+```
+
+검증된 ONNX bundle과 `/policy_runtime/diagnostics` 구현이 준비되면 같은 부하에
+`--require-policy`를 추가한다. 진단 계약은
+`config/policy_shadow_diagnostics_contract.json`이다. policy는 반드시
+`SHADOW`이고 `command_publications=0`이어야 한다.
+
+```bash
+python3 SO101-Bimanual-Manipulation/tools/pi_runtime_resource_baseline.py \
+  --phase RUNTIME_BASELINE \
+  --duration 1800 \
+  --warmup 10 \
+  --require-policy \
+  --require-throttling-status \
+  --output SO101-Bimanual-Manipulation/artifacts/stage9/pi_runtime_policy_shadow.json
+```
+
+JSON에는 카메라별 rate·DDS 대역폭·frame age·decode 지연·재연결 횟수,
+`/joint_states` rate와 최대 gap, `/rosout`에서 관측한 bridge
+heartbeat·feedback·safety-latch 오류, CPU·메모리·온도·swap·throttling 및
+policy 추론 지연이 기록된다. 종료 시 성공 여부와 무관하게 `STANDBY`를
+발행한다.
