@@ -2,7 +2,11 @@
 
 ## 1. 목표
 
-제한된 ARM Linux 플랫폼에서 멀티카메라 인식, MoveIt 기반 경로 계획, ROS 2 프로세스 운영과 STM32 실시간 서보 제어를 통합하고, CPU·메모리·지연·장애 복구·장시간 안정성을 정량적으로 검증한다.
+제한된 ARM Linux 플랫폼에서 멀티카메라 인식, MoveIt 기반 전역 경로,
+데스크탑 Isaac Sim/Isaac Lab에서 학습한 ONNX policy의 Edge 추론, ROS 2
+프로세스 운영과 STM32 실시간 서보 제어를 통합한다. CPU·메모리·지연·정확도·
+장애 복구·장시간 안정성을 정량적으로 검증하고 재부팅·재배치 뒤에도 같은
+gate를 통과하는 시연 시스템을 만든다.
 
 ## 2. 포트폴리오 포지셔닝
 
@@ -17,25 +21,27 @@
 
 ### 1차 범위
 
-- 현재 정상인 왼팔 5DOF와 gripper
-- 고정 작업대의 검은색 마커펜 검출
+- 검증된 왼팔 5DOF와 gripper의 재현 가능한 생산 기준선
+- 정상 복구된 오른팔의 후속 단독 동등성 검증
+- 고정 작업대와 시연 배경의 검은색 마커펜 검출
 - Top 카메라 기반 평면 `x, y, yaw` 추정
 - 넓은 펜꽂이로 Pick and Place
 - 정확도와 안정성 우선
 
 ### 단계적 확장
 
-1. 손목(Wrist) 카메라를 이용한 마지막 정렬
-2. Raspberry Pi Headless 운영 통합
-3. 독립 작업 영역의 양팔 병렬 작업
-4. 공유 영역의 양팔 충돌 검사와 양팔 동시 정지(coordinated stop)
-5. Isaac Lab의 구조화 상태(structured-state) policy와 Edge 추론
-6. 수건 접기
+1. 왼팔 연속 trajectory, 접촉 Z 보정과 손목 카메라 마지막 정렬
+2. Raspberry Pi 5의 3카메라·policy ONNX 실행 기준선과 Headless 운영
+3. 오른팔 calibration·MoveIt·STM32·손목 카메라 단독 동등성
+4. 독립 작업 영역의 양팔 병렬 작업
+5. 공유 영역의 양팔 충돌 검사와 coordinated stop
+6. 데스크탑에서 학습한 policy의 Pi shadow mode와 bounded residual
+7. 수건 접기
 
 ### 초기 비범위
 
-- 여러 카메라의 원본 영상을 곧바로 입력하는 end-to-end policy
-- Raspberry Pi에서의 policy 학습
+- observation contract와 Pi 실측 없이 여러 카메라 원본을 그대로 연결하는 policy
+- Raspberry Pi에서의 policy 학습 또는 Isaac Sim 실행
 - 고속 동적 장애물 회피
 - 안전 인증이 필요한 산업용 운전
 - 재현 가능한 기준 동작(baseline) 없이 policy가 로봇을 직접 제어하는 방식
@@ -43,12 +49,16 @@
 ## 4. 시스템 경계
 
 ```text
-Camera → Perception → Structured State → Task/Policy
-       → MoveIt or Visual Servo → Command Arbitration
-       → JointTrajectoryController → STM32 → Dual Arm
+Desktop Isaac 학습 → versioned policy.onnx
+Camera → Observation Adapter → Perception/Policy on Pi
+       → MoveIt 전역 경로 또는 bounded Visual/Policy residual
+       → Command Arbitration → Continuous Trajectory
+       → STM32 → Left Arm → Right Arm → Dual Arm
 ```
 
-Raspberry Pi는 무엇을 할지 결정한다. STM32는 정해진 명령을 시간과 안전 조건에 맞게 실행한다.
+Raspberry Pi는 무엇을 할지 결정하고 검증된 policy를 추론한다. MoveIt은
+전역 경로와 충돌 검사를 담당하고 policy/Visual Servo는 제한된 국소 보정을
+담당한다. STM32는 승인된 명령을 시간과 안전 조건에 맞게 실행한다.
 
 ## 5. 단계 통과 원칙
 

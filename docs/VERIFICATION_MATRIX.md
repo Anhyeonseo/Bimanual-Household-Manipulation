@@ -29,17 +29,26 @@
 | CAM-004 | 단계 3 | 추론 일정 | 모든 작업 상태 합계 12Hz 이하 | 통과 | `config/camera_schedule.json` 정적 검증 |
 | CAM-005 | 단계 3 | frame 최신성 | 상태별 p95/max 기록 | 통과 | [phase scheduler·선택적 decode 결과](test-results/2026-07-21-camera-phase-decode-latency.md) |
 | RES-001 | 단계 3/9 | Pi 자원 한도 | CPU/memory/temperature 기준 충족 | 부분 통과 | [decode·DDS 부하 결과](test-results/2026-07-21-camera-decode-control-load.md) 통과, 실제 inference·MoveIt·장시간 부하는 미실행 |
-| POL-001 | 단계 11 | structured policy 실행 | raw image 입력 없음, deadline 기록 | 미실행 |  |
+| RES-002 | 단계 9 | Pi 실제 통합 부하 | 3카메라+검출기+배포 policy+MoveIt+bridge에서 heartbeat 위반·throttling·swap 0 | 미실행 | 카메라 수집 기준선만 통과. 실제 ONNX policy bundle 확정 후 측정 |
+| POL-001 | 단계 9/11 | policy observation 계약 | 학습과 배포의 camera order·전처리·shape·normalization 또는 structured schema 일치, deadline 기록 | 미실행 | [ADR-0012](adr/0012-arm-integration-and-pi-policy-deployment.md) |
+| POL-002 | 단계 9/11 | Pi policy shadow mode | stale/deadline/범위 초과 출력 100% 차단, 실제 명령 0 | 미실행 |  |
 | MOT-001 | 단계 5 | 단일 시험 왼팔 trajectory | 반복 실행 성공 | 통과 | [단계 5 실기 결과](test-results/2026-07-25-phase5-stm32-read-only.md) |
 | MOT-002 | 단계 5 | 취소/정지 | 정해진 안전 상태 진입 | 통과 | [단계 5 실기 결과](test-results/2026-07-25-phase5-stm32-read-only.md) |
+| MOT-003 | 단계 8 | 왼팔 multi-point/buffered trajectory | 시간축·queue·cancel·soft-abort·SAFE_STOP 실기 통과, 불필요한 정착 정지 제거 | 미실행 | 현재 11구간 q0 복귀는 안전한 single-point 시운전 증거이며 최종 운용 계약이 아님 |
 | VIS-001 | 단계 6 | 작업대 위치 추정 | 위치 최대 10 mm, yaw 최대 5 deg | 통과 | [Top 물체 실제 좌표 검증](test-results/2026-07-30-top-object-ground-truth-validation.md) |
 | VIS-002 | 단계 7 준비 | base-frame shadow target 및 table–base 등록 | 두 위치 물리 검증, freshness/workspace 검사, 실행 가능 flag false | 통과 | [현재 작업대–왼팔 base 등록](test-results/2026-07-30-current-table-base-registration.md), [Top-base shadow target](test-results/2026-07-30-top-base-shadow-target.md) |
+| VIS-003 | 단계 8 | 시연 환경 강건 펜 검출 | 카메라 각도·높이·물체 Z 고정, 배경·조명·반사만 다른 조건에서 물체 1개와 위치/yaw·miss·false positive 기준 충족 | 차단 | 2026-08-01 frame은 정상이나 기존 threshold가 `detected 2 (ignored 2 fully outside)`로 fail-closed |
 | TASK-001 | 단계 7 | Pick | 50회 중 90% 이상 | 부분 통과 | [감독형 실제 Pick/Place 1회 완주](test-results/2026-07-31-stage7-supervised-pick-place-complete.md): grasp와 약 20 mm loaded lift 성공, 자동 재시도 0회. 50회 반복과 무인 perception-to-task 실행은 미실행 |
 | TASK-002 | 단계 7 | Place | 50회 중 90% 이상 | 부분 통과 | [전체 Pick/Place plan-only](test-results/2026-07-31-stage7-full-pick-place-plan-only.md) 및 [감독형 실제 Pick/Place 1회 완주](test-results/2026-07-31-stage7-supervised-pick-place-complete.md): Place·release·retreat·q0 복귀 성공. 수동 Z 보정이 있었고 50회 반복은 미실행 |
 | SYS-001 | 단계 9 | 부팅 | 반복 부팅 모두 무동작 STANDBY | 미실행 |  |
 | SYS-002 | 단계 9 | 장시간 시험 | 8시간 후 24시간 | 미실행 |  |
-| DUAL-001 | 단계 10 | 실제 시작 시각 차이 | 측정값과 기준 기록 | 미실행 |  |
-| DUAL-002 | 단계 10 | 연동 정지 | 한 팔 fault 시 양팔 정지 | 미실행 |  |
+| RIGHT-001 | 단계 10 | 오른팔 단독 하드웨어·모델·안전 동등성 | 6축 identity/calibration, q0/FK, READ_ONLY, 무동작, 격리 이동과 fault gate 통과 | 부분 통과 | 사용자가 오른팔 정상 동작을 확인했으나 저장소의 정식 parity 증거는 미수집 |
+| RIGHT-002 | 단계 10 | 오른팔 단독 Pick/Place | 왼팔과 동일한 반복성·비명령 동작·충돌 기준 통과 | 미실행 |  |
+| DUAL-001 | 단계 11 | 실제 시작 시각 차이 | 측정값과 기준 기록 | 미실행 |  |
+| DUAL-002 | 단계 11 | 연동 정지 | 한 팔 fault 시 양팔 정지 | 미실행 |  |
+| DUAL-003 | 단계 11 | 양팔 통합 진입 gate | LEFT production baseline과 RIGHT parity가 모두 통과 | 차단 | 단일 팔 gate 완료 전 양팔 실제 명령 금지 |
 | AI-001 | 단계 11 | policy 비교 | baseline 대비 개선 | 미실행 |  |
 
-`부분 통과`는 현재 단일 시험 팔에서는 확인했지만 양팔 전체 기준은 아직 충족하지 않았다는 뜻이다. 초기 합격 기준은 단계 0 측정과 위험 분석 후 조정할 수 있으며, 기준을 바꾸면 ADR 또는 변경 사유를 남긴다.
+`부분 통과`는 일부 실기 증거는 있으나 해당 행의 전체 합격 기준을 아직
+충족하지 않았다는 뜻이다. 특히 오른팔의 정상 동작 보고는 중요한 출발점이지만
+정식 parity gate를 대신하지 않는다. 기준을 바꾸면 ADR 또는 변경 사유를 남긴다.

@@ -1,6 +1,6 @@
 # Raspberry Pi 카메라·연산 아키텍처
 
-상태: `제안`. 실제 UVC 영상 형식과 Raspberry Pi 성능을 측정한 뒤 수치를 확정한다.
+상태: `기준선 채택`. 카메라 수집·선택 decode는 실측 통과했고, 실제 검출기와 배포 policy를 함께 실행한 Pi 5 수치는 후속 gate에서 확정한다.
 
 ## 1. 설계 목표
 
@@ -8,8 +8,10 @@ Raspberry Pi 5 4GB에서 다음 작업을 동시에 수행하되 제어와 안�
 
 - USB RGB 카메라 3대 연결
 - 필요한 카메라 영상만 압축 해제(decode)하고 추론(inference) 수행
-- MoveIt은 작업 상태가 바뀔 때만 경로 계획 수행
-- 구조화 상태(structured-state) policy는 작은 모델로 제한
+- MoveIt은 전역 충돌 회피 경로를 계산하고 작업 상태가 바뀔 때만 무거운 계획 수행
+- policy와 Visual Servo는 검증된 전역 경로 주변의 제한된 보정만 담당
+- Isaac Sim/Isaac Lab 학습은 데스크탑에서 수행
+- 검증된 ONNX policy의 실제 inference는 Pi 5에서 수행
 - STM32 heartbeat와 ROS 안전 상태는 영상 처리와 독립
 - 원본 이미지는 영상 처리 process 밖으로 계속 publish하지 않음
 
@@ -35,13 +37,13 @@ Raspberry Pi 5 4GB에서 다음 작업을 동시에 수행하되 제어와 안�
 - 카메라 내부 보정(intrinsic calibration)
 - 카메라와 base 사이의 고정된 외부 보정값(extrinsic)
 - 작업대 homography를 이용한 pixel→작업대 좌표 변환
-- 초기에는 검은 물체의 밝기 기준 분리, 윤곽선과 PCA를 이용해 yaw 계산
-- 이후 Nano급 YOLO 또는 작은 특징점 검출기(keypoint detector) 사용
+- 색/명암·길쭉한 형상·윤곽선/PCA를 결합한 후보 생성기로 단순 threshold보다 배경 변화에 강하게 구성
+- 대리석 무늬·반사·조명 변화가 큰 시연 환경은 Nano급 YOLO 또는 작은 특징점 검출기로 보강
 - 촬영 시각, frame이 지난 시간과 검출 신뢰도를 이용해 데이터 최신성 검사
 
 상단 RGB 카메라 한 대만으로 일반적인 3차원 자세를 복원할 수 있다고 가정하지 않는다. 초기 Z 좌표는 작업대와 물체 모델에서 이미 알고 있는 높이로 제한한다.
 
-### Right wrist 카메라 — 오른팔 근접 정렬
+### Left wrist 카메라 — 왼팔 생산 기준선의 근접 정렬
 
 주요 역할:
 
@@ -54,19 +56,19 @@ Raspberry Pi 5 4GB에서 다음 작업을 동시에 수행하되 제어와 안�
 적용 기술:
 
 - 카메라 내부 보정(intrinsic calibration)
-- eye-in-hand calibration으로 `right_tool0 → right_wrist_camera` 고정 transform 추정
+- eye-in-hand calibration으로 `left_tool0 → left_wrist_camera` 고정 transform 추정
 - 필요한 영역만 자른 영상(ROI)과 작은 특징 검출기 사용
 - 영상 기반 Visual Servo 또는 크기가 제한된 Cartesian 좌표 보정
 - frame이 오래됐거나 신뢰도가 낮거나 timeout이 발생하면 즉시 중단
 
 카메라는 세계 좌표에서 움직이지만 로봇팔 말단 장치(end-effector)와 카메라 사이의 보정값은 고정이다. TF가 매 순간 카메라 자세를 계산한다.
 
-### Left wrist 카메라 — 왼팔 근접 정렬
+### Right wrist 카메라 — 오른팔 단독 동등성
 
-오른팔 카메라와 같은 역할을 하지만 초기 오른팔 최소 기능 제품(MVP)에서는 추론을 수행하지 않는다.
+왼팔 기준선과 같은 역할을 한다. 오른팔의 정식 추론 활성화는 오른팔 단독 calibration·MoveIt·안전·Pick/Place gate 뒤에 수행한다.
 
-- 초기: 장치 연결과 데이터 최신성만 낮은 주기로 확인
-- 왼팔 단독 기준 통과 후: 왼팔 영상 정렬
+- 현재: 장치 연결과 데이터 최신성만 낮은 주기로 확인
+- 오른팔 단독 동등성 통과 후: 오른팔 영상 정렬
 - 양팔 개별 작업: 현재 작업 단계에 따라 좌우 손목 영상을 교대로 추론
 - 수건 작업: 양쪽 grasp 지점과 수건 가장자리 확인
 
@@ -127,7 +129,12 @@ Right Wrist V4L2 Capture Thread ┘            ↓
 
 ### Policy 추론
 
-정책은 원본 카메라 3장을 입력받지 않는다.
+기본 권장은 detector/kinematics가 만든 구조화 상태를 입력으로 쓰는 것이다.
+다만 데스크탑에서 이미 학습·검증한 policy가 Top·왼쪽 손목·오른쪽 손목 RGB를
+직접 관측했다면, 배포 시에도 camera order, resize/crop, color order,
+normalization, history와 tensor shape를 포함한 **동일 observation 계약**을
+보존한다. 어떤 경우에도 ROS의 무제한 raw image stream을 그대로 쌓지 않고,
+카메라 manager의 최신 frame과 고정 전처리 결과만 policy에 전달한다.
 
 입력 예:
 
@@ -145,19 +152,27 @@ active arm
 출력은 크기가 제한된 Cartesian 좌표 변화량, 사용할 팔 선택, grasp 판단 또는 보정값으로 제한한다.
 
 - 별도 `policy_runtime` process
-- 작은 구조화 상태 ONNX session
+- 데스크탑에서 학습·평가하고 manifest/hash가 고정된 ONNX deployment bundle
+- 구조화 상태 또는 학습 시점과 동일한 고정 크기 image tensor 계약
 - 초기 rate 10Hz
 - `intra_op_num_threads = 1`
 - 입력 queue depth 1
-- 구조화 상태 정보가 오래됐으면 결과 폐기
+- observation 또는 카메라 frame이 오래됐으면 결과 폐기
+- 출력 크기·속도·workspace·collision·freshness gate를 통과하지 못하면 Hold
 - 서보 raw 위치를 직접 출력하지 않음
-- 재현 가능한 기준 동작을 완성한 뒤에만 실제 명령 경로 활성화
+- 저장 데이터 평가 → Pi shadow mode → 제한 residual 순서로만 실제 권한 확대
+- Pi에서 Isaac Sim/Isaac Lab 학습이나 시뮬레이터를 실행하지 않음
 
 Policy와 영상 추론을 동시에 실행할 수는 있지만, 영상 처리 thread 2개와 policy thread 1개를 초기 상한으로 둔다. 이렇게 해서 제어와 운영체제에 최소 한 코어 정도의 여유를 남긴다. 실제 CPU core 고정(affinity)은 성능 측정 전에 적용하지 않는다.
 
 ## 6. 작업 상태별 연산 일정
 
 아래 수치는 초기 연산 자원 한도이며 `config/camera_schedule.json`이 전체 영상 추론 속도를 12Hz 이하로 검증한다.
+
+현재 구현의 `APPROACH_RIGHT`, `VISUAL_ALIGN_RIGHT` 같은 이름은 초기
+오른팔 중심 설정의 역사적 label이다. 동작 코드를 바꾸지 않은 채 문서에서
+이름만 바꾸지 않으며, 후속 변경에서 `active_arm` 기반의 좌우 공통 phase로
+일반화하고 왼팔 생산 기준선을 먼저 검증한다.
 
 | 작업 상태 | 상단 추론 | 왼쪽 손목 | 오른쪽 손목 | Policy | 목적 |
 |---|---:|---:|---:|---:|---|
@@ -170,7 +185,9 @@ Policy와 영상 추론을 동시에 실행할 수는 있지만, 영상 처리 t
 | DUAL_PRIVATE | 4Hz | 4Hz | 4Hz | OFF | 양팔 영상을 번갈아 처리 |
 | POLICY_ASSIST | 4Hz | 0 | 6Hz | 10Hz | 구조화 상태 보정값 평가 |
 
-Policy 학습 단계 전까지 policy는 끈다. Visual Servo 중에는 정해진 보정 계산을 우선하며 policy를 동시에 명령 입력으로 사용하지 않는다.
+Policy 학습과 검증은 데스크탑에서 끝낸다. Pi에서는 deployment bundle을
+먼저 shadow mode로 실행한다. Visual Servo와 policy를 동시에 실제 명령원으로
+사용하지 않고 arbitration이 선택한 한 경로만 bounded command를 낸다.
 
 ## 7. 실행 우선순위
 
@@ -225,7 +242,7 @@ Policy 또는 인식 결과가 정해진 처리 시간을 넘기면 오래된 �
 | Process | 역할 | 영상 처리 장애의 영향 |
 |---|---|---|
 | `vision_pipeline` | 영상 수집, decode, 검출, 자세 계산 | 재시작 가능 |
-| `policy_runtime` | 구조화 상태 policy | 실패 시 정해진 기준 동작 사용 |
+| `policy_runtime` | 배포 ONNX policy 추론 | 실패·stale·deadline 초과 시 출력 차단과 Hold |
 | `move_group` | 경로 계획과 충돌 검사 | 작업 상태 전환이 늦어질 수 있음 |
 | `robot_core` | 상태, 작업, 명령 중재 | 오래된 입력 거부 |
 | `control_bridge` | ros2_control, STM32 VCP | 영상 처리와 독립 유지 |
@@ -240,10 +257,30 @@ Policy 또는 인식 결과가 정해진 처리 시간을 넘기면 오래된 �
 3. 카메라별 decode 지연 시간 측정
 4. 임시 추론 부하 추가
 5. 실제 검출기 추가
-6. 구조화 상태 policy의 임시 연산 부하 추가
+6. 실제 배포 ONNX policy를 shadow mode로 추가하고 observation 계약·지연 시간 검증
 7. MoveIt 경로 계획을 짧은 시간에 반복하며 동시 부하 확인
 8. STM32 heartbeat와 serial 왕복 시간 확인
 9. 30분 부하 시험
 10. 8시간 장시간 시험
 
 각 단계에서 frame이 지난 시간, decode 및 추론 시간의 p50/p95/최댓값, CPU, memory, 온도, USB reset 횟수와 heartbeat 최대 간격을 기록한다.
+
+## 12. 2026-08-01 현재 관측과 다음 계측
+
+이 절의 시연 재현성 범위는 카메라 각도·높이, 작업대–base transform과
+물체 Z가 고정된 상태다. 장소 이동으로 달라질 수 있는 배경, 주변 조명,
+반사와 노출 변화에 대해서 검출·정렬 성능을 유지하는지를 검증한다.
+mount 또는 물체 높이가 바뀌면 재현성 시험이 아니라 재보정 gate로 전환한다.
+
+- 재배치한 Top 카메라의 `640×480 rgb8` frame 저장과 sharpness `87.93`을
+  확인했고, 펜은 사람 눈으로 명확히 보였다.
+- 같은 장면에서 기존 threshold 기반 검출은 대리석 무늬와 반사 때문에
+  `detected 2 (ignored 2 fully outside)`로 fail-closed 됐다. 카메라 송출
+  문제가 아니라 검출기 일반화 문제로 분리한다.
+- 다음 구현은 먼저 로봇을 움직이지 않고 Top+양 손목 capture, 선택 decode,
+  후보 검출기와 실제 policy ONNX를 함께 구동해 Pi 5 자원 기준선을 잰다.
+- 기록 항목은 카메라별 frame age, decode/detector/policy p50·p95·max,
+  전체·process별 CPU와 RSS, 온도/throttling, USB reset, serial RTT와
+  heartbeat 최대 간격이다.
+- 이 기준선이 통과하기 전에는 세 카메라의 동시 full-frame inference,
+  policy 실제 명령 권한, 양팔 통합을 허용하지 않는다.

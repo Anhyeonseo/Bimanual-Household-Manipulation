@@ -747,3 +747,26 @@
   benchmark 전에는 multi-point/buffered trajectory 시간축 계약을 구현·검증
 - 상세 증거:
   `docs/test-results/2026-07-31-stage7-supervised-pick-place-complete.md`
+
+## 2026-08-01 — 현재 분기점, Top 카메라 재배치, 오른팔 복구 보고
+
+- 재배치한 Top 카메라에서 `640×480 rgb8`, sharpness `87.93` frame 저장 성공:
+  `/tmp/top_relocated_check.png`
+- 송출 영상과 저장 frame에서 검은 마커펜이 작업 영역 안에 선명하게 보였다.
+  카메라와 ROS image 경로 자체는 정상으로 판정했다.
+- 기존 threshold 검출기는 대리석 무늬·반사 배경에서
+  `detected 2 (ignored 2 fully outside)`로 fail-closed 됐다.
+  송출 문제가 아니라 시연 환경에 대한 검출기 일반화 부족으로 분리했다.
+- 이 확인 과정에서 로봇 명령과 실제 이동은 없었다.
+  인식이 하나의 유효 물체를 확정하기 전 motion authorization은 계속 false다.
+- 사용자는 오른팔이 정상 동작한다고 확인했다.
+  정식 수락은 identity·calibration·MoveIt/Isaac·안전·단독 반복성 gate 뒤로 분리한다.
+- 통합 순서를 **왼팔 생산 기준선 → 오른팔 단독 동등성 → 양팔 통합**으로 확정했다.
+  왼팔의 감독형 1회 완주는 유지하되 50회/90% 전 단계 7은 부분 통과다.
+- Isaac Sim/Isaac Lab 학습은 데스크탑에서 수행하고 검증된 ONNX policy를
+  Pi 5에 배포해 실제 inference한다. Pi에서 Isaac 학습은 수행하지 않는다.
+- MoveIt은 전역 충돌 회피, policy/Visual Servo는 bounded residual,
+  STM32는 servo timing·watchdog·latch를 담당하는 책임 경계를 채택했다.
+- 다음 구현 순서는 1) 무동작 Pi 5 실제 자원 기준선,
+  2) 시연 배경에 강한 펜 검출, 3) multi-point/buffered trajectory,
+  4) Pick/Place 접촉 Z 분리 보정이다.
