@@ -48,6 +48,19 @@ ros2 launch so101_top_perception top_perception.launch.py
 The default launch file loads `top_camera_info.yaml` and
 `top_worktable_homography.yaml` from `manipulation_camera_manager`.
 
+## YOLO-OBB offline candidate
+
+`so101_top_perception.obb_detector` provides a fail-closed OpenCV DNN runtime
+for a hash-pinned, single-class Ultralytics OBB ONNX bundle. It preserves the
+same calibrated-board, full-image-visibility and exactly-one-object contract
+as the legacy detector. Pen yaw is an undirected long axis modulo pi; cap and
+tip are intentionally not classified.
+
+This backend is currently offline-only. Training uses the optional desktop
+dependency in `requirements-training.txt`; Pi inference requires only the
+existing OpenCV runtime. It must pass the frozen 18-image holdout and Pi
+resource gate before it can replace the launch-time legacy detector.
+
 ## Base-frame shadow target
 
 `top_shadow.launch.py` adds a non-actionable `left_base_link` shadow output on

@@ -1,0 +1,27 @@
+{
+  "protocol_version": 1,
+  "dataset_role": "training",
+  "class_names": [
+    "pen"
+  ],
+  "yaw_semantics": "undirected_long_axis_modulo_pi",
+  "coverage": {
+    "minimum_train_positive": 36,
+    "minimum_train_negative": 9,
+    "minimum_validation_positive": 12,
+    "minimum_validation_negative": 3,
+    "minimum_background_labels": 3,
+    "minimum_lighting_labels": 3,
+    "minimum_glare_labels": 2
+  },
+  "leakage": {
+    "forbid_holdout_image_sha256": true,
+    "require_disjoint_train_validation_sha256": true
+  },
+  "annotation": {
+    "format": "ultralytics_obb_four_corners_normalized",
+    "positive_objects_per_image": 1,
+    "negative_label_must_be_empty": true
+  },
+  "motion_authorized": false
+}

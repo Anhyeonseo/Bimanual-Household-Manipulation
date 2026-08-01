@@ -142,6 +142,7 @@ def evaluate(
     contract_path: Path,
     camera_info_path: Path,
     homography_path: Path,
+    detector_runner=None,
 ) -> dict:
     """Evaluate all frozen cases and return a machine-readable gate artifact."""
     manifest_path = manifest_path.resolve()
@@ -182,7 +183,9 @@ def evaluate(
         camera_info_path,
         homography_path,
     )
-    config = detector_config(contract)
+    config = (
+        detector_config(contract) if detector_runner is None else None
+    )
     require_full_footprint = bool(contract["detector"]["require_full_footprint"])
     acceptance = contract["acceptance"]
 
@@ -211,12 +214,19 @@ def evaluate(
         error_message = None
         candidate_count = None
         try:
-            pose = shared_detector.detect_one_object(
-                image,
-                calibration,
-                config,
-                require_full_footprint=require_full_footprint,
-            )
+            if detector_runner is None:
+                pose = shared_detector.detect_one_object(
+                    image,
+                    calibration,
+                    config,
+                    require_full_footprint=require_full_footprint,
+                )
+            else:
+                pose = detector_runner(
+                    image,
+                    calibration,
+                    require_full_footprint,
+                )
             candidate_count = 1
         except shared_detector.DetectionError as error:
             error_code = error.code
