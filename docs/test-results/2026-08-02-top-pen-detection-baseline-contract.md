@@ -40,8 +40,9 @@ backend의 후보로 남는 문제를 재현했다. fail-closed이므로 pose나
 
 ## 상태와 다음 gate
 
-평가 계약 구현은 통과했지만 실제 최소 18장 dataset은 아직 수집하지 않았다.
-따라서 `VIS-003`은 부분 통과다. 다음 gate는 고정 기하에서 positive 12장,
-hard-negative 6장을 배경·조명·반사 조건별로 수집해 legacy 실패 artifact를
-생성하는 것이다. 이후 같은 manifest로 명도+형상 backend와 필요 시 경량
-ONNX backend를 비교한다.
+평가 계약과 고정 holdout 18장 수집·annotation·legacy 실패 artifact 생성을
+완료했다. Legacy 결과는 miss 100%, false positive 66.7%다. `VIS-003`은 새
+backend가 아직 기준을 통과하지 않아 부분 통과다. 다음 gate는 holdout을
+학습에 섞지 않고 별도 학습 데이터로 경량 YOLO-OBB를 학습·ONNX export한
+뒤 같은 manifest로 비교하는 것이다. 상세 결과는
+`2026-08-02-top-pen-holdout-legacy-baseline.md`에 기록했다.

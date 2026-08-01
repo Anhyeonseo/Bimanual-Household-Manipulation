@@ -51,7 +51,8 @@ sha256sum artifacts/stage8/top_pen_dataset/images/*.png
 
 manifest는 dataset 디렉터리 안에 두며 image 경로는 manifest 기준 상대 경로만
 허용한다. Positive case는 수동 기준 중심 pixel과 펜의 무방향 장축 yaw를
-기록한다. yaw는 `-90 <= yaw < 90` degree 범위다.
+기록한다. yaw는 `-90 <= yaw < 90` degree 범위다. 이 yaw는 180도 대칭인
+`modulo pi`이며, 뚜껑/촉 방향은 현재 Pick & Place 계약에 포함하지 않는다.
 
 ```json
 {
