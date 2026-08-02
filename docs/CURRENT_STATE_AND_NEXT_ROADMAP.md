@@ -1,6 +1,6 @@
 # 현재 분기점과 남은 로드맵
 
-- 기준일: 2026-08-01
+- 기준일: 2026-08-02
 - 목적: 지금까지 검증된 결과를 보존하면서 단일 팔 완성, 오른팔 동등성 검증,
   양팔 통합과 Raspberry Pi 5 정책 배포의 순서를 명확히 한다.
 
@@ -32,9 +32,10 @@
 - single-point Action을 이어 붙인 정착형 실행은 생산용 연속 trajectory가 아니다.
 - Place 높이는 실제 안착에서 총 10 mm 추가 하강이 필요해 Pick/Place 접촉
   offset을 분리해 다시 계측해야 한다.
-- 반사·무늬 배경의 검은 펜 holdout 18장은 수집·승인했지만, legacy
-  명도 임계값 검출기는 miss 100%, false positive 66.7%로 실패했다.
-  별도 학습 데이터로 만들 경량 YOLO-OBB/ONNX backend는 아직 없다.
+- 반사·무늬 배경의 검은 펜 holdout에서 legacy 명도 임계값 검출기는
+  miss 100%, false positive 66.7%로 실패했다. 이후 별도 학습 데이터로
+  경량 YOLO-OBB를 학습·ONNX export했고, Pi 5에서 Top OBB 4 Hz와 3카메라
+  동시 30분 자원 gate를 통과했다.
 - 손목 카메라 eye-in-hand와 최종 visual correction은 미완료다.
 - 오른팔과 양팔 동작은 formal gate를 아직 통과하지 않았다.
 - 실제 Isaac 정책의 ONNX 입력·출력, control_dt와 Pi 5 실행시간은 아직
@@ -115,6 +116,13 @@ STM32
 6. camera-only 30분 시험은 통과했다. 다음은 policy shadow 30분, 8시간 soak,
    headless 재부팅 반복 gate다.
 
+2026-08-02 분기점에서 Top YOLO-OBB와 3카메라 30분 동시 부하는 통과했다.
+실제 policy ONNX/체크포인트는 아직 로컬에 없으므로 값을 추측하지 않고
+`config/policy_deployment_contract.json`과
+`tools/validate_policy_deployment_bundle.py`로 model·observation·action·
+runtime·provenance 계약을 먼저 fail-closed로 고정한다. 실제 모델을 확보한
+뒤에만 bundle artifact를 만들고 Pi shadow inference로 진행한다.
+
 ### C. 오른팔 단독 동등성 검증
 
 1. servo ID, 방향, raw range, q0, torque/PID와 전원을 실측한다.
@@ -167,9 +175,10 @@ STM32
 
 ## 5. 바로 다음 작업
 
-3카메라+bridge 30분 자원 기준선과 반사·무늬 배경 펜 holdout 18장
-수집·annotation·legacy 실패 특성화를 완료했다. 바로 다음 작은 이슈는 별도
-학습 데이터로 만드는 “경량 YOLO-OBB 펜 검출·ONNX 후보”다. 고정 holdout은
-학습에 사용하지 않고 최종 비교에만 쓴다. 이후 “연속 trajectory 계약”과
-“Place Z offset”을 각각 분리한다. Git issue, branch, commit과 PR 조작은
-사용자가 직접 수행한다.
+Top YOLO-OBB와 3카메라 동시 30분 Pi 자원 gate까지 완료했다. 현재 이슈는
+실제 Isaac 정책 값을 추측하지 않고 policy ONNX bundle의 model·observation·
+action·runtime·provenance 계약과 fail-closed 검증기를 고정한다. 다음 작은
+이슈는 실제 학습 체크포인트와 export 설정을 확보해 ONNX bundle 및 validation
+artifact를 생성하는 것이다. 그 뒤 Pi 단일 policy shadow smoke로 넘어간다.
+“연속 trajectory 계약”과 “Place Z offset”은 별도 이슈로 유지한다. Git issue,
+branch, commit과 PR 조작은 사용자가 직접 수행한다.

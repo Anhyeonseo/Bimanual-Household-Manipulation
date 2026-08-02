@@ -138,6 +138,7 @@ cp bridge.local.yaml.example bridge.local.yaml
 - [단계 8 Top 펜 검출 데이터 기준선](docs/checklists/STAGE8_TOP_PEN_DETECTION_BASELINE.md)
 - [단계 8 경량 YOLO-OBB 펜 검출 후보](docs/checklists/STAGE8_TOP_PEN_YOLO_OBB.md)
 - [단계 8 Top 펜 holdout·legacy 결과](docs/test-results/2026-08-02-top-pen-holdout-legacy-baseline.md)
+- [단계 9 Policy ONNX 배포 번들 계약](docs/checklists/STAGE9_POLICY_DEPLOYMENT_BUNDLE.md)
 - [단계 7 물리 범위 재검증·배포 결과](docs/test-results/2026-07-30-physical-range-revalidation.md)
 - [단계 7 Shoulder 근본 원인과 0x00020E00 후보](docs/test-results/2026-07-30-stage7-shoulder-root-cause-remediation.md)
 - [단계 7 감독형 실제 Pick/Place 1회 완주](docs/test-results/2026-07-31-stage7-supervised-pick-place-complete.md)
