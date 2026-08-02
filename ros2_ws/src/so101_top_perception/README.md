@@ -48,7 +48,7 @@ ros2 launch so101_top_perception top_perception.launch.py
 The default launch file loads `top_camera_info.yaml` and
 `top_worktable_homography.yaml` from `manipulation_camera_manager`.
 
-## YOLO-OBB offline candidate
+## YOLO-OBB runtime smoke
 
 `so101_top_perception.obb_detector` provides a fail-closed OpenCV DNN runtime
 for a hash-pinned, single-class Ultralytics OBB ONNX bundle. It preserves the
@@ -56,10 +56,30 @@ same calibrated-board, full-image-visibility and exactly-one-object contract
 as the legacy detector. Pen yaw is an undirected long axis modulo pi; cap and
 tip are intentionally not classified.
 
-This backend is currently offline-only. Training uses the optional desktop
-dependency in `requirements-training.txt`; Pi inference requires only the
-existing OpenCV runtime. It must pass the frozen 18-image holdout and Pi
-resource gate before it can replace the launch-time legacy detector.
+Candidate v3 passed the frozen 18-image holdout. The dedicated smoke launch
+runs its hash-pinned ONNX bundle at a bounded rate while preserving
+`motion_authorized=false` and `robot_target_available=false`:
+
+```bash
+python3 -m venv --system-site-packages \
+  /home/pi/Manipulation/.venv-top-perception-opencv410
+/home/pi/Manipulation/.venv-top-perception-opencv410/bin/python -m pip install \
+  --require-hashes --no-deps \
+  -r /home/pi/Manipulation/requirements-top-perception-runtime.txt
+
+ros2 launch so101_top_perception top_obb_runtime_smoke.launch.py \
+  python_executable:=/home/pi/Manipulation/.venv-top-perception-opencv410/bin/python \
+  bundle_manifest:=/absolute/path/to/top_pen_yolo_obb_bundle.json \
+  inference_hz:=4.0
+```
+
+The ordinary `top_perception.launch.py` still selects the legacy detector.
+The OBB backend cannot become the operational default until the three-camera
+Pi resource gate passes. Its diagnostics expose the pinned model and holdout
+hashes, inference counts and bounded latency samples; no camera image is kept
+by the runtime monitor. Ubuntu/ROS OpenCV 4.6 cannot parse the YOLO11 OBB
+`Split` node, so the smoke launch requires the isolated, hash-pinned OpenCV
+4.10 Python executable and never replaces the system OpenCV installation.
 
 ## Base-frame shadow target
 
@@ -77,4 +97,3 @@ the current transform. The current conservative workspace is derived from the
 approved low-grasp and pre-grasp joint-limit overlap; the camera-visible pen
 used on 2026-07-30 is outside that hardware workspace. No MoveIt or hardware
 command publisher exists in this package.
-

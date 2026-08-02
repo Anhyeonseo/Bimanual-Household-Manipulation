@@ -41,6 +41,34 @@ def undirected_yaw_error_deg(actual: float, expected: float) -> float:
     """Return the smallest long-axis yaw difference modulo 180 degrees."""
     difference = (actual - expected + 90.0) % 180.0 - 90.0
     return abs(float(difference))
+def image_axis_yaw_to_board_deg(
+    center_px: list[float],
+    yaw_deg: float,
+    calibration,
+) -> float:
+    """Transform an undirected image-axis yaw into the board frame."""
+    center = np.asarray(center_px, dtype=np.float64)
+    angle = math.radians(float(yaw_deg))
+    direction = np.asarray([math.cos(angle), math.sin(angle)])
+    endpoints = np.asarray(
+        [center - direction, center + direction],
+        dtype=np.float64,
+    )
+    board_endpoints = shared_detector.transform_to_board(
+        endpoints,
+        calibration,
+    )
+    board_direction = board_endpoints[1] - board_endpoints[0]
+    if float(np.linalg.norm(board_direction)) <= 1e-12:
+        raise ValueError("image yaw cannot be transformed into board frame")
+    return float(
+        math.degrees(
+            math.atan2(
+                float(board_direction[1]),
+                float(board_direction[0]),
+            )
+        )
+    )
 
 
 def detected_count(error: Exception) -> int | None:
@@ -267,9 +295,14 @@ def evaluate(
                     actual_center[0] - float(expected_center[0]),
                     actual_center[1] - float(expected_center[1]),
                 )
+                expected_board_yaw = image_axis_yaw_to_board_deg(
+                    [float(expected_center[0]), float(expected_center[1])],
+                    float(expected_yaw),
+                    calibration,
+                )
                 yaw_error = undirected_yaw_error_deg(
                     float(pose["yaw_deg"]),
-                    float(expected_yaw),
+                    expected_board_yaw,
                 )
                 center_errors_px.append(center_error)
                 yaw_errors_deg.append(yaw_error)
@@ -277,6 +310,8 @@ def evaluate(
                     {
                         "actual_center_px": actual_center,
                         "actual_yaw_deg": pose["yaw_deg"],
+                        "expected_yaw_image_deg": float(expected_yaw),
+                        "expected_yaw_board_deg": expected_board_yaw,
                         "center_error_px": center_error,
                         "yaw_error_deg": yaw_error,
                     }
@@ -288,7 +323,15 @@ def evaluate(
                 and candidate_count > 0
             ):
                 false_positives += 1
-            elif error_code != "OBJECT_COUNT_INVALID" or candidate_count != 0:
+            elif not (
+                (error_code == "OBJECT_COUNT_INVALID" and candidate_count == 0)
+                or error_code
+                in (
+                    "IMAGE_FOOTPRINT_CLIPPED",
+                    "CENTER_OUTSIDE_CALIBRATED_REGION",
+                    "OUTSIDE_CALIBRATED_REGION",
+                )
+            ):
                 processing_errors += 1
         results.append(result)
 

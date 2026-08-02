@@ -1,0 +1,5 @@
+# Isolated ROS/Pi runtime only. Create the venv with --system-site-packages so
+# ROS Jazzy rclpy and the system NumPy 1.26 ABI remain available.
+opencv-python-headless==4.10.0.84 \
+    --hash=sha256:46071015ff9ab40fccd8a163da0ee14ce9846349f06c6c8c0f2870856ffa45db \
+    --hash=sha256:377d08a7e48a1405b5e84afcbe4798464ce7ee17081c1c23619c8b398ff18295

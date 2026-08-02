@@ -27,6 +27,13 @@ from .detector import (
     frame_age_seconds,
     load_calibration,
 )
+from .obb_detector import BACKEND_NAME, OpenCvYoloObbDetector
+from .runtime_monitor import (
+    LEGACY_BACKEND,
+    InferenceMetrics,
+    InferenceRateLimiter,
+    pose_confidence,
+)
 
 
 class TopObjectPoseNode(Node):
@@ -37,6 +44,20 @@ class TopObjectPoseNode(Node):
 
         self.declare_parameter("camera_info_path", "")
         self.declare_parameter("homography_path", "")
+        self._detector_backend = str(
+            self.declare_parameter(
+                "detector_backend",
+                LEGACY_BACKEND,
+            ).value
+        )
+        self._inference_hz = float(
+            self.declare_parameter("inference_hz", 4.0).value
+        )
+        self.declare_parameter("obb_bundle_manifest_path", "")
+        self.declare_parameter(
+            "obb_expected_holdout_manifest_sha256",
+            "",
+        )
         image_topic = self.declare_parameter(
             "image_topic",
             "/camera/top/image_raw",
@@ -123,6 +144,48 @@ class TopObjectPoseNode(Node):
             camera_info_path,
             homography_path,
         )
+        self._inference_metrics = InferenceMetrics()
+        self._inference_rate_limiter = None
+        self._obb_detector = None
+        self._model_sha256 = "none"
+        self._holdout_manifest_sha256 = "none"
+        if self._detector_backend == BACKEND_NAME:
+            bundle_value = str(
+                self.get_parameter("obb_bundle_manifest_path").value
+            )
+            holdout_hash = str(
+                self.get_parameter(
+                    "obb_expected_holdout_manifest_sha256"
+                ).value
+            )
+            if not bundle_value:
+                raise ValueError(
+                    "obb_bundle_manifest_path is required for the OBB backend"
+                )
+            if len(holdout_hash) != 64 or any(
+                character not in "0123456789abcdefABCDEF"
+                for character in holdout_hash
+            ):
+                raise ValueError(
+                    "obb_expected_holdout_manifest_sha256 must contain "
+                    "64 hex characters"
+                )
+            self._obb_detector = OpenCvYoloObbDetector(
+                Path(bundle_value),
+                expected_holdout_manifest_sha256=holdout_hash.lower(),
+            )
+            self._model_sha256 = self._obb_detector.config.model_sha256
+            self._holdout_manifest_sha256 = (
+                self._obb_detector.config.holdout_manifest_sha256
+            )
+            self._inference_rate_limiter = InferenceRateLimiter(
+                self._inference_hz
+            )
+        elif self._detector_backend != LEGACY_BACKEND:
+            raise ValueError(
+                "detector_backend must be one of "
+                f"{LEGACY_BACKEND}, {BACKEND_NAME}"
+            )
 
         self._pose_publisher = self.create_publisher(
             TopObjectPose,
@@ -156,8 +219,14 @@ class TopObjectPoseNode(Node):
             )
         self.get_logger().info(
             "TOP_PERCEPTION_READY input=%s output=%s frame=%s "
-            "motion_authorized=false"
-            % (image_topic, pose_topic, self._output_frame_id)
+            "backend=%s inference_hz=%.3f motion_authorized=false"
+            % (
+                image_topic,
+                pose_topic,
+                self._output_frame_id,
+                self._detector_backend,
+                self._inference_hz,
+            )
         )
 
     def _validate_parameters(self, diagnostics_period_s: float) -> None:
@@ -172,6 +241,8 @@ class TopObjectPoseNode(Node):
             raise ValueError("stale_timeout_s must be positive")
         if diagnostics_period_s <= 0.0:
             raise ValueError("diagnostics_period_s must be positive")
+        if self._inference_hz <= 0.0:
+            raise ValueError("inference_hz must be positive")
 
     @staticmethod
     def _decode_image(message: Image) -> np.ndarray:
@@ -205,6 +276,14 @@ class TopObjectPoseNode(Node):
 
     def _image_callback(self, message: Image) -> None:
         self._last_image_received_at = time.monotonic()
+        if (
+            self._inference_rate_limiter is not None
+            and not self._inference_rate_limiter.should_run(
+                self._last_image_received_at
+            )
+        ):
+            self._inference_metrics.record_skipped_frame()
+            return
         try:
             frame_age_s = frame_age_seconds(
                 self.get_clock().now().nanoseconds,
@@ -214,15 +293,8 @@ class TopObjectPoseNode(Node):
                 self._future_tolerance_s,
             )
             image = self._decode_image(message)
-            pose = detect_one_object(
-                image,
-                self._calibration,
-                self._detector_config,
-                require_full_footprint=(
-                    not self._allow_partial_footprint
-                ),
-            )
         except DetectionError as error:
+            self._inference_metrics.record_input_rejection()
             self._last_frame_age_s = math.nan
             self._publish_diagnostic(
                 DiagnosticStatus.WARN,
@@ -231,6 +303,54 @@ class TopObjectPoseNode(Node):
             )
             return
         except Exception as error:
+            self._inference_metrics.record_input_processing_error()
+            self._last_frame_age_s = math.nan
+            self._publish_diagnostic(
+                DiagnosticStatus.ERROR,
+                "INPUT_PROCESSING_ERROR",
+                str(error),
+            )
+            return
+
+        inference_started_at = time.monotonic()
+        try:
+            if self._obb_detector is None:
+                pose = detect_one_object(
+                    image,
+                    self._calibration,
+                    self._detector_config,
+                    require_full_footprint=(
+                        not self._allow_partial_footprint
+                    ),
+                )
+            else:
+                pose = self._obb_detector.detect(
+                    image,
+                    self._calibration,
+                    image_edge_margin_px=(
+                        self._detector_config.image_edge_margin_px
+                    ),
+                    require_full_footprint=(
+                        not self._allow_partial_footprint
+                    ),
+                )
+        except DetectionError as error:
+            self._inference_metrics.record(
+                (time.monotonic() - inference_started_at) * 1000.0,
+                "rejection",
+            )
+            self._last_frame_age_s = math.nan
+            self._publish_diagnostic(
+                DiagnosticStatus.WARN,
+                error.code,
+                str(error),
+            )
+            return
+        except Exception as error:
+            self._inference_metrics.record(
+                (time.monotonic() - inference_started_at) * 1000.0,
+                "error",
+            )
             self._last_frame_age_s = math.nan
             self._publish_diagnostic(
                 DiagnosticStatus.ERROR,
@@ -238,6 +358,10 @@ class TopObjectPoseNode(Node):
                 str(error),
             )
             return
+        self._inference_metrics.record(
+            (time.monotonic() - inference_started_at) * 1000.0,
+            "success",
+        )
 
         output = TopObjectPose()
         output.header.stamp = message.header.stamp
@@ -245,9 +369,7 @@ class TopObjectPoseNode(Node):
         output.x_m = pose["board_position_m"][0]
         output.y_m = pose["board_position_m"][1]
         output.yaw_rad = pose["yaw_rad"]
-        output.confidence = float(
-            min(1.0, max(0.0, pose["solidity"]))
-        )
+        output.confidence = pose_confidence(pose)
         output.frame_age_s = float(frame_age_s)
         footprint_inside = bool(
             pose["calibration_region"]["footprint_inside"]
@@ -328,6 +450,58 @@ class TopObjectPoseNode(Node):
             ),
             self._value("motion_authorized", False),
             self._value("robot_target_available", False),
+            self._value("command_publications", 0),
+            self._value("detector_backend", self._detector_backend),
+            self._value("inference_target_hz", self._inference_hz),
+            self._value(
+                "inference_count",
+                self._inference_metrics.inference_count,
+            ),
+            self._value(
+                "successful_observation_count",
+                self._inference_metrics.successful_observation_count,
+            ),
+            self._value(
+                "detection_rejection_count",
+                self._inference_metrics.detection_rejection_count,
+            ),
+            self._value(
+                "processing_error_count",
+                self._inference_metrics.processing_error_count,
+            ),
+            self._value(
+                "input_rejection_count",
+                self._inference_metrics.input_rejection_count,
+            ),
+            self._value(
+                "input_processing_error_count",
+                self._inference_metrics.input_processing_error_count,
+            ),
+            self._value(
+                "skipped_frame_count",
+                self._inference_metrics.skipped_frame_count,
+            ),
+            self._value(
+                "inference_last_ms",
+                f"{self._inference_metrics.last_inference_ms:.6f}",
+            ),
+            self._value(
+                "inference_p50_ms",
+                f"{self._inference_metrics.latency_summary()['p50_ms']:.6f}",
+            ),
+            self._value(
+                "inference_p95_ms",
+                f"{self._inference_metrics.latency_summary()['p95_ms']:.6f}",
+            ),
+            self._value(
+                "inference_max_ms",
+                f"{self._inference_metrics.latency_summary()['max_ms']:.6f}",
+            ),
+            self._value("model_sha256", self._model_sha256),
+            self._value(
+                "holdout_manifest_sha256",
+                self._holdout_manifest_sha256,
+            ),
             self._value(
                 "homography_status",
                 self._calibration.homography_status,
@@ -343,7 +517,10 @@ class TopObjectPoseNode(Node):
                     self._value("x_m", f"{pose['board_position_m'][0]:.6f}"),
                     self._value("y_m", f"{pose['board_position_m'][1]:.6f}"),
                     self._value("yaw_rad", f"{pose['yaw_rad']:.6f}"),
-                    self._value("confidence", f"{pose['solidity']:.6f}"),
+                    self._value(
+                        "confidence",
+                        f"{pose_confidence(pose):.6f}",
+                    ),
                 ]
             )
         array.status = [status]

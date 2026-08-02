@@ -53,6 +53,8 @@ manifest는 dataset 디렉터리 안에 두며 image 경로는 manifest 기준 �
 허용한다. Positive case는 수동 기준 중심 pixel과 펜의 무방향 장축 yaw를
 기록한다. yaw는 `-90 <= yaw < 90` degree 범위다. 이 yaw는 180도 대칭인
 `modulo pi`이며, 뚜껑/촉 방향은 현재 Pick & Place 계약에 포함하지 않는다.
+중심과 yaw 주석은 rectified image pixel 좌표계다. 평가기는 검출 pose와
+비교하기 전에 주석 장축을 같은 homography로 board 좌표계에 변환한다.
 
 ```json
 {

@@ -210,8 +210,16 @@ python3 SO101-Bimanual-Manipulation/tools/pi_runtime_resource_baseline.py \
   --output SO101-Bimanual-Manipulation/artifacts/stage9/pi_runtime_policy_shadow.json
 ```
 
-JSON에는 카메라별 rate·DDS 대역폭·frame age·decode 지연·재연결 횟수,
+JSON에는 카메라 관리자 내부 `decode_hz`와 DDS 구독자가 실제로 받은
+`subscriber_image_hz`, 다음 perception node의 최소 소비 계약인
+`inference_hz`, DDS 대역폭·frame age·decode 지연·재연결 횟수,
 `/joint_states` rate와 최대 gap, `/rosout`에서 관측한 bridge
 heartbeat·feedback·safety-latch 오류, CPU·메모리·온도·swap·throttling 및
 policy 추론 지연이 기록된다. 종료 시 성공 여부와 무관하게 `STANDBY`를
 발행한다.
+
+`decode_hz`는 카메라 관리자 내부 `decoded_frames` 증분으로 검증하고,
+DDS subscriber 관측률에는 `inference_hz`의 90% 하한을 적용한다. 따라서
+`decode_hz=5`, `inference_hz=4`인 카메라는 내부 디코드 4.5 Hz 이상과
+subscriber 3.6 Hz 이상을 각각 만족해야 한다. 내부 디코드가 4 Hz로
+저하된 경우에는 subscriber가 4 Hz여도 실패한다.

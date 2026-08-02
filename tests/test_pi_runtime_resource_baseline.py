@@ -9,7 +9,9 @@ from tools.pi_runtime_resource_baseline import (
     POLICY_STATUS_NAME,
     classify_bridge_error,
     cpu_percent,
+    load_camera_inference_budgets,
     load_phase_budget,
+    load_top_inference_budget,
     parse_process_spec,
     percentile,
     policy_counter_delta_entry,
@@ -17,7 +19,10 @@ from tools.pi_runtime_resource_baseline import (
     read_throttled_flags,
     ros_uint8,
     summarize,
+    top_perception_counter_delta_entry,
+    validate_camera_rate_contract,
     validate_policy_shadow,
+    validate_top_perception_runtime,
     write_report,
 )
 
@@ -52,6 +57,52 @@ class PiRuntimeResourceBaselineTests(unittest.TestCase):
         )
         self.assertEqual(cameras, {"top": 6.0, "wrist_a": 5.0, "wrist_b": 5.0})
         self.assertEqual(policy_hz, 10.0)
+        self.assertEqual(
+            load_camera_inference_budgets(
+                ROOT / "config" / "camera_schedule.json",
+                "RUNTIME_BASELINE",
+            ),
+            {"top": 4.0, "wrist_a": 4.0, "wrist_b": 4.0},
+        )
+        self.assertEqual(
+            load_top_inference_budget(
+                ROOT / "config" / "camera_schedule.json",
+                "RUNTIME_BASELINE",
+            ),
+            4.0,
+        )
+
+    def test_camera_rate_contract_separates_decode_and_delivery(self):
+        self.assertEqual(
+            validate_camera_rate_contract(
+                "wrist_a",
+                decode_target_hz=5.0,
+                inference_target_hz=4.0,
+                internal_decode_hz=5.0,
+                subscriber_hz=4.0,
+            ),
+            [],
+        )
+
+    def test_camera_rate_contract_rejects_slow_internal_decode(self):
+        failures = validate_camera_rate_contract(
+            "wrist_a",
+            decode_target_hz=5.0,
+            inference_target_hz=4.0,
+            internal_decode_hz=4.0,
+            subscriber_hz=4.0,
+        )
+        self.assertTrue(any("internal decode rate" in item for item in failures))
+
+    def test_camera_rate_contract_rejects_delivery_below_inference_budget(self):
+        failures = validate_camera_rate_contract(
+            "wrist_a",
+            decode_target_hz=5.0,
+            inference_target_hz=4.0,
+            internal_decode_hz=5.0,
+            subscriber_hz=3.5,
+        )
+        self.assertTrue(any("below inference budget" in item for item in failures))
 
     def test_percentile_and_summary(self):
         self.assertEqual(percentile([1.0, 2.0, 3.0], 0.5), 2.0)
@@ -179,6 +230,86 @@ class PiRuntimeResourceBaselineTests(unittest.TestCase):
         }
         _, failures = validate_policy_shadow((0, "SHADOW", values), 10.0, 10.0, 80.0)
         self.assertTrue(any("model_sha256" in item for item in failures))
+
+    @staticmethod
+    def _top_perception_values() -> dict[str, str]:
+        return {
+            "detector_backend": "opencv_dnn_ultralytics_obb",
+            "motion_authorized": "False",
+            "robot_target_available": "False",
+            "model_sha256": "a" * 64,
+            "holdout_manifest_sha256": "b" * 64,
+            "inference_count": "40",
+            "successful_observation_count": "30",
+            "detection_rejection_count": "10",
+            "processing_error_count": "0",
+            "input_rejection_count": "0",
+            "input_processing_error_count": "0",
+            "command_publications": "0",
+            "inference_p50_ms": "40",
+            "inference_p95_ms": "60",
+            "inference_max_ms": "75",
+        }
+
+    def test_top_perception_runtime_passes_with_expected_rejections(self):
+        report, failures = validate_top_perception_runtime(
+            (1, "OBJECT_COUNT_INVALID", self._top_perception_values()),
+            elapsed_s=10.0,
+            target_hz=4.0,
+            maximum_p95_ms=200.0,
+        )
+
+        self.assertEqual(failures, [])
+        self.assertEqual(report["measured_hz"], 4.0)
+        self.assertEqual(report["detection_rejection_count"], 10)
+
+    def test_top_perception_runtime_rejects_errors_and_commands(self):
+        values = self._top_perception_values()
+        values.update(
+            {
+                "successful_observation_count": "38",
+                "detection_rejection_count": "0",
+                "processing_error_count": "2",
+                "command_publications": "1",
+            }
+        )
+
+        _, failures = validate_top_perception_runtime(
+            (2, "PROCESSING_ERROR", values),
+            elapsed_s=10.0,
+            target_hz=4.0,
+            maximum_p95_ms=200.0,
+        )
+
+        self.assertTrue(any("processing_error_count" in item for item in failures))
+        self.assertTrue(any("command_publications" in item for item in failures))
+
+    def test_top_perception_counters_use_measurement_window_delta(self):
+        baseline = {
+            "inference_count": "100",
+            "successful_observation_count": "80",
+            "detection_rejection_count": "20",
+            "processing_error_count": "0",
+            "input_rejection_count": "0",
+            "input_processing_error_count": "0",
+        }
+        final = {
+            **self._top_perception_values(),
+            "inference_count": "140",
+            "successful_observation_count": "110",
+            "detection_rejection_count": "30",
+            "processing_error_count": "0",
+            "input_rejection_count": "0",
+            "input_processing_error_count": "0",
+        }
+        adjusted = top_perception_counter_delta_entry(
+            (0, "TRACKING_BOARD_ONLY", final), baseline
+        )
+
+        self.assertIsNotNone(adjusted)
+        self.assertEqual(adjusted[2]["inference_count"], "40")
+        self.assertEqual(adjusted[2]["successful_observation_count"], "30")
+        self.assertEqual(adjusted[2]["detection_rejection_count"], "10")
 
     def test_policy_contract_matches_runtime_topic(self):
         contract = json.loads(

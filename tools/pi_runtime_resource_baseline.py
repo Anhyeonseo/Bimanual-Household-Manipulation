@@ -7,6 +7,7 @@ import argparse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import statistics
 import subprocess
@@ -16,12 +17,22 @@ from typing import Any, Callable
 
 CAMERA_NAMES = ("top", "wrist_a", "wrist_b")
 POLICY_STATUS_NAME = "policy_runtime/shadow"
+TOP_PERCEPTION_STATUS_NAME = "top_perception/object_pose"
+TOP_PERCEPTION_BACKEND = "opencv_dnn_ultralytics_obb"
 POLICY_COUNTER_KEYS = (
     "inference_count",
     "deadline_misses",
     "stale_observations",
     "rejected_outputs",
     "command_publications",
+)
+TOP_PERCEPTION_COUNTER_KEYS = (
+    "inference_count",
+    "successful_observation_count",
+    "detection_rejection_count",
+    "processing_error_count",
+    "input_rejection_count",
+    "input_processing_error_count",
 )
 DEFAULT_SCHEDULE = Path(__file__).parents[1] / "config" / "camera_schedule.json"
 
@@ -78,6 +89,73 @@ def load_phase_budget(path: Path, phase: str) -> tuple[dict[str, float], float]:
     if not isinstance(policy_hz, (int, float)) or isinstance(policy_hz, bool) or policy_hz < 0:
         raise ValueError(f"invalid policy_hz: {phase}")
     return targets, float(policy_hz)
+
+
+def load_top_inference_budget(path: Path, phase: str) -> float:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        rate = data["phases"][phase]["top"]["inference_hz"]
+    except (KeyError, TypeError) as exc:
+        raise ValueError(
+            f"missing top inference budget: {phase}.top.inference_hz"
+        ) from exc
+    if (
+        not isinstance(rate, (int, float))
+        or isinstance(rate, bool)
+        or rate <= 0
+    ):
+        raise ValueError(
+            f"invalid top inference_hz: {phase}.top.inference_hz"
+        )
+    return float(rate)
+
+
+def load_camera_inference_budgets(path: Path, phase: str) -> dict[str, float]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        selected = data["phases"][phase]
+    except (KeyError, TypeError) as exc:
+        raise ValueError(f"camera phase is not defined: {phase}") from exc
+    targets: dict[str, float] = {}
+    for camera in CAMERA_NAMES:
+        try:
+            rate = selected[camera]["inference_hz"]
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                f"missing inference_hz: {phase}.{camera}"
+            ) from exc
+        if (
+            not isinstance(rate, (int, float))
+            or isinstance(rate, bool)
+            or rate < 0
+        ):
+            raise ValueError(f"invalid inference_hz: {phase}.{camera}")
+        targets[camera] = float(rate)
+    return targets
+
+
+def validate_camera_rate_contract(
+    name: str,
+    decode_target_hz: float,
+    inference_target_hz: float,
+    internal_decode_hz: float,
+    subscriber_hz: float,
+) -> list[str]:
+    """Validate producer decode and downstream delivery as separate budgets."""
+    failures: list[str] = []
+    if not decode_target_hz * 0.90 <= internal_decode_hz <= decode_target_hz * 1.10:
+        failures.append(
+            f"{name} internal decode rate={internal_decode_hz:.3f}Hz"
+        )
+    if subscriber_hz < inference_target_hz * 0.90:
+        failures.append(
+            f"{name} DDS delivery rate={subscriber_hz:.3f}Hz below inference budget"
+        )
+    if subscriber_hz > decode_target_hz * 1.10:
+        failures.append(
+            f"{name} DDS delivery rate={subscriber_hz:.3f}Hz above decode budget"
+        )
+    return failures
 
 
 def parse_process_spec(value: str) -> tuple[str, int]:
@@ -225,6 +303,25 @@ def policy_counter_delta_entry(
     return level, message, adjusted
 
 
+def top_perception_counter_delta_entry(
+    final_entry: tuple[int, str, dict[str, str]] | None,
+    baseline_values: dict[str, str] | None,
+) -> tuple[int, str, dict[str, str]] | None:
+    """Limit monotonic perception counters to this measurement window."""
+    if final_entry is None or baseline_values is None:
+        return None
+    level, message, final_values = final_entry
+    adjusted = dict(final_values)
+    for key in TOP_PERCEPTION_COUNTER_KEYS:
+        try:
+            adjusted[key] = str(
+                int(final_values[key]) - int(baseline_values[key])
+            )
+        except (KeyError, ValueError):
+            adjusted[key] = "INVALID"
+    return level, message, adjusted
+
+
 def classify_bridge_error(logger_name: str, message: str) -> str | None:
     if not logger_name.endswith("single_arm_bridge"):
         return None
@@ -289,6 +386,107 @@ def validate_policy_shadow(
     }, failures
 
 
+def validate_top_perception_runtime(
+    entry: tuple[int, str, dict[str, str]] | None,
+    elapsed_s: float,
+    target_hz: float,
+    maximum_p95_ms: float,
+) -> tuple[dict[str, Any], list[str]]:
+    """Validate hash-pinned OBB inference without treating misses as faults."""
+    failures: list[str] = []
+    if entry is None:
+        return {}, [f"{TOP_PERCEPTION_STATUS_NAME} diagnostics are missing"]
+    level, message, values = entry
+    if values.get("detector_backend") != TOP_PERCEPTION_BACKEND:
+        failures.append("top perception detector backend is not YOLO-OBB")
+    if values.get("motion_authorized", "").lower() != "false":
+        failures.append("top perception motion_authorized must be false")
+    if values.get("robot_target_available", "").lower() != "false":
+        failures.append("top perception robot_target_available must be false")
+    model_sha256 = values.get("model_sha256", "")
+    holdout_sha256 = values.get("holdout_manifest_sha256", "")
+    if not is_sha256(model_sha256):
+        failures.append("top perception model_sha256 must contain 64 hex characters")
+    if not is_sha256(holdout_sha256):
+        failures.append(
+            "top perception holdout_manifest_sha256 must contain 64 hex characters"
+        )
+    inference_count = _as_int(values, "inference_count", failures)
+    successful_count = _as_int(
+        values, "successful_observation_count", failures
+    )
+    rejection_count = _as_int(
+        values, "detection_rejection_count", failures
+    )
+    processing_error_count = _as_int(
+        values, "processing_error_count", failures
+    )
+    input_rejection_count = _as_int(
+        values, "input_rejection_count", failures
+    )
+    input_processing_error_count = _as_int(
+        values, "input_processing_error_count", failures
+    )
+    command_publications = _as_int(values, "command_publications", failures)
+    inference_p95_ms = _as_float(values, "inference_p95_ms", failures)
+    measured_hz = inference_count / elapsed_s if elapsed_s > 0 else 0.0
+    if target_hz > 0 and measured_hz < target_hz * 0.90:
+        failures.append(
+            f"top perception inference rate={measured_hz:.3f}Hz below target"
+        )
+    if measured_hz > target_hz * 1.10:
+        failures.append(
+            f"top perception inference rate={measured_hz:.3f}Hz above target"
+        )
+    if inference_p95_ms > maximum_p95_ms:
+        failures.append(
+            f"top perception inference p95={inference_p95_ms:.3f}ms"
+        )
+    if processing_error_count != 0:
+        failures.append(
+            f"top perception processing_error_count={processing_error_count}"
+        )
+    if input_rejection_count != 0:
+        failures.append(
+            f"top perception input_rejection_count={input_rejection_count}"
+        )
+    if input_processing_error_count != 0:
+        failures.append(
+            "top perception input_processing_error_count="
+            f"{input_processing_error_count}"
+        )
+    if command_publications != 0:
+        failures.append(
+            f"top perception command_publications={command_publications}"
+        )
+    if successful_count + rejection_count + processing_error_count != inference_count:
+        failures.append("top perception outcome counters do not sum to inference_count")
+    return {
+        "diagnostic_level": level,
+        "diagnostic_message": message,
+        "detector_backend": values.get("detector_backend", ""),
+        "model_sha256": model_sha256,
+        "holdout_manifest_sha256": holdout_sha256,
+        "inference_count": inference_count,
+        "measured_hz": measured_hz,
+        "inference_p50_ms": _as_float(
+            values, "inference_p50_ms", failures
+        ),
+        "inference_p95_ms": inference_p95_ms,
+        "inference_max_ms": _as_float(
+            values, "inference_max_ms", failures
+        ),
+        "successful_observation_count": successful_count,
+        "detection_rejection_count": rejection_count,
+        "processing_error_count": processing_error_count,
+        "input_rejection_count": input_rejection_count,
+        "input_processing_error_count": input_processing_error_count,
+        "command_publications": command_publications,
+        "motion_authorized": values.get("motion_authorized", ""),
+        "robot_target_available": values.get("robot_target_available", ""),
+    }, failures
+
+
 @dataclass
 class Measurements:
     image_counts: dict[str, int]
@@ -338,6 +536,16 @@ def main() -> int:
     parser.add_argument("--require-policy", action="store_true")
     parser.add_argument("--policy-topic", default="/policy_runtime/diagnostics")
     parser.add_argument("--max-policy-p95-ms", type=float, default=80.0)
+    parser.add_argument("--require-top-perception", action="store_true")
+    parser.add_argument(
+        "--top-perception-topic",
+        default="/perception/top/diagnostics",
+    )
+    parser.add_argument(
+        "--max-top-perception-p95-ms",
+        type=float,
+        default=200.0,
+    )
     parser.add_argument("--require-throttling-status", action="store_true")
     parser.add_argument("--process", action="append", default=[], type=parse_process_spec)
     args = parser.parse_args()
@@ -345,11 +553,19 @@ def main() -> int:
         parser.error("duration must be >=30s and warmup must be >=3s")
     if args.max_policy_p95_ms <= 0:
         parser.error("max-policy-p95-ms must be positive")
+    if args.max_top_perception_p95_ms <= 0:
+        parser.error("max-top-perception-p95-ms must be positive")
     process_names = [name for name, _ in args.process]
     if len(process_names) != len(set(process_names)):
         parser.error("process NAME values must be unique")
 
     camera_targets, policy_target_hz = load_phase_budget(args.schedule, args.phase)
+    camera_inference_targets = load_camera_inference_budgets(
+        args.schedule, args.phase
+    )
+    top_inference_target_hz = load_top_inference_budget(
+        args.schedule, args.phase
+    )
     if args.require_policy and policy_target_hz <= 0:
         parser.error("selected phase has policy_hz=0")
 
@@ -365,6 +581,7 @@ def main() -> int:
     measurements = Measurements.create()
     latest_camera_diagnostics: list[Any | None] = [None]
     latest_policy_diagnostics: list[Any | None] = [None]
+    latest_top_perception_diagnostics: list[Any | None] = [None]
 
     def image_callback(name: str):
         def callback(message: Image) -> None:
@@ -427,6 +644,17 @@ def main() -> int:
             10,
         )
     )
+    if args.require_top_perception:
+        subscriptions.append(
+            node.create_subscription(
+                DiagnosticArray,
+                args.top_perception_topic,
+                lambda message: latest_top_perception_diagnostics.__setitem__(
+                    0, message
+                ),
+                10,
+            )
+        )
     phase_publisher = node.create_publisher(String, "/camera_phase", 10)
 
     def spin_for(seconds: float) -> None:
@@ -448,6 +676,7 @@ def main() -> int:
             "robot_command_topics_created": 0,
             "camera_phase_publication_only": True,
             "motion_authorized": False,
+            "top_perception_command_topics_created": 0,
         },
         "phase": args.phase,
         "duration_s": args.duration,
@@ -472,8 +701,16 @@ def main() -> int:
         if not args.allow_missing_joint_states and measurements.joint_count == 0:
             raise RuntimeError("no /joint_states received during warmup")
         camera_start = diagnostic_map(latest_camera_diagnostics[0])
+        camera_start_values = {
+            name: camera_start.get(f"camera_manager/{name}", (0, "", {}))[2]
+            for name in CAMERA_NAMES
+        }
         reconnect_start = {
-            name: int(camera_start.get(f"camera_manager/{name}", (0, "", {}))[2].get("reconnect_count", "0"))
+            name: int(camera_start_values[name].get("reconnect_count", "0"))
+            for name in CAMERA_NAMES
+        }
+        decoded_frames_start = {
+            name: int(camera_start_values[name].get("decoded_frames", "0"))
             for name in CAMERA_NAMES
         }
         policy_start_entry = diagnostic_map(latest_policy_diagnostics[0]).get(
@@ -484,6 +721,18 @@ def main() -> int:
                 f"{POLICY_STATUS_NAME} diagnostics are missing during warmup"
             )
         policy_start_values = policy_start_entry[2] if policy_start_entry else None
+        top_perception_start_entry = diagnostic_map(
+            latest_top_perception_diagnostics[0]
+        ).get(TOP_PERCEPTION_STATUS_NAME)
+        if args.require_top_perception and top_perception_start_entry is None:
+            raise RuntimeError(
+                f"{TOP_PERCEPTION_STATUS_NAME} diagnostics are missing during warmup"
+            )
+        top_perception_start_values = (
+            top_perception_start_entry[2]
+            if top_perception_start_entry
+            else None
+        )
         measurements.reset()
 
         swap_before = read_swap_counters()
@@ -530,12 +779,29 @@ def main() -> int:
             else:
                 level, message, values = entry
             decode_failures = int(values.get("decode_failures", "-1"))
+            configured_decode_hz = float(values.get("configured_decode_hz", "nan"))
+            configured_inference_hz = float(
+                values.get("configured_inference_hz", "nan")
+            )
+            decoded_frames = int(values.get("decoded_frames", "-1"))
+            decoded_frames_delta = decoded_frames - decoded_frames_start[name]
+            internal_decode_hz = (
+                decoded_frames_delta / elapsed if decoded_frames_delta >= 0 else 0.0
+            )
+            inference_target_hz = camera_inference_targets[name]
             age_p95 = float(values.get("decode_frame_age_p95_ms", "inf"))
             decode_p95 = float(values.get("decode_time_p95_ms", "inf"))
             reconnect_delta = int(values.get("reconnect_count", "0")) - reconnect_start[name]
             camera_report[name] = {
                 "target_hz": target_hz,
                 "measured_hz": measured_hz,
+                "decode_target_hz": target_hz,
+                "inference_target_hz": inference_target_hz,
+                "configured_decode_hz": configured_decode_hz,
+                "configured_inference_hz": configured_inference_hz,
+                "internal_decoded_frames": decoded_frames_delta,
+                "internal_decode_hz": internal_decode_hz,
+                "subscriber_image_hz": measured_hz,
                 "dds_mbps": bandwidth_mbps,
                 "subscriber_frame_age_ms": summarize(measurements.image_age_ms[name]),
                 "diagnostic_level": level,
@@ -545,8 +811,27 @@ def main() -> int:
                 "decode_time_p95_ms": decode_p95,
                 "reconnect_delta": reconnect_delta,
             }
-            if measured_hz < target_hz * 0.90 or measured_hz > target_hz * 1.10:
-                failures.append(f"{name} image rate={measured_hz:.3f}Hz")
+            if not math.isclose(configured_decode_hz, target_hz, abs_tol=1e-6):
+                failures.append(
+                    f"{name} configured_decode_hz={configured_decode_hz:.3f}"
+                )
+            if not math.isclose(
+                configured_inference_hz,
+                inference_target_hz,
+                abs_tol=1e-6,
+            ):
+                failures.append(
+                    f"{name} configured_inference_hz={configured_inference_hz:.3f}"
+                )
+            failures.extend(
+                validate_camera_rate_contract(
+                    name,
+                    target_hz,
+                    inference_target_hz,
+                    internal_decode_hz,
+                    measured_hz,
+                )
+            )
             if level != 0 or message != "STREAMING":
                 failures.append(f"{name} diagnostic={message} level={level}")
             if decode_failures != 0:
@@ -638,6 +923,27 @@ def main() -> int:
             report["policy"] = {
                 "required": False,
                 "diagnostics_seen": policy_entry is not None,
+            }
+        top_perception_entry = diagnostic_map(
+            latest_top_perception_diagnostics[0]
+        ).get(TOP_PERCEPTION_STATUS_NAME)
+        if args.require_top_perception:
+            top_perception_entry = top_perception_counter_delta_entry(
+                top_perception_entry,
+                top_perception_start_values,
+            )
+            top_report, top_failures = validate_top_perception_runtime(
+                top_perception_entry,
+                elapsed,
+                top_inference_target_hz,
+                args.max_top_perception_p95_ms,
+            )
+            report["top_perception"] = top_report
+            failures.extend(top_failures)
+        else:
+            report["top_perception"] = {
+                "required": False,
+                "diagnostics_seen": top_perception_entry is not None,
             }
     except Exception as error:
         failures.append(str(error))
