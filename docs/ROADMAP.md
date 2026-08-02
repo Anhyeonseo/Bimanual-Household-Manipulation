@@ -263,6 +263,10 @@
   tracking-error 진단을 구현했다. fault injection, C11 경고-as-error와
   Cortex-M4 Release cross-build를 통과했다. 0x218 identity·0x3FF capability와
   실제 single-sample route는 유지했으므로 다음은 command route·timing 계측이다.
+- 2026-08-02 Motion-3: dormant BEGIN/START/END route, 16/32바이트 terminal
+  codec과 host-only timing 분석기를 구현했다. synthetic 자료는 운영값을
+  승인하지 않는다. 실제 `binary_control.c`, 0x218 identity·0x3FF capability와
+  single-sample runtime은 유지했다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정
 - 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반

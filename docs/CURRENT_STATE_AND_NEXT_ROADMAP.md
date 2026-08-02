@@ -177,10 +177,8 @@ runtime·provenance 계약을 먼저 fail-closed로 고정한다. 실제 모델�
 
 ## 5. 바로 다음 작업
 
-Isaac policy 작업은 결정론적 한팔 기준선 뒤로 동결했다. Motion-1 host 계약과
-Motion-2 STM32 공통 C queue·보간 후보까지 완료했다. 바로 다음은 G474 binary
-command route와 terminal response를 연결하고, host-only latency/fault injection으로
-minimum/maximum lead, startup prime depth, low watermark와 refill target을 측정하는
-Motion-3다. 이후 ROS multi-point Action adapter, mock/plan-only, 제한 실기,
-Place Z offset과 손목 최종 정렬 순서로 진행한다. Git issue, branch, commit과 PR
-조작은 사용자가 직접 수행한다.
+Isaac policy 작업은 결정론적 한팔 기준선 뒤로 동결했다. Motion-1 host 계약,
+Motion-2 STM32 queue·보간과 Motion-3 dormant command route·확장 terminal codec·
+host-only timing 분석기까지 완료했다. 현재 운영값은 비어 있고 0x218 runtime은
+single-sample이다. 다음은 firmware route 연결과 Pi–VCP timing 실측, ROS adapter,
+mock/plan-only, 제한 실기 순서다. Git 조작은 사용자가 직접 수행한다.

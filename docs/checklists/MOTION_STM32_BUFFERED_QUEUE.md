@@ -65,5 +65,6 @@ minimum/maximum lead, startup prime depth, low watermark와 refill target은
 - [ ] ROS multi-point Action adapter를 연결한다.
 - [ ] 제한 실기를 수행한다.
 
-Motion-2는 STM32 core 후보 gate를 완료했다. `MOT-003` 전체는 host adapter,
-timing 측정과 제한 실기가 남아 있어 계속 부분 통과다.
+Motion-2 이후 Motion-3에서 dormant route·확장 terminal codec과 timing 분석
+도구까지 추가했지만 실제 route 연결, Pi–VCP timing, host adapter와 제한 실기는
+남아 있어 `MOT-003` 전체는 계속 부분 통과다.

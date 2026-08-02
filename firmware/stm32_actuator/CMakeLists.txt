@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(stm32_actuator_core LANGUAGES C)
 
 add_library(actuator_core STATIC
+    src/buffered_command_route.c
     src/buffered_executor.c
     src/calibration.c
     src/cobs.c
@@ -23,10 +24,18 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(actuator_core_tests tests/test_main.c)
     target_link_libraries(actuator_core_tests PRIVATE actuator_core)
+    add_executable(
+        actuator_buffered_command_route_tests
+        tests/test_buffered_command_route.c
+    )
+    target_link_libraries(actuator_buffered_command_route_tests PRIVATE actuator_core)
     if(MSVC)
         target_compile_options(actuator_core_tests PRIVATE /W4 /WX)
+        target_compile_options(actuator_buffered_command_route_tests PRIVATE /W4 /WX)
     else()
         target_compile_options(actuator_core_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        target_compile_options(actuator_buffered_command_route_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME actuator_core_tests COMMAND actuator_core_tests)
+    add_test(NAME actuator_buffered_command_route_tests COMMAND actuator_buffered_command_route_tests)
 endif()
