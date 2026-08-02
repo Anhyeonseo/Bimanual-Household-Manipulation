@@ -14,5 +14,6 @@
 | [0010](0010-single-backend-entrypoint.md) | 하나의 bringup에서 backend 독점 선택 | 채택 |
 | [0011](0011-top-eye-to-hand-gridboard.md) | TCP GridBoard 기반 Top eye-to-hand 등록 | 채택 |
 | [0012](0012-arm-integration-and-pi-policy-deployment.md) | 단일 팔 우선 통합과 Pi 정책 배포 | 채택 |
+| [0013](0013-buffered-trajectory-execution-contract.md) | 왼팔 buffered trajectory 실행 계약 | 채택 |
 
 기존 결정을 바꿔야 할 때는 문서를 삭제하지 않는다. 기존 문서를 `대체됨(Superseded)`으로 표시하고 새 ADR을 추가해 변경 이유를 남긴다.

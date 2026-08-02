@@ -94,9 +94,9 @@ STM32
 2. 시간축, queue, cancel, HOLD, continuous diagnostics와 tracking error 계약을
    단위 시험·mock·plan-only·제한 실기로 검증한다.
 3. Pick/Place TCP-to-contact offset을 분리하고 Place 후보 0.015 m를 다시 계측한다.
-4. 반사·무늬 배경 holdout 18장의 SHA·환경 label·miss/false-positive·pose
-   오차 평가 계약과 legacy 실패 기준선을 고정했다. 다음은 별도 학습
-   데이터로 경량 YOLO-OBB를 학습·ONNX export하고 같은 holdout으로 비교한다.
+4. 반사·무늬 배경 holdout과 legacy 실패 기준선을 고정하고 별도 학습
+   데이터로 경량 YOLO-OBB를 학습·ONNX export했다. 같은 holdout과 Pi 5
+   3카메라 동시 30분 runtime gate를 통과했다.
 5. 왼쪽 손목 카메라 eye-in-hand와 마지막 수 cm의 bounded visual correction을
    검증한다.
 6. 10회 pilot 뒤 50회 benchmark에서 Pick/Place 각각 90% 이상,

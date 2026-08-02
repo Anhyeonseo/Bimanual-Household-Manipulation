@@ -255,6 +255,9 @@
 
 - single-point 연쇄를 multi-point/buffered trajectory로 교체하고 시간축,
   queue, cancel, soft-abort, SAFE_STOP 계약을 실물에서 검증
+- 2026-08-02: `HOST_MOCK_ONLY`, `motion_authorized=false`인 Motion-1 계약에서
+  다중점 검증, 선형 보간, 원자적 queue, cancel/HOLD/underflow와 uint32 wrap
+  테스트를 통과했다. STM32 연결·timing 실측·실기 전까지 부분 통과다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정
 - 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반
