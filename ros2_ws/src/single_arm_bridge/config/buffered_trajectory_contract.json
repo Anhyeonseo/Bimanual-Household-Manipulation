@@ -8,6 +8,14 @@
     "action_adapter_supports_buffered_execution": false,
     "maximum_accepted_sample_count": 1
   },
+  "firmware_candidate": {
+    "core_executor_implemented": true,
+    "g474_cross_build_compiles_source": true,
+    "binary_command_route_connected": false,
+    "firmware_identity_changed": false,
+    "capability_advertised": false,
+    "timing_parameters_measured": false
+  },
   "existing_wire_limits": {
     "protocol_version": 1,
     "total_joint_count": 6,

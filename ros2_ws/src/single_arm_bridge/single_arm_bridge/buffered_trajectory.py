@@ -132,6 +132,19 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
             "current runtime gate must remain single-sample and disabled"
         )
 
+    candidate = _require_object(document, "firmware_candidate")
+    if candidate != {
+        "core_executor_implemented": True,
+        "g474_cross_build_compiles_source": True,
+        "binary_command_route_connected": False,
+        "firmware_identity_changed": False,
+        "capability_advertised": False,
+        "timing_parameters_measured": False,
+    }:
+        raise BufferedTrajectoryContractError(
+            "firmware candidate must remain dormant until deployment gates pass"
+        )
+
     wire = _require_object(document, "existing_wire_limits")
     required_wire = {
         "protocol_version": 1,

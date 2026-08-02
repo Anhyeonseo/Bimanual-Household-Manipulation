@@ -111,3 +111,17 @@ actuator_queue_result_t actuator_setpoint_queue_take_due(
     --queue->count;
     return ACTUATOR_QUEUE_OK;
 }
+
+actuator_queue_result_t actuator_setpoint_queue_peek(
+    const actuator_setpoint_queue_t *queue,
+    actuator_setpoint_t *sample) {
+    if (queue == NULL || sample == NULL) {
+        return ACTUATOR_QUEUE_NULL_ARGUMENT;
+    }
+    if (queue->count == 0u) {
+        return ACTUATOR_QUEUE_EMPTY;
+    }
+
+    *sample = queue->samples[queue->head];
+    return ACTUATOR_QUEUE_OK;
+}

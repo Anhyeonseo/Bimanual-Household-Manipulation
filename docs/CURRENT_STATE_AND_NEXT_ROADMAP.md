@@ -30,6 +30,8 @@
 ### 아직 채택하지 않은 항목
 
 - single-point Action을 이어 붙인 정착형 실행은 생산용 연속 trajectory가 아니다.
+  host 계약과 STM32 공통 C queue·보간 후보는 완료했지만 G474 binary route와
+  ROS multi-point Action은 아직 연결하지 않았다.
 - Place 높이는 실제 안착에서 총 10 mm 추가 하강이 필요해 Pick/Place 접촉
   offset을 분리해 다시 계측해야 한다.
 - 반사·무늬 배경의 검은 펜 holdout에서 legacy 명도 임계값 검출기는
@@ -175,10 +177,10 @@ runtime·provenance 계약을 먼저 fail-closed로 고정한다. 실제 모델�
 
 ## 5. 바로 다음 작업
 
-Top YOLO-OBB와 3카메라 동시 30분 Pi 자원 gate까지 완료했다. 현재 이슈는
-실제 Isaac 정책 값을 추측하지 않고 policy ONNX bundle의 model·observation·
-action·runtime·provenance 계약과 fail-closed 검증기를 고정한다. 다음 작은
-이슈는 실제 학습 체크포인트와 export 설정을 확보해 ONNX bundle 및 validation
-artifact를 생성하는 것이다. 그 뒤 Pi 단일 policy shadow smoke로 넘어간다.
-“연속 trajectory 계약”과 “Place Z offset”은 별도 이슈로 유지한다. Git issue,
-branch, commit과 PR 조작은 사용자가 직접 수행한다.
+Isaac policy 작업은 결정론적 한팔 기준선 뒤로 동결했다. Motion-1 host 계약과
+Motion-2 STM32 공통 C queue·보간 후보까지 완료했다. 바로 다음은 G474 binary
+command route와 terminal response를 연결하고, host-only latency/fault injection으로
+minimum/maximum lead, startup prime depth, low watermark와 refill target을 측정하는
+Motion-3다. 이후 ROS multi-point Action adapter, mock/plan-only, 제한 실기,
+Place Z offset과 손목 최종 정렬 순서로 진행한다. Git issue, branch, commit과 PR
+조작은 사용자가 직접 수행한다.
