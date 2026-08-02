@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(stm32_actuator_core LANGUAGES C)
 
 add_library(actuator_core STATIC
+    src/buffered_executor.c
     src/calibration.c
     src/cobs.c
     src/crc32c.c

@@ -94,6 +94,14 @@ def test_machine_contract_is_mock_only_and_fail_closed() -> None:
         "action_adapter_supports_buffered_execution": False,
         "maximum_accepted_sample_count": 1,
     }
+    assert contract["firmware_candidate"] == {
+        "core_executor_implemented": True,
+        "g474_cross_build_compiles_source": True,
+        "binary_command_route_connected": False,
+        "firmware_identity_changed": False,
+        "capability_advertised": False,
+        "timing_parameters_measured": False,
+    }
 
 
 def test_machine_contract_cannot_enable_motion(tmp_path: Path) -> None:
@@ -114,6 +122,40 @@ def test_machine_contract_cannot_claim_runtime_support(tmp_path: Path) -> None:
 
     with pytest.raises(BufferedTrajectoryContractError, match="runtime gate"):
         load_buffered_trajectory_contract(path)
+
+
+def test_firmware_candidate_cannot_claim_command_route(tmp_path: Path) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    contract["firmware_candidate"]["binary_command_route_connected"] = True
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+
+    with pytest.raises(BufferedTrajectoryContractError, match="remain dormant"):
+        load_buffered_trajectory_contract(path)
+
+
+def test_g474_runtime_identity_does_not_advertise_candidate() -> None:
+    config = (
+        ROOT
+        / "firmware"
+        / "stm32_g474_single_arm"
+        / "Core"
+        / "Inc"
+        / "single_arm_config.h"
+    ).read_text(encoding="utf-8")
+    binary_control = (
+        ROOT
+        / "firmware"
+        / "stm32_g474_single_arm"
+        / "Core"
+        / "Src"
+        / "binary_control.c"
+    ).read_text(encoding="utf-8")
+
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00021800)" in config
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x000003FF)" in config
+    assert "if (sample_count == 1U)" in binary_control
+    assert '#include "actuator_core/buffered_executor.h"' not in binary_control
 
 
 def test_valid_multi_point_path_reorders_joints_and_interpolates(

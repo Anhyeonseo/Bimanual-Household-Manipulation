@@ -52,4 +52,8 @@ actuator_queue_result_t actuator_setpoint_queue_take_due(
     uint32_t current_tick,
     actuator_setpoint_t *sample);
 
+actuator_queue_result_t actuator_setpoint_queue_peek(
+    const actuator_setpoint_queue_t *queue,
+    actuator_setpoint_t *sample);
+
 #endif

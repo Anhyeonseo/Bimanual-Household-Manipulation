@@ -46,12 +46,13 @@
 - [x] terminal/HOLD 상태에서 자동 재개를 거부한다.
 - [x] uint32 tick wrap 순서를 보존한다.
 - [x] 기존 single-point 실행 경로를 변경하지 않는다.
+- [x] STM32 공통 C core의 queue·선형 보간·terminal 후보를 구현했다.
 - [ ] STM32 board execution path에 queue를 연결한다.
 - [ ] 실측 lead·watermark를 고정한다.
 - [ ] 제한 실기를 수행한다.
 
-Motion-1 계약 구현은 완료했지만 `MOT-003`의 실제 연속 실행 gate는 아직
-부분 통과다.
+Motion-1 계약과 Motion-2 STM32 core 후보는 완료했지만 `MOT-003`의 실제
+연속 실행 gate는 아직 부분 통과다.
 
 ## 로컬 검증 결과
 

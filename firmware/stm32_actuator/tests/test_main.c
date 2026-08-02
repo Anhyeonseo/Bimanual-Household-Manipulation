@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "actuator_core/cobs.h"
+#include "actuator_core/buffered_executor.h"
 #include "actuator_core/calibration.h"
 #include "actuator_core/crc32c.h"
 #include "actuator_core/protocol.h"
@@ -264,6 +265,275 @@ static void test_setpoint_queue_enforces_order_and_due_tick(void) {
     CHECK(queue.count == 1u);
 }
 
+static void fill_anchor_positions(
+    int32_t positions[ACTUATOR_JOINT_COUNT],
+    int32_t value) {
+    size_t joint;
+    for (joint = 0u; joint < ACTUATOR_JOINT_COUNT; ++joint) {
+        positions[joint] = value;
+    }
+}
+
+static void test_buffered_executor_requires_atomic_prime(void) {
+    actuator_buffered_executor_t executor;
+    actuator_joint_limit_t limits[ACTUATOR_JOINT_COUNT];
+    actuator_setpoint_t invalid[2];
+    int32_t anchor[ACTUATOR_JOINT_COUNT];
+    const actuator_buffered_diagnostics_t *diagnostics;
+
+    fill_limits(limits);
+    fill_anchor_positions(anchor, 0);
+    invalid[0] = make_setpoint(10u, 100);
+    invalid[1] = make_setpoint(20u, 2000);
+
+    CHECK(actuator_buffered_executor_init(&executor, 2u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_admit_batch(
+              &executor, invalid, 2u, 0u, 5u, 100u, limits) ==
+          ACTUATOR_BUFFERED_QUEUE_REJECTED);
+    diagnostics = actuator_buffered_executor_diagnostics(&executor);
+    CHECK(diagnostics != NULL);
+    CHECK(diagnostics->queued_samples == 0u);
+    CHECK(diagnostics->accepted_samples == 0u);
+    CHECK(diagnostics->last_queue_result == ACTUATOR_QUEUE_LIMIT_VIOLATION);
+    CHECK(actuator_buffered_executor_start(&executor, 0u, anchor, limits) ==
+          ACTUATOR_BUFFERED_NOT_PRIMED);
+}
+
+static void test_buffered_executor_interpolates_and_completes(void) {
+    actuator_buffered_executor_t executor;
+    actuator_joint_limit_t limits[ACTUATOR_JOINT_COUNT];
+    actuator_setpoint_t samples[2];
+    int32_t anchor[ACTUATOR_JOINT_COUNT];
+    int32_t output[ACTUATOR_JOINT_COUNT];
+    const actuator_buffered_diagnostics_t *diagnostics;
+
+    fill_limits(limits);
+    fill_anchor_positions(anchor, 0);
+    samples[0] = make_setpoint(10u, 100);
+    samples[1] = make_setpoint(20u, 200);
+
+    CHECK(actuator_buffered_executor_init(&executor, 2u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_admit_batch(
+              &executor, samples, 2u, 0u, 5u, 100u, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_mark_input_complete(&executor) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_start(&executor, 0u, anchor, limits) ==
+          ACTUATOR_BUFFERED_OK);
+
+    CHECK(actuator_buffered_executor_step(&executor, 5u, output) ==
+          ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(output[0] == 50);
+    CHECK(actuator_buffered_executor_step(&executor, 10u, output) ==
+          ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(output[0] == 100);
+    CHECK(executor.diagnostics.state == ACTUATOR_BUFFERED_RUNNING);
+    CHECK(actuator_buffered_executor_step(&executor, 15u, output) ==
+          ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(output[0] == 150);
+    CHECK(actuator_buffered_executor_step(&executor, 20u, output) ==
+          ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(output[0] == 200);
+
+    diagnostics = actuator_buffered_executor_diagnostics(&executor);
+    CHECK(diagnostics->state == ACTUATOR_BUFFERED_SUCCEEDED);
+    CHECK(diagnostics->reason == ACTUATOR_BUFFERED_REASON_NONE);
+    CHECK(!diagnostics->safe_stop_required);
+    CHECK(diagnostics->queued_samples == 0u);
+    CHECK(diagnostics->peak_queued_samples == 2u);
+    CHECK(diagnostics->accepted_samples == 2u);
+    CHECK(diagnostics->applied_samples == 2u);
+    CHECK(diagnostics->last_applied_tick == 20u);
+    CHECK(diagnostics->terminal_tick == 20u);
+    CHECK(actuator_buffered_executor_step(&executor, 21u, output) ==
+          ACTUATOR_BUFFERED_BAD_STATE);
+}
+
+static void test_buffered_executor_refills_while_running(void) {
+    actuator_buffered_executor_t executor;
+    actuator_joint_limit_t limits[ACTUATOR_JOINT_COUNT];
+    actuator_setpoint_t first[2];
+    actuator_setpoint_t refill;
+    int32_t anchor[ACTUATOR_JOINT_COUNT];
+    int32_t output[ACTUATOR_JOINT_COUNT];
+
+    fill_limits(limits);
+    fill_anchor_positions(anchor, 0);
+    first[0] = make_setpoint(10u, 100);
+    first[1] = make_setpoint(20u, 200);
+    refill = make_setpoint(30u, 300);
+
+    CHECK(actuator_buffered_executor_init(&executor, 2u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_admit_batch(
+              &executor, first, 2u, 0u, 5u, 100u, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_start(&executor, 0u, anchor, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_step(&executor, 10u, output) ==
+          ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(actuator_buffered_executor_admit_batch(
+              &executor, &refill, 1u, 10u, 5u, 100u, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_mark_input_complete(&executor) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_step(&executor, 20u, output) ==
+          ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(actuator_buffered_executor_step(&executor, 25u, output) ==
+          ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(output[0] == 250);
+    CHECK(actuator_buffered_executor_step(&executor, 30u, output) ==
+          ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(executor.diagnostics.state == ACTUATOR_BUFFERED_SUCCEEDED);
+}
+
+static void test_buffered_executor_wraps_uint32_ticks(void) {
+    actuator_buffered_executor_t executor;
+    actuator_joint_limit_t limits[ACTUATOR_JOINT_COUNT];
+    actuator_setpoint_t sample;
+    int32_t anchor[ACTUATOR_JOINT_COUNT];
+    int32_t output[ACTUATOR_JOINT_COUNT];
+
+    fill_limits(limits);
+    fill_anchor_positions(anchor, 0);
+    sample = make_setpoint(0u, 160);
+
+    CHECK(actuator_buffered_executor_init(&executor, 1u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_admit_batch(
+              &executor, &sample, 1u, UINT32_C(0xFFFFFFF0), 5u, 100u, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_mark_input_complete(&executor) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_start(
+              &executor, UINT32_C(0xFFFFFFF0), anchor, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_step(
+              &executor, UINT32_C(0xFFFFFFF8), output) == ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(output[0] == 80);
+    CHECK(actuator_buffered_executor_step(&executor, 0u, output) ==
+          ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(output[0] == 160);
+    CHECK(executor.diagnostics.state == ACTUATOR_BUFFERED_SUCCEEDED);
+}
+
+static void test_buffered_executor_rejects_bad_anchor_and_avoids_overflow(void) {
+    actuator_buffered_executor_t executor;
+    actuator_joint_limit_t limits[ACTUATOR_JOINT_COUNT];
+    actuator_setpoint_t sample;
+    int32_t anchor[ACTUATOR_JOINT_COUNT];
+    int32_t output[ACTUATOR_JOINT_COUNT];
+    size_t joint;
+
+    fill_limits(limits);
+    fill_anchor_positions(anchor, 1001);
+    sample = make_setpoint(10u, 100);
+    CHECK(actuator_buffered_executor_init(&executor, 1u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_admit_batch(
+              &executor, &sample, 1u, 0u, 1u, 100u, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_start(&executor, 0u, anchor, limits) ==
+          ACTUATOR_BUFFERED_INVALID_ANCHOR);
+    CHECK(executor.diagnostics.state == ACTUATOR_BUFFERED_PRIMING);
+
+    for (joint = 0u; joint < ACTUATOR_JOINT_COUNT; ++joint) {
+        limits[joint].minimum_urad = INT32_MIN;
+        limits[joint].maximum_urad = INT32_MAX;
+    }
+    fill_anchor_positions(anchor, INT32_MIN);
+    sample = make_setpoint(UINT32_C(0x7FFFFFFF), INT32_MAX);
+    CHECK(actuator_buffered_executor_init(&executor, 1u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_admit_batch(
+              &executor,
+              &sample,
+              1u,
+              0u,
+              1u,
+              UINT32_C(0x7FFFFFFF),
+              limits) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_mark_input_complete(&executor) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_start(&executor, 0u, anchor, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_step(
+              &executor, UINT32_C(0x3FFFFFFF), output) ==
+          ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(output[0] == -2);
+}
+
+static void test_buffered_executor_fault_injection_is_fail_closed(void) {
+    actuator_buffered_executor_t executor;
+    actuator_joint_limit_t limits[ACTUATOR_JOINT_COUNT];
+    actuator_setpoint_t samples[2];
+    int32_t anchor[ACTUATOR_JOINT_COUNT];
+    int32_t output[ACTUATOR_JOINT_COUNT];
+
+    fill_limits(limits);
+    fill_anchor_positions(anchor, 0);
+    samples[0] = make_setpoint(10u, 100);
+    samples[1] = make_setpoint(20u, 200);
+
+    CHECK(actuator_buffered_executor_init(&executor, 1u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_admit_batch(
+              &executor, samples, 2u, 0u, 5u, 100u, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_start(&executor, 0u, anchor, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_step(&executor, 11u, output) ==
+          ACTUATOR_BUFFERED_TERMINAL);
+    CHECK(executor.diagnostics.state == ACTUATOR_BUFFERED_HOLD);
+    CHECK(executor.diagnostics.reason ==
+          ACTUATOR_BUFFERED_REASON_MISSED_APPLY_TICK);
+    CHECK(executor.diagnostics.safe_stop_required);
+    CHECK(executor.diagnostics.queued_samples == 0u);
+    CHECK(actuator_buffered_executor_start(&executor, 11u, anchor, limits) ==
+          ACTUATOR_BUFFERED_BAD_STATE);
+
+    CHECK(actuator_buffered_executor_init(&executor, 1u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_admit_batch(
+              &executor, samples, 1u, 0u, 5u, 100u, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_start(&executor, 0u, anchor, limits) ==
+          ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_step(&executor, 10u, output) ==
+          ACTUATOR_BUFFERED_OUTPUT);
+    CHECK(executor.diagnostics.state == ACTUATOR_BUFFERED_HOLD);
+    CHECK(executor.diagnostics.reason == ACTUATOR_BUFFERED_REASON_QUEUE_UNDERFLOW);
+    CHECK(executor.diagnostics.safe_stop_required);
+}
+
+static void test_buffered_executor_terminal_reasons_are_distinct(void) {
+    actuator_buffered_executor_t executor;
+
+    CHECK(actuator_buffered_executor_init(&executor, 1u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_planned_hold(&executor, 1u) ==
+          ACTUATOR_BUFFERED_TERMINAL);
+    CHECK(executor.diagnostics.state == ACTUATOR_BUFFERED_HOLD);
+    CHECK(executor.diagnostics.reason == ACTUATOR_BUFFERED_REASON_PLANNED_HOLD);
+    CHECK(!executor.diagnostics.safe_stop_required);
+
+    CHECK(actuator_buffered_executor_init(&executor, 1u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_cancel(&executor, 2u) ==
+          ACTUATOR_BUFFERED_TERMINAL);
+    CHECK(executor.diagnostics.state == ACTUATOR_BUFFERED_CANCELED);
+    CHECK(executor.diagnostics.reason == ACTUATOR_BUFFERED_REASON_OPERATOR_CANCEL);
+    CHECK(executor.diagnostics.safe_stop_required);
+
+    CHECK(actuator_buffered_executor_init(&executor, 1u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_connection_loss(&executor, 3u) ==
+          ACTUATOR_BUFFERED_TERMINAL);
+    CHECK(executor.diagnostics.state == ACTUATOR_BUFFERED_ABORTED);
+    CHECK(executor.diagnostics.reason == ACTUATOR_BUFFERED_REASON_CONNECTION_LOSS);
+    CHECK(executor.diagnostics.safe_stop_required);
+
+    CHECK(actuator_buffered_executor_init(&executor, 1u) == ACTUATOR_BUFFERED_OK);
+    CHECK(actuator_buffered_executor_tracking_error(&executor, 4u) ==
+          ACTUATOR_BUFFERED_TERMINAL);
+    CHECK(executor.diagnostics.state == ACTUATOR_BUFFERED_ABORTED);
+    CHECK(executor.diagnostics.reason == ACTUATOR_BUFFERED_REASON_TRACKING_ERROR);
+    CHECK(executor.diagnostics.safe_stop_required);
+    CHECK(actuator_buffered_executor_cancel(&executor, 5u) ==
+          ACTUATOR_BUFFERED_BAD_STATE);
+}
+
 static void run_test(const char *name, void (*test)(void)) {
     const int failures_before = failures;
     test();
@@ -289,6 +559,20 @@ int main(void) {
     run_test("setpoint_batch_is_atomic", test_setpoint_batch_is_atomic);
     run_test("setpoint_queue_enforces_order_and_due_tick",
              test_setpoint_queue_enforces_order_and_due_tick);
+    run_test("buffered_executor_requires_atomic_prime",
+             test_buffered_executor_requires_atomic_prime);
+    run_test("buffered_executor_interpolates_and_completes",
+             test_buffered_executor_interpolates_and_completes);
+    run_test("buffered_executor_refills_while_running",
+             test_buffered_executor_refills_while_running);
+    run_test("buffered_executor_wraps_uint32_ticks",
+             test_buffered_executor_wraps_uint32_ticks);
+    run_test("buffered_executor_rejects_bad_anchor_and_avoids_overflow",
+             test_buffered_executor_rejects_bad_anchor_and_avoids_overflow);
+    run_test("buffered_executor_fault_injection_is_fail_closed",
+             test_buffered_executor_fault_injection_is_fail_closed);
+    run_test("buffered_executor_terminal_reasons_are_distinct",
+             test_buffered_executor_terminal_reasons_are_distinct);
 
     if (failures != 0) {
         fprintf(stderr, "%d test(s) failed\n", failures);
