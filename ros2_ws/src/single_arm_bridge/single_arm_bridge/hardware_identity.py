@@ -5,7 +5,7 @@ from __future__ import annotations
 from .protocol import Hello
 
 
-EXPECTED_FIRMWARE_VERSION = 0x00021800
+EXPECTED_FIRMWARE_VERSION = 0x00021900
 EXPECTED_PROTOCOL_VERSION = 1
 EXPECTED_JOINT_COUNT = 6
 POSITION_FEEDBACK_CAPABILITY = 0x00000008
@@ -15,6 +15,7 @@ BUFFERED_HOST_RX_CAPABILITY = 0x00000040
 SERVO_COMMAND_CONFIGURATION_DIAGNOSTICS_CAPABILITY = 0x00000080
 POSITION_READ_FAILURE_DIAGNOSTICS_CAPABILITY = 0x00000100
 SERVO_BUS_RECOVERY_DIAGNOSTICS_CAPABILITY = 0x00000200
+BUFFERED_VALIDATION_ROUTE_CAPABILITY = 0x00000400
 
 
 class HardwareIdentityError(RuntimeError):
@@ -70,6 +71,10 @@ def validate_hardware_identity(
     ) == 0:
         raise HardwareIdentityError(
             "servo bus recovery diagnostics capability is missing"
+        )
+    if (hello.capabilities & BUFFERED_VALIDATION_ROUTE_CAPABILITY) == 0:
+        raise HardwareIdentityError(
+            "buffered validation route capability is missing"
         )
     if hello.calibration_hash != expected_calibration_hash:
         raise HardwareIdentityError(

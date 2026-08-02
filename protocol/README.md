@@ -235,12 +235,16 @@ for each sample:
 `flags.bit0=1`이면 packet 전체를 검사만 하고 실행하지 않는다. 현재 단일 팔
 실행기는 `flags.bit0=0`과 `sample_count=1`만 실행한다.
 
-Motion-3의 dormant 후보는 bit 1을 candidate 식별자, bit 2/3/4를
-BEGIN/START/END로 사용한다. 최대 9개 sample을 원자적으로 queue에 넣고 기존
-16바이트 status 뒤에 executor/terminal/queue 진단을 붙인 32바이트 응답을
-정의한다. Host는 두 길이를 모두 해석하지만 현재 `0x00021800`은 이를 광고하거나
-실행하지 않는다. route·identity·capability 연결과 timing 실측 전에는 물리
-buffered 실행 권한이 없다.
+Motion-3/4 후보는 bit 1을 candidate 식별자, bit 2/3/4를 BEGIN/START/END로
+사용한다. 최대 9개 sample을 원자적으로 검사하고 기존 16바이트 status 뒤에
+executor/terminal/queue 진단을 붙인 32바이트 응답을 정의한다.
+
+firmware `0x00021900`의 capability bit 10(`0x00000400`)은 이 후보 route의
+**validation-only** 연결만 뜻한다. Candidate frame은 bit 0도 반드시 켜야 하며
+`status=5`, queue/accepted/applied sample이 모두 0인 확장 응답으로 무동작을
+증명한다. bit 0이 없는 candidate는 거부한다. 기존 flag 0,
+`sample_count=1` 경로만 기존 single-point 동작을 유지한다. Pi–VCP timing
+실측과 별도 실행 route 승인 전에는 multi-sample 물리 buffered 실행 권한이 없다.
 
 firmware `0x00020E00`부터 endpoint는 보간 종료 100 ms 뒤 한 번만 읽지
 않는다. 최대 1000 ms 동안 load/current watchdog를 유지하면서 위치를 읽고,

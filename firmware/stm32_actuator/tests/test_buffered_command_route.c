@@ -114,6 +114,8 @@ static void test_route_runs_and_encodes_status(void) {
           ACTUATOR_BUFFERED_OK);
     CHECK(actuator_buffered_command_route_step(&route, 5u, output) ==
           ACTUATOR_BUFFERED_OUTPUT && output[0] == 50);
+    CHECK(actuator_buffered_command_route_step(&route, 10u, output) ==
+          ACTUATOR_BUFFERED_OUTPUT && output[0] == 100);
     CHECK(actuator_buffered_command_route_step(&route, 15u, output) ==
           ACTUATOR_BUFFERED_OUTPUT && output[0] == 150);
     CHECK(actuator_buffered_command_route_step(&route, 20u, output) ==
@@ -132,6 +134,7 @@ static void test_validation_refill_and_cancel_are_terminal(void) {
     actuator_buffered_command_route_t route;
     actuator_buffered_command_t first;
     actuator_buffered_command_t validation;
+    actuator_setpoint_queue_t queue_before_validation;
     uint8_t payload[8u + 2u * 52u];
     const uint32_t offsets[2] = {0u, 10u};
     const int32_t positions[2] = {100, 200};
@@ -149,8 +152,13 @@ static void test_validation_refill_and_cancel_are_terminal(void) {
         ACTUATOR_BUFFERED_FLAG_VALIDATION_ONLY;
     validation.sample_count = 1u;
     validation.samples[0].apply_tick = 30u;
+    queue_before_validation = route.executor.queue;
     CHECK(actuator_buffered_command_route_admit(
         &route, &validation, 2u, 0u, 1u, 100u) == ACTUATOR_BUFFERED_COMMAND_OK);
+    CHECK(memcmp(
+        &route.executor.queue,
+        &queue_before_validation,
+        sizeof(queue_before_validation)) == 0);
     CHECK(route.executor.diagnostics.accepted_samples == 2u);
     CHECK(actuator_buffered_command_route_cancel(&route, 3u) ==
           ACTUATOR_BUFFERED_TERMINAL);

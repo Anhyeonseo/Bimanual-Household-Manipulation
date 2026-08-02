@@ -141,6 +141,8 @@ cp bridge.local.yaml.example bridge.local.yaml
 - [Motion-1 연속 buffered trajectory 계약](docs/checklists/MOTION_BUFFERED_TRAJECTORY_CONTRACT.md)
 - [Motion-2 STM32 buffered queue 후보](docs/checklists/MOTION_STM32_BUFFERED_QUEUE.md)
 - [Motion-3 G474 buffered command route·timing 계약](docs/checklists/MOTION_BUFFERED_COMMAND_ROUTE_TIMING.md)
+- [Motion-4 G474 buffered validation runtime route](docs/checklists/MOTION_G474_BUFFERED_VALIDATION_ROUTE.md)
+- [Motion-4 로컬 검증 결과](docs/test-results/2026-08-02-motion4-g474-buffered-validation-route.md)
 - [단계 7 물리 범위 재검증·배포 결과](docs/test-results/2026-07-30-physical-range-revalidation.md)
 - [단계 7 Shoulder 근본 원인과 0x00020E00 후보](docs/test-results/2026-07-30-stage7-shoulder-root-cause-remediation.md)
 - [단계 7 감독형 실제 Pick/Place 1회 완주](docs/test-results/2026-07-31-stage7-supervised-pick-place-complete.md)

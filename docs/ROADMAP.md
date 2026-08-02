@@ -267,6 +267,11 @@
   codec과 host-only timing 분석기를 구현했다. synthetic 자료는 운영값을
   승인하지 않는다. 실제 `binary_control.c`, 0x218 identity·0x3FF capability와
   single-sample runtime은 유지했다.
+- 2026-08-02 Motion-4: `binary_control.c`에 candidate validation-only
+  route를 연결하고 identity `0x00021900`, capability `0x000007FF`와
+  host fail-closed를 추가했다. 검증 성공 응답에서도 queue/accepted/applied는
+  0이며 multi-sample servo output은 금지한다. 다음 gate는 Pi–VCP timing
+  장기 측정이다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정
 - 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반
