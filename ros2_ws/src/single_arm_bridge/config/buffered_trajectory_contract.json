@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "contract_kind": "single_arm_buffered_trajectory",
+  "status": "HOST_MOCK_ONLY",
+  "motion_authorized": false,
+  "current_runtime": {
+    "firmware_supports_buffered_execution": false,
+    "action_adapter_supports_buffered_execution": false,
+    "maximum_accepted_sample_count": 1
+  },
+  "existing_wire_limits": {
+    "protocol_version": 1,
+    "total_joint_count": 6,
+    "arm_joint_count": 5,
+    "maximum_samples_per_batch": 9,
+    "queue_capacity_samples": 16,
+    "tick_unit": "uint32_milliseconds"
+  },
+  "trajectory": {
+    "minimum_points": 2,
+    "timestamps": "strictly_increasing_integer_milliseconds",
+    "requires_fresh_start_feedback": true,
+    "zero_time_point_must_match_fresh_start": true,
+    "interpolation": "linear_position_between_validated_points",
+    "dynamic_fields": "reject_nonempty",
+    "velocity_limit_source": "so101_moveit_config/config/joint_limits.yaml",
+    "acceleration_limit_source": "so101_moveit_config/config/joint_limits.yaml"
+  },
+  "safety": {
+    "operator_cancel": "clear_queue_then_safe_stop_latched",
+    "planned_hold": "clear_queue_then_hold_without_auto_resume",
+    "queue_underflow": "hold_then_safe_stop_latched",
+    "missed_apply_tick": "hold_then_safe_stop_latched",
+    "connection_loss": "clear_queue_then_safe_stop_latched",
+    "tracking_error": "abort_without_automatic_resend",
+    "reconnect": "refuse_automatic_resume"
+  },
+  "deployment_gate": {
+    "required_measurements": [
+      "minimum_lead_ms",
+      "maximum_lead_ms",
+      "startup_prime_depth_samples",
+      "low_watermark_samples",
+      "refill_target_samples",
+      "serial_round_trip_p95_ms",
+      "host_command_jitter_p95_ms"
+    ],
+    "firmware_change_requires_separate_issue": true,
+    "physical_motion_requires_explicit_approval": true
+  }
+}

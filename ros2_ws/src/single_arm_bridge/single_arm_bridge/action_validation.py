@@ -31,6 +31,15 @@ class ValidatedTrajectory:
 
 
 @dataclass(frozen=True, slots=True)
+class ValidatedBufferedTrajectory:
+    start_positions: tuple[float, ...]
+    ordered_points: tuple[tuple[float, ...], ...]
+    time_from_start_ns: tuple[int, ...]
+    segment_velocities_rad_s: tuple[tuple[float, ...], ...]
+    duration_ms: int
+
+
+@dataclass(frozen=True, slots=True)
 class GripperCommandData:
     positions: tuple[float, ...]
     joint_names: tuple[str, ...] = ()
@@ -86,6 +95,8 @@ def _validate_strictly_increasing_times(
 
 
 def _validate_position(name: str, value: float, lower: float, upper: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise GoalValidationError(f"{name} position is not a finite number")
     position = float(value)
     if not math.isfinite(position):
         raise GoalValidationError(f"{name} position is not finite")
@@ -129,6 +140,200 @@ def validate_single_point_trajectory(
     )
     duration_ms = (point.time_from_start_ns + 999_999) // 1_000_000
     return ValidatedTrajectory(ordered, duration_ms)
+
+
+def _validate_positive_limit_map(
+    expected: tuple[str, ...],
+    limits: Mapping[str, float],
+    field: str,
+) -> tuple[float, ...]:
+    if set(limits) != set(expected):
+        raise GoalValidationError(f"{field} do not match expected joints")
+    values: list[float] = []
+    for name in expected:
+        if isinstance(limits[name], bool) or not isinstance(
+            limits[name],
+            (int, float),
+        ):
+            raise GoalValidationError(f"{name} has invalid {field}")
+        value = float(limits[name])
+        if not math.isfinite(value) or value <= 0.0:
+            raise GoalValidationError(f"{name} has invalid {field}")
+        values.append(value)
+    return tuple(values)
+
+
+def validate_buffered_trajectory(
+    joint_names: Sequence[str],
+    points: Sequence[TrajectoryPointData],
+    expected_joint_names: Sequence[str],
+    position_limits: Mapping[str, tuple[float, float]],
+    start_positions: Sequence[float],
+    velocity_limits_rad_s: Mapping[str, float],
+    acceleration_limits_rad_s2: Mapping[str, float],
+    *,
+    start_tolerance_rad: float,
+) -> ValidatedBufferedTrajectory:
+    """Validate a position-only multi-point path without enabling execution."""
+
+    expected = _validate_expected_contract(expected_joint_names, position_limits)
+    names = _validate_goal_joint_names(joint_names, expected)
+    if len(points) < 2:
+        raise GoalValidationError("buffered trajectory requires at least two points")
+    _validate_strictly_increasing_times(points)
+    if points[-1].time_from_start_ns <= 0:
+        raise GoalValidationError("buffered trajectory duration must be positive")
+    if any(point.time_from_start_ns % 1_000_000 for point in points):
+        raise GoalValidationError(
+            "buffered trajectory times must align to integer milliseconds"
+        )
+    if (
+        isinstance(start_tolerance_rad, bool)
+        or not isinstance(start_tolerance_rad, (int, float))
+        or not math.isfinite(float(start_tolerance_rad))
+        or start_tolerance_rad < 0.0
+    ):
+        raise GoalValidationError("start tolerance must be finite and non-negative")
+
+    start = tuple(start_positions)
+    if len(start) != len(expected):
+        raise GoalValidationError("fresh start position count is invalid")
+    start = tuple(
+        _validate_position(name, value, *position_limits[name])
+        for name, value in zip(expected, start, strict=True)
+    )
+    velocity_limits = _validate_positive_limit_map(
+        expected,
+        velocity_limits_rad_s,
+        "velocity limits",
+    )
+    acceleration_limits = _validate_positive_limit_map(
+        expected,
+        acceleration_limits_rad_s2,
+        "acceleration limits",
+    )
+
+    ordered_points: list[tuple[float, ...]] = []
+    times: list[int] = []
+    for point in points:
+        if len(point.positions) != len(names):
+            raise GoalValidationError("trajectory point position count is invalid")
+        if point.velocities or point.accelerations or point.effort:
+            raise GoalValidationError(
+                "buffered linear-position contract does not accept velocity, "
+                "acceleration, or effort fields"
+            )
+        by_name = dict(zip(names, point.positions, strict=True))
+        ordered_points.append(
+            tuple(
+                _validate_position(name, by_name[name], *position_limits[name])
+                for name in expected
+            )
+        )
+        times.append(point.time_from_start_ns)
+
+    if times[0] == 0:
+        maximum_start_error = max(
+            abs(value - actual)
+            for value, actual in zip(ordered_points[0], start, strict=True)
+        )
+        if maximum_start_error > start_tolerance_rad:
+            raise GoalValidationError(
+                "zero-time trajectory point exceeds fresh start tolerance"
+            )
+
+    previous_positions = start
+    previous_time_ns = 0
+    previous_velocity: tuple[float, ...] | None = None
+    segment_velocities: list[tuple[float, ...]] = []
+    for positions, time_ns in zip(ordered_points, times, strict=True):
+        if time_ns == previous_time_ns:
+            previous_positions = positions
+            continue
+        duration_s = (time_ns - previous_time_ns) / 1_000_000_000.0
+        velocities = tuple(
+            (position - previous) / duration_s
+            for position, previous in zip(
+                positions,
+                previous_positions,
+                strict=True,
+            )
+        )
+        for name, velocity, limit in zip(
+            expected,
+            velocities,
+            velocity_limits,
+            strict=True,
+        ):
+            if abs(velocity) > limit + 1.0e-12:
+                raise GoalValidationError(
+                    f"{name} segment velocity exceeds {limit} rad/s"
+                )
+        reference_velocity = previous_velocity or tuple(0.0 for _ in expected)
+        for name, velocity, previous, limit in zip(
+            expected,
+            velocities,
+            reference_velocity,
+            acceleration_limits,
+            strict=True,
+        ):
+            acceleration = abs(velocity - previous) / duration_s
+            if acceleration > limit + 1.0e-12:
+                raise GoalValidationError(
+                    f"{name} segment acceleration exceeds {limit} rad/s^2"
+                )
+        segment_velocities.append(velocities)
+        previous_positions = positions
+        previous_time_ns = time_ns
+        previous_velocity = velocities
+
+    return ValidatedBufferedTrajectory(
+        start_positions=start,
+        ordered_points=tuple(ordered_points),
+        time_from_start_ns=tuple(times),
+        segment_velocities_rad_s=tuple(segment_velocities),
+        duration_ms=times[-1] // 1_000_000,
+    )
+
+
+def interpolate_buffered_trajectory(
+    trajectory: ValidatedBufferedTrajectory,
+    elapsed_ns: int,
+) -> tuple[float, ...]:
+    """Linearly interpolate one already validated trajectory for mock tests."""
+
+    if isinstance(elapsed_ns, bool) or not isinstance(elapsed_ns, int):
+        raise GoalValidationError("elapsed time must be integer nanoseconds")
+    if elapsed_ns < 0:
+        raise GoalValidationError("elapsed time must be non-negative")
+    if elapsed_ns == 0:
+        return trajectory.start_positions
+    if elapsed_ns >= trajectory.time_from_start_ns[-1]:
+        return trajectory.ordered_points[-1]
+
+    previous_time = 0
+    previous_positions = trajectory.start_positions
+    for time_ns, positions in zip(
+        trajectory.time_from_start_ns,
+        trajectory.ordered_points,
+        strict=True,
+    ):
+        if elapsed_ns == time_ns:
+            return positions
+        if elapsed_ns < time_ns:
+            span = time_ns - previous_time
+            ratio = (elapsed_ns - previous_time) / span
+            return tuple(
+                start + ratio * (end - start)
+                for start, end in zip(
+                    previous_positions,
+                    positions,
+                    strict=True,
+                )
+            )
+        previous_time = time_ns
+        previous_positions = positions
+    return trajectory.ordered_points[-1]
 
 
 def validate_gripper_command(

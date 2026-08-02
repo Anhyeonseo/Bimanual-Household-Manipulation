@@ -34,7 +34,7 @@
 | POL-002 | 단계 9/11 | Pi policy shadow mode | stale/deadline/범위 초과 출력 100% 차단, 실제 명령 0 | 미실행 |  |
 | MOT-001 | 단계 5 | 단일 시험 왼팔 trajectory | 반복 실행 성공 | 통과 | [단계 5 실기 결과](test-results/2026-07-25-phase5-stm32-read-only.md) |
 | MOT-002 | 단계 5 | 취소/정지 | 정해진 안전 상태 진입 | 통과 | [단계 5 실기 결과](test-results/2026-07-25-phase5-stm32-read-only.md) |
-| MOT-003 | 단계 8 | 왼팔 multi-point/buffered trajectory | 시간축·queue·cancel·soft-abort·SAFE_STOP 실기 통과, 불필요한 정착 정지 제거 | 미실행 | 현재 11구간 q0 복귀는 안전한 single-point 시운전 증거이며 최종 운용 계약이 아님 |
+| MOT-003 | 단계 8 | 왼팔 multi-point/buffered trajectory | 시간축·queue·cancel·soft-abort·SAFE_STOP 실기 통과, 불필요한 정착 정지 제거 | 부분 통과 | [Motion-1 host-only 계약](checklists/MOTION_BUFFERED_TRAJECTORY_CONTRACT.md): 다중점 검증·선형 보간·원자적 queue·cancel/HOLD/underflow mock 통과. 현재 firmware와 Action은 여전히 `sample_count=1`; STM32 연결·실측 timing·제한 실기 미실행 |
 | VIS-001 | 단계 6 | 작업대 위치 추정 | 위치 최대 10 mm, yaw 최대 5 deg | 통과 | [Top 물체 실제 좌표 검증](test-results/2026-07-30-top-object-ground-truth-validation.md) |
 | VIS-002 | 단계 7 준비 | base-frame shadow target 및 table–base 등록 | 두 위치 물리 검증, freshness/workspace 검사, 실행 가능 flag false | 통과 | [현재 작업대–왼팔 base 등록](test-results/2026-07-30-current-table-base-registration.md), [Top-base shadow target](test-results/2026-07-30-top-base-shadow-target.md) |
 | VIS-003 | 단계 8 | 시연 환경 강건 펜 검출 | 카메라 각도·높이·물체 Z 고정, 배경·조명·반사만 다른 조건에서 물체 1개와 위치/yaw·miss·false positive 기준 충족 | 통과 | [기준선 계약](test-results/2026-08-02-top-pen-detection-baseline-contract.md), [holdout·legacy 결과](test-results/2026-08-02-top-pen-holdout-legacy-baseline.md), [YOLO-OBB 후보](checklists/STAGE8_TOP_PEN_YOLO_OBB.md). 고정 holdout에서 miss 0%, false positive 0%, 중심 p95 5.29 px, yaw p95 2.79° |
