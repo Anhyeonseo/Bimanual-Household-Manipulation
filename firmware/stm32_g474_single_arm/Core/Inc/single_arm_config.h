@@ -8,10 +8,20 @@
 #define ENABLE_SERVO_CENTERING_COMMAND 0U
 #define ENABLE_BOOT_ID1_AUTOCONFIG 0U
 
-#define HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00021800)
-#define HOST_BINARY_CAPABILITIES UINT32_C(0x000003FF)
+#define HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00021900)
+#define HOST_BINARY_CAPABILITIES UINT32_C(0x000007FF)
+#define HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)
 #define HOST_BINARY_HEARTBEAT_TIMEOUT_MS UINT32_C(500)
 #define HOST_BINARY_RX_BURST_MAX_BYTES UINT8_C(64)
+
+/*
+ * Motion-4 exposes only the no-motion validation route. These bounds retain
+ * the existing single-point wire envelope; they are not operational queue
+ * tuning values and must not authorize buffered servo output.
+ */
+#define HOST_BUFFERED_VALIDATION_MINIMUM_LEAD_MS UINT32_C(20)
+#define HOST_BUFFERED_VALIDATION_MAXIMUM_LEAD_MS UINT32_C(2000)
+#define HOST_BUFFERED_VALIDATION_MINIMUM_START_SAMPLES UINT8_C(2)
 
 /*
  * A background GET_STATE position sweep already retries one servo read three

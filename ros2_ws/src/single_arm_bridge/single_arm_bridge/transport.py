@@ -11,6 +11,8 @@ from typing import Any
 
 from .protocol import (
     ARM_RESPONSE,
+    BufferedSetpointFlags,
+    BufferedSetpointSample,
     Frame,
     Hello,
     MessageType,
@@ -19,6 +21,7 @@ from .protocol import (
     ServoDiagnostics,
     State,
     decode_frame,
+    encode_buffered_setpoint_payload,
     encode_frame,
     parse_hello,
     parse_servo_diagnostic,
@@ -36,6 +39,7 @@ DISABLE_RESPONSE_TIMEOUT_S = 2.5
 DIAGNOSTIC_RESPONSE_TIMEOUT_S = 0.5
 DIAGNOSTIC_CAPABILITY = 0x00000010
 HEARTBEAT_RESPONSE_TIMEOUT_S = 0.25
+BUFFERED_VALIDATION_ROUTE_CAPABILITY = 0x00000400
 
 
 class TransportError(RuntimeError):
@@ -410,6 +414,64 @@ class ActuatorTransport:
         if result.status_code != 0:
             raise TransportError(
                 f"SETPOINT_BATCH rejected: status={result.status_code}"
+            )
+        return result
+
+    @_synchronized
+    def validate_buffered_candidate(
+        self,
+        first_apply_tick_ms: int,
+        samples: tuple[BufferedSetpointSample, ...],
+    ) -> MotionResult:
+        """Validate a multi-sample batch without queueing or servo output."""
+        hello = self.hello_info
+        if hello is None:
+            raise TransportError(
+                "buffered validation requires a completed HELLO"
+            )
+        if (
+            hello.capabilities
+            & BUFFERED_VALIDATION_ROUTE_CAPABILITY
+        ) == 0:
+            raise TransportError(
+                "firmware does not provide buffered validation route"
+            )
+
+        payload = encode_buffered_setpoint_payload(
+            first_apply_tick_ms,
+            samples,
+        )
+        flags = int(
+            BufferedSetpointFlags.VALIDATION_ONLY
+            | BufferedSetpointFlags.CANDIDATE
+            | BufferedSetpointFlags.BEGIN
+            | BufferedSetpointFlags.START
+            | BufferedSetpointFlags.END
+        )
+        sequence = self._send(
+            MessageType.SETPOINT_BATCH,
+            payload,
+            flags,
+        )
+        result = parse_setpoint_status(
+            self._receive_matching(
+                sequence,
+                MessageType.SETPOINT_STATUS,
+            ).payload
+        )
+        if result.status_code != 5:
+            raise TransportError(
+                "buffered validation rejected: "
+                f"status={result.status_code} detail={result.detail}"
+            )
+        if (
+            result.executor_state is None
+            or result.queued_samples != 0
+            or result.accepted_samples != 0
+            or result.applied_samples != 0
+        ):
+            raise TransportError(
+                "buffered validation response does not prove no-motion state"
             )
         return result
 

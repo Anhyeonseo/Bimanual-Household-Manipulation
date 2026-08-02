@@ -48,12 +48,12 @@ frame에 최대 9개 sample을 표현한다. 그러나 현재 보드 펌웨어�
 
 ## 다음 gate
 
-1. STM32 queue admission·interpolation·terminal result를 board execution
-   path에 연결한다.
-2. lead와 watermark 후보를 host-only latency/fault injection으로 측정한다.
-3. protocol capability와 firmware identity를 올리고 이전 host의 motion
-   연결을 fail-closed로 거부한다.
-4. mock·plan-only 뒤 명시적 승인으로 단일 관절 제한 실기를 수행한다.
+1. validation-only board route로 lead와 watermark 후보를 Pi–VCP
+   latency/fault injection으로 측정한다.
+2. 측정값 검토 뒤 STM32 queue admission·interpolation·terminal result를
+   별도 물리 execution path에 연결한다.
+3. ROS multi-point adapter를 mock·plan-only로 검증한다.
+4. 명시적 승인으로 단일 관절 제한 실기를 수행한다.
 
 ## 구현 진행
 
@@ -62,5 +62,8 @@ frame에 최대 9개 sample을 표현한다. 그러나 현재 보드 펌웨어�
   terminal diagnostics와 fault injection 완료
 - Motion-3: dormant BEGIN/START/END route, legacy/extended terminal codec와
   host-only timing 분석기 완료
-- 현재 G474 `binary_control.c`, identity와 capability는 변경하지 않았다.
-  runtime은 single-sample이며 물리 buffered motion authority가 없다.
+- Motion-4: G474 `binary_control.c`에 validation-only route를 연결하고
+  identity `0x00021900`, capability `0x000007FF`와 이전 host fail-closed를
+  완료
+- 현재 multi-sample candidate는 검증 뒤 queue 상태를 전부 복원하며 servo
+  output을 호출하지 않는다. 물리 buffered motion authority는 여전히 없다.

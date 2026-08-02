@@ -46,7 +46,7 @@ class MessageType(IntEnum):
 
 
 class BufferedSetpointFlags(IntFlag):
-    """Dormant Motion-3 frame flags; not advertised by firmware 0x00021800."""
+    """Motion-4 validation-only flags advertised by firmware 0x00021900."""
 
     VALIDATION_ONLY = 0x0001
     CANDIDATE = 0x0002

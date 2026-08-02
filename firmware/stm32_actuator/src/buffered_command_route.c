@@ -143,13 +143,13 @@ actuator_buffered_command_result_t actuator_buffered_command_route_admit(
     }
 
     if (validation_only) {
-        const size_t saved_count = route->executor.queue.count;
+        const actuator_setpoint_queue_t saved_queue = route->executor.queue;
         const actuator_buffered_diagnostics_t saved_diagnostics =
             route->executor.diagnostics;
         result = actuator_buffered_executor_admit_batch(
             &route->executor, command->samples, command->sample_count,
             current_tick, minimum_lead_ticks, maximum_lead_ticks, route->limits);
-        route->executor.queue.count = saved_count;
+        route->executor.queue = saved_queue;
         route->executor.diagnostics = saved_diagnostics;
         return result == ACTUATOR_BUFFERED_OK ?
             ACTUATOR_BUFFERED_COMMAND_OK : ACTUATOR_BUFFERED_COMMAND_QUEUE_REJECTED;

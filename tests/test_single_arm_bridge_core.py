@@ -13,6 +13,8 @@ sys.path.insert(0, str(PACKAGE_ROOT))
 from single_arm_bridge.calibration import load_calibration  # noqa: E402
 from single_arm_bridge.device_discovery import resolve_serial_device  # noqa: E402
 from single_arm_bridge.protocol import (  # noqa: E402
+    BufferedSetpointFlags,
+    BufferedSetpointSample,
     Frame,
     MessageType,
     decode_frame,
@@ -103,9 +105,9 @@ class FakeSerial:
                 6,
                 0,
                 0,
-                0x00021800,
+                0x00021900,
                 0x8AD27897,
-                0x000003FF,
+                0x000007FF,
                 0,
             )
             response_type = MessageType.HELLO_RESPONSE
@@ -247,16 +249,36 @@ class FakeSerial:
             response_type = MessageType.STATE_FEEDBACK
         elif request.message_type is MessageType.SETPOINT_BATCH:
             apply_tick = struct.unpack_from("<I", request.payload)[0]
-            payload = struct.pack(
-                "<BBBBIII",
-                0,
-                1,
-                3,
-                0,
-                request.sequence,
-                apply_tick,
-                0x8AD27897,
-            )
+            if request.flags & int(BufferedSetpointFlags.CANDIDATE):
+                payload = struct.pack(
+                    "<BBBBIII" "BBBBHHII",
+                    5,
+                    request.payload[4],
+                    3,
+                    0,
+                    request.sequence,
+                    apply_tick,
+                    0x8AD27897,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                )
+            else:
+                payload = struct.pack(
+                    "<BBBBIII",
+                    0,
+                    1,
+                    3,
+                    0,
+                    request.sequence,
+                    apply_tick,
+                    0x8AD27897,
+                )
             response_type = MessageType.SETPOINT_STATUS
         elif request.message_type is MessageType.SAFE_STOP:
             if self._terminal_before_safe_stop_ack:
@@ -377,7 +399,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
     def test_transport_enters_binary_mode_and_reads_positions(self) -> None:
         transport = ActuatorTransport(FakeSerial(), response_timeout_s=0.01)
         hello = transport.enter_binary_mode()
-        self.assertEqual(hello.firmware_version, 0x00021800)
+        self.assertEqual(hello.firmware_version, 0x00021900)
         state = transport.get_state(include_positions=True)
         self.assertEqual(
             state.raw_positions,
@@ -472,7 +494,25 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
             response_timeout_s=0.01,
         )
         hello = transport.enter_binary_mode()
-        self.assertEqual(hello.capabilities, 0x000003FF)
+        self.assertEqual(hello.capabilities, 0x000007FF)
+
+    def test_transport_validates_candidate_without_motion_state(self) -> None:
+        transport = ActuatorTransport(FakeSerial(), response_timeout_s=0.01)
+        transport.enter_binary_mode()
+
+        result = transport.validate_buffered_candidate(
+            1500,
+            (
+                BufferedSetpointSample(10, (0, 0, 0, 0, 0, 0)),
+                BufferedSetpointSample(20, (1, 2, 3, 4, 5, 6)),
+            ),
+        )
+
+        self.assertEqual(result.status_code, 5)
+        self.assertEqual(result.sample_count, 2)
+        self.assertEqual(result.queued_samples, 0)
+        self.assertEqual(result.accepted_samples, 0)
+        self.assertEqual(result.applied_samples, 0)
 
     def test_heartbeat_requires_matching_state_acknowledgement(self) -> None:
         serial = FakeSerial()

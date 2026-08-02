@@ -87,7 +87,7 @@ def queue_model(**overrides) -> BufferedSetpointQueueModel:
 def test_machine_contract_is_mock_only_and_fail_closed() -> None:
     contract = load_buffered_trajectory_contract(CONTRACT_PATH)
 
-    assert contract["status"] == "HOST_MOCK_ONLY"
+    assert contract["status"] == "BOARD_VALIDATION_ONLY"
     assert contract["motion_authorized"] is False
     assert contract["current_runtime"] == {
         "firmware_supports_buffered_execution": False,
@@ -99,11 +99,13 @@ def test_machine_contract_is_mock_only_and_fail_closed() -> None:
         "buffered_command_route_candidate_implemented": True,
         "extended_terminal_status_candidate_implemented": True,
         "g474_cross_build_compiles_source": True,
-        "binary_command_route_connected": False,
+        "binary_command_route_connected": True,
+        "binary_command_route_mode": "validation_only",
         "host_candidate_codec_implemented": True,
         "host_timing_analysis_implemented": True,
-        "firmware_identity_changed": False,
-        "capability_advertised": False,
+        "firmware_identity_changed": True,
+        "capability_advertised": True,
+        "host_fail_closed_capability_required": True,
         "timing_parameters_measured": False,
     }
     assert contract["timing_analysis"]["operational_values_authorized"] is False
@@ -130,13 +132,13 @@ def test_machine_contract_cannot_claim_runtime_support(tmp_path: Path) -> None:
         load_buffered_trajectory_contract(path)
 
 
-def test_firmware_candidate_cannot_claim_command_route(tmp_path: Path) -> None:
+def test_firmware_candidate_cannot_return_to_dormant_route(tmp_path: Path) -> None:
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-    contract["firmware_candidate"]["binary_command_route_connected"] = True
+    contract["firmware_candidate"]["binary_command_route_connected"] = False
     path = tmp_path / "contract.json"
     path.write_text(json.dumps(contract), encoding="utf-8")
 
-    with pytest.raises(BufferedTrajectoryContractError, match="remain dormant"):
+    with pytest.raises(BufferedTrajectoryContractError, match="validation-only"):
         load_buffered_trajectory_contract(path)
 
 
@@ -150,7 +152,7 @@ def test_synthetic_timing_cannot_authorize_operational_values(tmp_path: Path) ->
         load_buffered_trajectory_contract(path)
 
 
-def test_g474_runtime_identity_does_not_advertise_candidate() -> None:
+def test_g474_runtime_identity_advertises_validation_only_candidate() -> None:
     config = (
         ROOT
         / "firmware"
@@ -168,10 +170,12 @@ def test_g474_runtime_identity_does_not_advertise_candidate() -> None:
         / "binary_control.c"
     ).read_text(encoding="utf-8")
 
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00021800)" in config
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x000003FF)" in config
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00021900)" in config
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x000007FF)" in config
+    assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in config
     assert "if (sample_count == 1U)" in binary_control
-    assert '#include "actuator_core/buffered_executor.h"' not in binary_control
+    assert '#include "actuator_core/buffered_command_route.h"' in binary_control
+    assert "Host_ValidateBufferedCandidate(request);" in binary_control
 
 
 def test_valid_multi_point_path_reorders_joints_and_interpolates(

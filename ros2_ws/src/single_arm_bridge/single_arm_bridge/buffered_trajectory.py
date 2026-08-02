@@ -11,7 +11,7 @@ from typing import Any, Sequence
 
 
 CONTRACT_KIND = "single_arm_buffered_trajectory"
-CONTRACT_STATUS = "HOST_MOCK_ONLY"
+CONTRACT_STATUS = "BOARD_VALIDATION_ONLY"
 TOTAL_JOINT_COUNT = 6
 ARM_JOINT_COUNT = 5
 WIRE_BATCH_MAX_SAMPLES = 9
@@ -139,15 +139,17 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "buffered_command_route_candidate_implemented": True,
         "extended_terminal_status_candidate_implemented": True,
         "g474_cross_build_compiles_source": True,
-        "binary_command_route_connected": False,
+        "binary_command_route_connected": True,
+        "binary_command_route_mode": "validation_only",
         "host_candidate_codec_implemented": True,
         "host_timing_analysis_implemented": True,
-        "firmware_identity_changed": False,
-        "capability_advertised": False,
+        "firmware_identity_changed": True,
+        "capability_advertised": True,
+        "host_fail_closed_capability_required": True,
         "timing_parameters_measured": False,
     }:
         raise BufferedTrajectoryContractError(
-            "firmware candidate must remain dormant until deployment gates pass"
+            "firmware route must remain validation-only until timing gates pass"
         )
 
     timing = _require_object(document, "timing_analysis")

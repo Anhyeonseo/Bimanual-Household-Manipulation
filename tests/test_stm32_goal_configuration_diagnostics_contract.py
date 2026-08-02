@@ -45,9 +45,9 @@ BRIDGE = (
 
 
 def test_goal_and_configuration_diagnostics_have_distinct_identity() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00021800)" in CONFIG
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x000003FF)" in CONFIG
-    assert "EXPECTED_FIRMWARE_VERSION = 0x00021800" in IDENTITY
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00021900)" in CONFIG
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x000007FF)" in CONFIG
+    assert "EXPECTED_FIRMWARE_VERSION = 0x00021900" in IDENTITY
     assert "SERVO_COMMAND_CONFIGURATION_DIAGNOSTICS_CAPABILITY = 0x00000080" in IDENTITY
     assert "servo command/configuration diagnostics capability is missing" in IDENTITY
 

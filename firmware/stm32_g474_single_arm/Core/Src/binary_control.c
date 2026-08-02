@@ -2,6 +2,7 @@
 
 #include "single_arm_config.h"
 #include "servo_bus.h"
+#include "actuator_core/buffered_command_route.h"
 #include "actuator_core/calibration.h"
 #include "actuator_core/crc32c.h"
 #include "actuator_core/protocol.h"
@@ -41,6 +42,8 @@ static HostBinaryMotion host_binary_motion;
 static uint8_t host_binary_servos_configured = 0U;
 static uint8_t host_position_read_failure_streak = 0U;
 static uint8_t host_position_read_failed_servo_id = 0U;
+static actuator_buffered_command_route_t host_buffered_validation_route;
+static uint8_t host_buffered_validation_route_ready = 0U;
 
 static void Host_WriteU32Le(uint8_t *destination, uint32_t value)
 {
@@ -118,6 +121,61 @@ static uint32_t Host_CalibrationHash(void)
     }
 
     return actuator_crc32c(calibration_bytes, offset);
+}
+
+static uint8_t Host_InitBufferedValidationRoute(void)
+{
+    actuator_joint_limit_t limits[ACTUATOR_JOINT_COUNT];
+
+    for (uint8_t joint = 0U; joint < servo_joint_count; joint++)
+    {
+        const actuator_joint_calibration_t calibration =
+            Host_JointCalibration(joint);
+        int32_t first_limit = 0;
+        int32_t second_limit = 0;
+
+        if ((actuator_raw_to_urad(
+                 &calibration,
+                 servo_joints[joint].min_position,
+                 &first_limit
+             ) != ACTUATOR_CALIBRATION_OK) ||
+            (actuator_raw_to_urad(
+                 &calibration,
+                 servo_joints[joint].max_position,
+                 &second_limit
+             ) != ACTUATOR_CALIBRATION_OK))
+        {
+            return 0U;
+        }
+
+        if (first_limit <= second_limit)
+        {
+            limits[joint].minimum_urad = first_limit;
+            limits[joint].maximum_urad = second_limit;
+        }
+        else
+        {
+            limits[joint].minimum_urad = second_limit;
+            limits[joint].maximum_urad = first_limit;
+        }
+    }
+
+    return (actuator_buffered_command_route_init(
+                &host_buffered_validation_route,
+                HOST_BUFFERED_VALIDATION_MINIMUM_START_SAMPLES,
+                limits
+            ) == ACTUATOR_BUFFERED_OK) ? 1U : 0U;
+}
+
+static uint32_t Host_BinaryCapabilities(void)
+{
+    uint32_t capabilities = HOST_BINARY_CAPABILITIES;
+
+    if (host_buffered_validation_route_ready == 0U)
+    {
+        capabilities &= ~HOST_BUFFERED_VALIDATION_CAPABILITY;
+    }
+    return capabilities;
 }
 
 static HAL_StatusTypeDef Host_SendBinaryFrame(
@@ -485,7 +543,7 @@ static void Host_SendBinaryHello(uint32_t request_sequence)
     );
     Host_WriteU32Le(
         &response.payload[12],
-        HOST_BINARY_CAPABILITIES
+        Host_BinaryCapabilities()
     );
     Host_WriteU32Le(
         &response.payload[16],
@@ -539,6 +597,52 @@ static void Host_SendBinarySetpointStatus(
     Host_WriteU32Le(&response.payload[8], first_apply_tick);
     Host_WriteU32Le(&response.payload[12], Host_CalibrationHash());
 
+    (void)Host_SendBinaryFrame(&response);
+}
+
+static void Host_SendBinaryBufferedSetpointStatus(
+    uint32_t request_sequence,
+    uint8_t status_code,
+    uint8_t sample_count,
+    uint32_t first_apply_tick,
+    uint8_t detail
+)
+{
+    actuator_frame_t response;
+    size_t payload_length = 0U;
+    const actuator_buffered_diagnostics_t *diagnostics =
+        actuator_buffered_executor_diagnostics(
+            &host_buffered_validation_route.executor
+        );
+    memset(&response, 0, sizeof(response));
+
+    response.message_type = ACTUATOR_MSG_SETPOINT_STATUS;
+    response.sequence = request_sequence;
+    response.sender_time_ms = HAL_GetTick();
+    if (!actuator_buffered_status_encode(
+            response.payload,
+            sizeof(response.payload),
+            &payload_length,
+            status_code,
+            sample_count,
+            (uint8_t)host_binary_safety.state,
+            detail,
+            request_sequence,
+            first_apply_tick,
+            Host_CalibrationHash(),
+            diagnostics
+        ))
+    {
+        Host_SendBinarySetpointStatus(
+            request_sequence,
+            7U,
+            sample_count,
+            first_apply_tick,
+            detail
+        );
+        return;
+    }
+    response.payload_length = (uint16_t)payload_length;
     (void)Host_SendBinaryFrame(&response);
 }
 
@@ -887,7 +991,7 @@ static void Host_ServiceBinaryMotion(void)
     }
 }
 
-static void Host_ValidateBinarySetpointBatch(
+static void Host_ValidateLegacyBinarySetpointBatch(
     const actuator_frame_t *request
 )
 {
@@ -1013,6 +1117,73 @@ static void Host_ValidateBinarySetpointBatch(
         sample_count,
         first_apply_tick,
         0U
+    );
+}
+
+static void Host_ValidateBufferedCandidate(
+    const actuator_frame_t *request
+)
+{
+    actuator_buffered_command_t command;
+    actuator_buffered_command_result_t command_result =
+        ACTUATOR_BUFFERED_COMMAND_INVALID_LENGTH;
+    uint8_t sample_count = 0U;
+    uint32_t first_apply_tick = 0U;
+    uint8_t status_code = 1U;
+
+    if (request->payload_length >= ACTUATOR_BUFFERED_WIRE_HEADER_SIZE)
+    {
+        first_apply_tick = Host_ReadU32Le(&request->payload[0]);
+        sample_count = request->payload[4];
+    }
+
+    if ((request->flags & ACTUATOR_BUFFERED_FLAG_VALIDATION_ONLY) == 0U)
+    {
+        command_result = ACTUATOR_BUFFERED_COMMAND_INVALID_FLAGS;
+    }
+    else if (host_buffered_validation_route_ready == 0U)
+    {
+        status_code = 7U;
+        command_result = ACTUATOR_BUFFERED_COMMAND_BAD_STATE;
+    }
+    else if (!actuator_safety_accepts_setpoint(&host_binary_safety) ||
+             (host_stop_latched != 0U) ||
+             (host_binary_motion.active != 0U))
+    {
+        status_code = 2U;
+        command_result = ACTUATOR_BUFFERED_COMMAND_BAD_STATE;
+    }
+    else
+    {
+        command_result = actuator_buffered_command_decode(
+            request->payload,
+            request->payload_length,
+            request->flags,
+            &command
+        );
+        if (command_result == ACTUATOR_BUFFERED_COMMAND_OK)
+        {
+            command_result = actuator_buffered_command_route_admit(
+                &host_buffered_validation_route,
+                &command,
+                request->sequence,
+                HAL_GetTick(),
+                HOST_BUFFERED_VALIDATION_MINIMUM_LEAD_MS,
+                HOST_BUFFERED_VALIDATION_MAXIMUM_LEAD_MS
+            );
+            if (command_result == ACTUATOR_BUFFERED_COMMAND_OK)
+            {
+                status_code = 5U;
+            }
+        }
+    }
+
+    Host_SendBinaryBufferedSetpointStatus(
+        request->sequence,
+        status_code,
+        sample_count,
+        first_apply_tick,
+        (uint8_t)command_result
     );
 }
 
@@ -1167,7 +1338,14 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
             break;
 
         case ACTUATOR_MSG_SETPOINT_BATCH:
-            Host_ValidateBinarySetpointBatch(request);
+            if ((request->flags & ACTUATOR_BUFFERED_FLAG_CANDIDATE) != 0U)
+            {
+                Host_ValidateBufferedCandidate(request);
+            }
+            else
+            {
+                Host_ValidateLegacyBinarySetpointBatch(request);
+            }
             break;
 
         case ACTUATOR_MSG_SAFE_STOP:
@@ -1327,6 +1505,8 @@ void BinaryControl_Init(UART_HandleTypeDef *host_uart)
     host_binary_servos_configured = 0U;
     host_position_read_failure_streak = 0U;
     host_position_read_failed_servo_id = 0U;
+    host_buffered_validation_route_ready =
+        Host_InitBufferedValidationRoute();
     memset(&host_binary_motion, 0, sizeof(host_binary_motion));
     Servo_MotionSafetyEnd();
 

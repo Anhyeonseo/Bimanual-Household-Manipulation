@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_kind": "single_arm_buffered_trajectory",
-  "status": "HOST_MOCK_ONLY",
+  "status": "BOARD_VALIDATION_ONLY",
   "motion_authorized": false,
   "current_runtime": {
     "firmware_supports_buffered_execution": false,
@@ -13,11 +13,13 @@
     "buffered_command_route_candidate_implemented": true,
     "extended_terminal_status_candidate_implemented": true,
     "g474_cross_build_compiles_source": true,
-    "binary_command_route_connected": false,
+    "binary_command_route_connected": true,
+    "binary_command_route_mode": "validation_only",
     "host_candidate_codec_implemented": true,
     "host_timing_analysis_implemented": true,
-    "firmware_identity_changed": false,
-    "capability_advertised": false,
+    "firmware_identity_changed": true,
+    "capability_advertised": true,
+    "host_fail_closed_capability_required": true,
     "timing_parameters_measured": false
   },
   "timing_analysis": {
