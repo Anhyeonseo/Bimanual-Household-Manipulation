@@ -41,6 +41,7 @@ set(HAL_SOURCES
 )
 
 set(ACTUATOR_SOURCES
+    "${ACTUATOR_CORE_DIR}/src/buffered_command_route.c"
     "${ACTUATOR_CORE_DIR}/src/buffered_executor.c"
     "${ACTUATOR_CORE_DIR}/src/calibration.c"
     "${ACTUATOR_CORE_DIR}/src/cobs.c"

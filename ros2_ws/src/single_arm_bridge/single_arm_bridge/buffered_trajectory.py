@@ -37,6 +37,7 @@ REQUIRED_MEASUREMENTS = [
     "refill_target_samples",
     "serial_round_trip_p95_ms",
     "host_command_jitter_p95_ms",
+    "delivery_lateness_p95_ms",
 ]
 
 
@@ -135,14 +136,36 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
     candidate = _require_object(document, "firmware_candidate")
     if candidate != {
         "core_executor_implemented": True,
+        "buffered_command_route_candidate_implemented": True,
+        "extended_terminal_status_candidate_implemented": True,
         "g474_cross_build_compiles_source": True,
         "binary_command_route_connected": False,
+        "host_candidate_codec_implemented": True,
+        "host_timing_analysis_implemented": True,
         "firmware_identity_changed": False,
         "capability_advertised": False,
         "timing_parameters_measured": False,
     }:
         raise BufferedTrajectoryContractError(
             "firmware candidate must remain dormant until deployment gates pass"
+        )
+
+    timing = _require_object(document, "timing_analysis")
+    if timing != {
+        "minimum_hardware_samples_per_series": 1000,
+        "required_provenance": "pi_vcp_hardware",
+        "required_clock_source": "monotonic_raw",
+        "requires_buffered_capability": True,
+        "synthetic_measurements_can_authorize_values": False,
+        "operational_values_authorized": False,
+        "minimum_lead_ms": None,
+        "maximum_lead_ms": None,
+        "startup_prime_depth_samples": None,
+        "low_watermark_samples": None,
+        "refill_target_samples": None,
+    }:
+        raise BufferedTrajectoryContractError(
+            "timing values must remain unconfigured before hardware measurement"
         )
 
     wire = _require_object(document, "existing_wire_limits")

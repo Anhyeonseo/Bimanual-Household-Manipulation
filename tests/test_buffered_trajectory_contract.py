@@ -96,12 +96,18 @@ def test_machine_contract_is_mock_only_and_fail_closed() -> None:
     }
     assert contract["firmware_candidate"] == {
         "core_executor_implemented": True,
+        "buffered_command_route_candidate_implemented": True,
+        "extended_terminal_status_candidate_implemented": True,
         "g474_cross_build_compiles_source": True,
         "binary_command_route_connected": False,
+        "host_candidate_codec_implemented": True,
+        "host_timing_analysis_implemented": True,
         "firmware_identity_changed": False,
         "capability_advertised": False,
         "timing_parameters_measured": False,
     }
+    assert contract["timing_analysis"]["operational_values_authorized"] is False
+    assert contract["timing_analysis"]["minimum_lead_ms"] is None
 
 
 def test_machine_contract_cannot_enable_motion(tmp_path: Path) -> None:
@@ -131,6 +137,16 @@ def test_firmware_candidate_cannot_claim_command_route(tmp_path: Path) -> None:
     path.write_text(json.dumps(contract), encoding="utf-8")
 
     with pytest.raises(BufferedTrajectoryContractError, match="remain dormant"):
+        load_buffered_trajectory_contract(path)
+
+
+def test_synthetic_timing_cannot_authorize_operational_values(tmp_path: Path) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    contract["timing_analysis"]["operational_values_authorized"] = True
+    contract["timing_analysis"]["minimum_lead_ms"] = 20
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    with pytest.raises(BufferedTrajectoryContractError, match="unconfigured"):
         load_buffered_trajectory_contract(path)
 
 

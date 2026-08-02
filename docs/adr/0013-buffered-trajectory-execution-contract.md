@@ -60,6 +60,7 @@ frame에 최대 9개 sample을 표현한다. 그러나 현재 보드 펌웨어�
 - Motion-1: host validation과 queue mock 완료
 - Motion-2: STM32 공통 C core의 원자적 queue, 선형 보간, refill,
   terminal diagnostics와 fault injection 완료
-- 현재 G474 binary command route, identity와 capability는 의도적으로
-  변경하지 않았다. 따라서 runtime은 계속 single-sample이며 물리 buffered
-  motion authority가 없다.
+- Motion-3: dormant BEGIN/START/END route, legacy/extended terminal codec와
+  host-only timing 분석기 완료
+- 현재 G474 `binary_control.c`, identity와 capability는 변경하지 않았다.
+  runtime은 single-sample이며 물리 buffered motion authority가 없다.

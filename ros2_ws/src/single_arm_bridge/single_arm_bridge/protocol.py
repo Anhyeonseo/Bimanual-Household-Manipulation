@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 import struct
 
 
@@ -19,6 +19,10 @@ STATE_POSITION_READ_FAILURE_LEGACY = struct.Struct("<BBBB")
 STATE_POSITION_READ_FAILURE = struct.Struct("<BBBBBBHH2xII")
 ARM_RESPONSE = struct.Struct("<BB2xI")
 SETPOINT_STATUS = struct.Struct("<BBBBIII")
+SETPOINT_STATUS_EXTENDED = struct.Struct("<BBBBHHII")
+BUFFERED_SETPOINT_HEADER = struct.Struct("<IBBH")
+BUFFERED_SETPOINT_SAMPLE = struct.Struct("<I12i")
+BUFFERED_SETPOINT_MAX_SAMPLES = 9
 DIAGNOSTICS_BASE = struct.Struct("<BBBBII")
 DIAGNOSTICS_JOINT = struct.Struct("<8B7H2B2H2BH4B")
 
@@ -39,6 +43,25 @@ class MessageType(IntEnum):
     GET_STATE = 48
     STATE_FEEDBACK = 49
     DIAGNOSTICS = 51
+
+
+class BufferedSetpointFlags(IntFlag):
+    """Dormant Motion-3 frame flags; not advertised by firmware 0x00021800."""
+
+    VALIDATION_ONLY = 0x0001
+    CANDIDATE = 0x0002
+    BEGIN = 0x0004
+    START = 0x0008
+    END = 0x0010
+
+
+BUFFERED_SETPOINT_FLAG_MASK = int(
+    BufferedSetpointFlags.VALIDATION_ONLY
+    | BufferedSetpointFlags.CANDIDATE
+    | BufferedSetpointFlags.BEGIN
+    | BufferedSetpointFlags.START
+    | BufferedSetpointFlags.END
+)
 
 
 KNOWN_TYPES = {int(value) for value in MessageType}
@@ -100,6 +123,20 @@ class MotionResult:
     request_sequence: int
     apply_tick_ms: int
     calibration_hash: int
+    executor_state: int | None = None
+    terminal_reason: int | None = None
+    safe_stop_required: bool | None = None
+    queue_result: int | None = None
+    queued_samples: int | None = None
+    peak_queued_samples: int | None = None
+    accepted_samples: int | None = None
+    applied_samples: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BufferedSetpointSample:
+    tick_offset_ms: int
+    positions_urad: tuple[int, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,10 +355,76 @@ def parse_state(payload: bytes) -> State:
     )
 
 
+def encode_buffered_setpoint_payload(
+    first_apply_tick_ms: int,
+    samples: tuple[BufferedSetpointSample, ...],
+) -> bytes:
+    """Encode the dormant candidate batch payload without authorizing motion."""
+
+    if (
+        isinstance(first_apply_tick_ms, bool)
+        or not isinstance(first_apply_tick_ms, int)
+        or not 0 <= first_apply_tick_ms <= 0xFFFFFFFF
+    ):
+        raise ProtocolError("first apply tick is outside uint32")
+    if not 1 <= len(samples) <= BUFFERED_SETPOINT_MAX_SAMPLES:
+        raise ProtocolError("buffered batch requires 1..9 samples")
+    payload = bytearray(
+        BUFFERED_SETPOINT_HEADER.pack(first_apply_tick_ms, len(samples), 1, 0)
+    )
+    previous_offset: int | None = None
+    for sample in samples:
+        if (
+            isinstance(sample.tick_offset_ms, bool)
+            or not isinstance(sample.tick_offset_ms, int)
+            or not 0 <= sample.tick_offset_ms <= 0xFFFFFFFF
+        ):
+            raise ProtocolError("sample tick offset is outside uint32")
+        if previous_offset is not None and sample.tick_offset_ms <= previous_offset:
+            raise ProtocolError("sample tick offsets must be strictly increasing")
+        if previous_offset is not None and (
+            sample.tick_offset_ms - previous_offset > 0x7FFFFFFF
+        ):
+            raise ProtocolError("sample tick delta exceeds uint32 half-range")
+        if len(sample.positions_urad) != 6:
+            raise ProtocolError("buffered sample requires six positions")
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not -(2**31) <= value < 2**31
+            for value in sample.positions_urad
+        ):
+            raise ProtocolError("sample position is outside int32")
+        payload.extend(BUFFERED_SETPOINT_SAMPLE.pack(
+            sample.tick_offset_ms, *sample.positions_urad, *([0] * 6)))
+        previous_offset = sample.tick_offset_ms
+    return bytes(payload)
+
+
+def validate_buffered_setpoint_flags(flags: int) -> BufferedSetpointFlags:
+    if flags & ~BUFFERED_SETPOINT_FLAG_MASK:
+        raise ProtocolError("unknown buffered setpoint flag")
+    decoded = BufferedSetpointFlags(flags)
+    if BufferedSetpointFlags.CANDIDATE not in decoded:
+        raise ProtocolError("candidate flag is required")
+    return decoded
+
+
 def parse_setpoint_status(payload: bytes) -> MotionResult:
-    if len(payload) != SETPOINT_STATUS.size:
+    extended_size = SETPOINT_STATUS.size + SETPOINT_STATUS_EXTENDED.size
+    if len(payload) not in (SETPOINT_STATUS.size, extended_size):
         raise ProtocolError("invalid SETPOINT_STATUS length")
-    return MotionResult(*SETPOINT_STATUS.unpack(payload))
+    base = SETPOINT_STATUS.unpack_from(payload)
+    if len(payload) == SETPOINT_STATUS.size:
+        return MotionResult(*base)
+    extended = SETPOINT_STATUS_EXTENDED.unpack_from(payload, SETPOINT_STATUS.size)
+    return MotionResult(
+        *base,
+        executor_state=extended[0], terminal_reason=extended[1],
+        safe_stop_required=extended[2] != 0, queue_result=extended[3],
+        queued_samples=extended[4], peak_queued_samples=extended[5],
+        accepted_samples=extended[6], applied_samples=extended[7],
+    )
 
 
 def parse_servo_diagnostic(payload: bytes) -> ServoDiagnostic:

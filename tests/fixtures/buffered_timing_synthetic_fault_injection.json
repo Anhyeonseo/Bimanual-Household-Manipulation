@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "capture_kind": "single_arm_buffered_timing_capture",
+  "source": {
+    "provenance": "synthetic_fault_injection",
+    "firmware_buffered_capability": false,
+    "clock_source": "simulated_monotonic",
+    "transport_error_count": 0
+  },
+  "measurements": {
+    "serial_round_trip_ms": [4, 5, 4, 6, 5, 4, 5, 6, 4, 5],
+    "host_command_jitter_ms": [1, 1, 2, 1, 2, 1, 1, 2, 1, 2],
+    "delivery_lateness_ms": [2, 3, 4, 5, 2, 3, 4, 5, 2, 3]
+  },
+  "fault_injection": {"host_outage_ms": [20, 40, 80, 120]}
+}
