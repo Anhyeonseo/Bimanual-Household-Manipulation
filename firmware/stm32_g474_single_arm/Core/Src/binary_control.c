@@ -1146,8 +1146,15 @@ static void Host_ValidateBufferedCandidate(
         status_code = 7U;
         command_result = ACTUATOR_BUFFERED_COMMAND_BAD_STATE;
     }
-    else if (!actuator_safety_accepts_setpoint(&host_binary_safety) ||
-             (host_stop_latched != 0U) ||
+    /*
+     * Validation-only frames never enter the executor or write a servo.
+     * Allow them while physically disabled so Pi-VCP timing can be measured
+     * under the READ_ONLY contract.  Faulted, latched, and active-motion
+     * states remain fail-closed.
+     */
+    else if ((host_stop_latched != 0U) ||
+             (host_binary_safety.state == ACTUATOR_STATE_FAULT) ||
+             (host_binary_safety.state == ACTUATOR_STATE_ESTOPPED) ||
              (host_binary_motion.active != 0U))
     {
         status_code = 2U;

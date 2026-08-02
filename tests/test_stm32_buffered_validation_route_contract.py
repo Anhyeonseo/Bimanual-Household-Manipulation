@@ -98,6 +98,18 @@ def test_candidate_route_is_validation_only_and_never_writes_servos() -> None:
     assert "Servo_SyncWritePositions(" not in body
 
 
+def test_candidate_validation_is_available_while_physically_disabled() -> None:
+    body = function_body(
+        BINARY,
+        "static void Host_ValidateBufferedCandidate(",
+    )
+    assert "actuator_safety_accepts_setpoint(" not in body
+    assert "host_stop_latched != 0U" in body
+    assert "ACTUATOR_STATE_FAULT" in body
+    assert "ACTUATOR_STATE_ESTOPPED" in body
+    assert "host_binary_motion.active != 0U" in body
+
+
 def test_dispatch_separates_candidate_from_legacy_motion() -> None:
     handler = function_body(
         BINARY,

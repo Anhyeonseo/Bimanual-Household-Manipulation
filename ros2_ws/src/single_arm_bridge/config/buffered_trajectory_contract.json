@@ -15,6 +15,7 @@
     "g474_cross_build_compiles_source": true,
     "binary_command_route_connected": true,
     "binary_command_route_mode": "validation_only",
+    "validation_only_safety_state": "safe_disabled_read_only_allowed",
     "host_candidate_codec_implemented": true,
     "host_timing_analysis_implemented": true,
     "firmware_identity_changed": true,

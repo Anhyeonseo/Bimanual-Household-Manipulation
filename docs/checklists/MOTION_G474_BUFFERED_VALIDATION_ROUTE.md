@@ -12,6 +12,8 @@ timing을 로봇 무동작으로 측정할 수 있는 fail-closed 경계를 만�
 - capabilities: `0x000007FF`
 - bit 10(`0x00000400`): buffered validation route
 - candidate frame은 `VALIDATION_ONLY|CANDIDATE`가 모두 필요
+- validation-only candidate는 물리 torque가 꺼진 `SAFE_DISABLED/READ_ONLY`에서 허용
+- stop latch, `FAULT`, `ESTOPPED`, 진행 중 motion에서는 상태 오류로 거부
 - BEGIN/START/END와 최대 9개 sample을 공통 C route로 검사
 - 성공 응답은 `status=5`인 32-byte extended status
 - validation 뒤 queue와 diagnostics를 원래 상태로 완전히 복원

@@ -101,6 +101,7 @@ def test_machine_contract_is_mock_only_and_fail_closed() -> None:
         "g474_cross_build_compiles_source": True,
         "binary_command_route_connected": True,
         "binary_command_route_mode": "validation_only",
+        "validation_only_safety_state": "safe_disabled_read_only_allowed",
         "host_candidate_codec_implemented": True,
         "host_timing_analysis_implemented": True,
         "firmware_identity_changed": True,

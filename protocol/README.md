@@ -242,7 +242,9 @@ executor/terminal/queue 진단을 붙인 32바이트 응답을 정의한다.
 firmware `0x00021900`의 capability bit 10(`0x00000400`)은 이 후보 route의
 **validation-only** 연결만 뜻한다. Candidate frame은 bit 0도 반드시 켜야 하며
 `status=5`, queue/accepted/applied sample이 모두 0인 확장 응답으로 무동작을
-증명한다. bit 0이 없는 candidate는 거부한다. 기존 flag 0,
+증명한다. 이 validation-only candidate는 물리 torque가 꺼진
+`SAFE_DISABLED/READ_ONLY`에서도 허용하지만 stop latch, `FAULT`, `ESTOPPED`,
+진행 중 motion에서는 거부한다. bit 0이 없는 candidate는 거부한다. 기존 flag 0,
 `sample_count=1` 경로만 기존 single-point 동작을 유지한다. Pi–VCP timing
 실측과 별도 실행 route 승인 전에는 multi-sample 물리 buffered 실행 권한이 없다.
 
