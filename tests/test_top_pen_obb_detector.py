@@ -255,6 +255,32 @@ class TopPenObbDetectorTest(unittest.TestCase):
                 require_full_footprint=True,
             )
 
+    def test_select_one_pose_ignores_image_clipped_extra_detection(self) -> None:
+        valid = np.asarray(
+            [[270, 230], [370, 230], [370, 250], [270, 250]],
+            dtype=np.float64,
+        )
+        clipped = np.asarray(
+            [[550, 440], [650, 440], [650, 490], [550, 490]],
+            dtype=np.float64,
+        )
+
+        pose = select_one_pose(
+            [
+                {"class_id": 0, "confidence": 0.9, "raw_corners_px": valid},
+                {
+                    "class_id": 0,
+                    "confidence": 0.8,
+                    "raw_corners_px": clipped,
+                },
+            ],
+            self._calibration(),
+            image_edge_margin_px=8,
+            require_full_footprint=True,
+        )
+
+        self.assertAlmostEqual(pose["raw_center_px"][0], 320.0)
+        self.assertAlmostEqual(pose["raw_center_px"][1], 240.0)
 
 if __name__ == "__main__":
     unittest.main()

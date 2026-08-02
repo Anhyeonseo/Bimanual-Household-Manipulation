@@ -377,23 +377,43 @@ def select_one_pose(
         )
         if intersects:
             relevant.append(pose)
+    fully_outside_count = len(poses) - len(relevant)
+    margin = float(image_edge_margin_px)
+
+    def is_fully_visible(candidate: dict) -> bool:
+        raw = np.asarray(candidate["raw_corners_px"], dtype=np.float64)
+        return bool(
+            np.all(raw[:, 0] >= margin)
+            and np.all(raw[:, 1] >= margin)
+            and np.all(
+                raw[:, 0] <= calibration.image_width - 1 - margin
+            )
+            and np.all(
+                raw[:, 1] <= calibration.image_height - 1 - margin
+            )
+        )
+
+    clipped_relevant_count = sum(
+        not is_fully_visible(candidate) for candidate in relevant
+    )
+    if len(relevant) > 1 and clipped_relevant_count:
+        relevant = [
+            candidate
+            for candidate in relevant
+            if is_fully_visible(candidate)
+        ]
     if len(relevant) != 1:
         raise DetectionError(
             "OBJECT_COUNT_INVALID",
             "expected exactly 1 OBB intersecting the calibrated region, "
             f"detected {len(relevant)} "
-            f"(ignored {len(poses) - len(relevant)} fully outside)",
+            f"(ignored {fully_outside_count} "
+            f"fully outside, {clipped_relevant_count} image-clipped)",
         )
 
     pose = relevant[0]
     raw = np.asarray(pose["raw_corners_px"], dtype=np.float64)
-    margin = float(image_edge_margin_px)
-    fully_visible = bool(
-        np.all(raw[:, 0] >= margin)
-        and np.all(raw[:, 1] >= margin)
-        and np.all(raw[:, 0] <= calibration.image_width - 1 - margin)
-        and np.all(raw[:, 1] <= calibration.image_height - 1 - margin)
-    )
+    fully_visible = is_fully_visible(pose)
     if not fully_visible:
         raise DetectionError(
             "IMAGE_FOOTPRINT_CLIPPED",
@@ -423,7 +443,8 @@ def select_one_pose(
         "footprint_inside": footprint_inside,
         "image_fully_visible": True,
         "extrapolated": not footprint_inside,
-        "ignored_fully_outside_count": len(poses) - len(relevant),
+        "ignored_fully_outside_count": fully_outside_count,
+        "ignored_image_clipped_count": clipped_relevant_count,
     }
     return pose
 

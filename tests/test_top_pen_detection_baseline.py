@@ -245,6 +245,37 @@ class TopPenDetectionBaselineTest(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertEqual(result["metrics"]["false_positives"], 1)
         self.assertIn("false_positive_rate_exceeded", result["failures"])
+    def test_negative_safety_rejection_is_not_processing_error(self) -> None:
+        self._write_manifest(self._passing_cases())
+        config = MODULE.detector_config(
+            MODULE.load_json(self.contract_path)
+        )
+
+        def runner(image, calibration, require_full_footprint):
+            if int(np.min(image)) < 100:
+                return MODULE.shared_detector.detect_one_object(
+                    image,
+                    calibration,
+                    config,
+                    require_full_footprint=require_full_footprint,
+                )
+            raise MODULE.shared_detector.DetectionError(
+                "IMAGE_FOOTPRINT_CLIPPED",
+                "test candidate rejected at image margin",
+            )
+
+        result = MODULE.evaluate(
+            self.manifest_path,
+            self.contract_path,
+            self.camera_path,
+            self.homography_path,
+            detector_runner=runner,
+        )
+
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["metrics"]["false_positives"], 0)
+        self.assertEqual(result["metrics"]["processing_errors"], 0)
+
 
     def test_incomplete_environment_coverage_is_reported(self) -> None:
         cases = self._passing_cases()
@@ -309,6 +340,39 @@ class TopPenDetectionBaselineTest(unittest.TestCase):
             2.0,
         )
 
+    def test_image_yaw_is_transformed_into_board_frame(self) -> None:
+        calibration = MODULE.shared_detector.load_calibration(
+            self.camera_path,
+            self.homography_path,
+        )
+        rotated = MODULE.shared_detector.Calibration(
+            image_width=calibration.image_width,
+            image_height=calibration.image_height,
+            camera_matrix=calibration.camera_matrix,
+            distortion=calibration.distortion,
+            projection=calibration.projection,
+            pixel_to_board=np.asarray(
+                [
+                    [0.0, -0.001, 0.0],
+                    [0.001, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                ],
+                dtype=np.float64,
+            ),
+            board_span=calibration.board_span,
+            camera_info_sha256=calibration.camera_info_sha256,
+            homography_status=calibration.homography_status,
+            base_registration_status=calibration.base_registration_status,
+            motion_authorized=calibration.motion_authorized,
+        )
+
+        transformed = MODULE.image_axis_yaw_to_board_deg(
+            [100.0, 70.0],
+            0.0,
+            rotated,
+        )
+
+        self.assertAlmostEqual(transformed, 90.0)
 
 if __name__ == "__main__":
     unittest.main()
