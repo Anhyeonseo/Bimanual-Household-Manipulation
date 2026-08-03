@@ -1,6 +1,6 @@
 # 현재 분기점과 남은 로드맵
 
-- 기준일: 2026-08-02
+- 기준일: 2026-08-04
 - 목적: 지금까지 검증된 결과를 보존하면서 단일 팔 완성, 오른팔 동등성 검증,
   양팔 통합과 Raspberry Pi 5 정책 배포의 순서를 명확히 한다.
 
@@ -11,8 +11,8 @@
 
 ### 검증된 사실
 
-- 왼팔 STM32 firmware 0x00021800, protocol 1, calibration
-  0x8AD27897, capabilities 0x000003FF 조합을 물리 수락했다.
+- 왼팔 STM32 firmware `0x00022100`, protocol 1, calibration
+  `0x8AD27897`, capabilities `0x00000FFF` 조합을 물리 수락했다.
 - Shoulder P32, Elbow P28 설정으로 grasp, 약 20 mm lift, Place, release,
   retreat와 q0 복귀를 감독하에 1회 완주했다.
 - 서보 UART 재동기화·완전 복구, 5분 무동작 heartbeat/feedback,
@@ -29,9 +29,10 @@
 
 ### 아직 채택하지 않은 항목
 
-- single-point Action을 이어 붙인 정착형 실행은 생산용 연속 trajectory가 아니다.
-  host 계약과 STM32 공통 C queue·보간 후보는 완료했지만 G474 binary route와
-  ROS multi-point Action은 아직 연결하지 않았다.
+- 기존 single-point 정착형 실행은 생산용 연속 trajectory가 아니었다.
+  현재 G474 buffered physical route와 ROS multi-point Action을 Pi에 배포했고
+  소형 다중 관절 왕복 실기를 통과했다. 다만 q0·Pick pregrasp·전체
+  Pick/Place 연속경로와 반복성 시험은 아직 남아 있다.
 - Place 높이는 실제 안착에서 총 10 mm 추가 하강이 필요해 Pick/Place 접촉
   offset을 분리해 다시 계측해야 한다.
 - 반사·무늬 배경의 검은 펜 holdout에서 legacy 명도 임계값 검출기는
@@ -95,9 +96,12 @@ STM32
 1. single-point 정착 체인을 multi-point/buffered trajectory로 교체한다.
 2. 시간축, queue, cancel, HOLD, continuous diagnostics와 tracking error 계약을
    단위 시험·mock·plan-only·제한 실기로 검증한다.
-   현재 Motion-4의 `0x00021900` 후보는 validation-only board route와
-   capability까지만 연결했으며 multi-sample servo output은 금지한다. 다음은
-   Pi–VCP 실제 timing 측정이다.
+   `0x00021900` validation-only Pi–VCP timing 측정과 운영값 검토를 마쳤다.
+   `0x00022100 / 0x00000FFF`에서 bounded lateness, observable 단일 관절과
+   Motion-9 다중 관절 buffered Action 왕복 실기를 통과했다. Action 1회,
+   61 samples, 최대 apply lateness `4 ms`, 독립 복귀 오차 `6 raw`였으며
+   `motion_authorized=false`는 유지한다. 다음은 q0 왕복과 Pick pregrasp를
+   같은 연속 경로로 확대하는 것이다.
 3. Pick/Place TCP-to-contact offset을 분리하고 Place 후보 0.015 m를 다시 계측한다.
 4. 반사·무늬 배경 holdout과 legacy 실패 기준선을 고정하고 별도 학습
    데이터로 경량 YOLO-OBB를 학습·ONNX export했다. 같은 holdout과 Pi 5
@@ -180,8 +184,8 @@ runtime·provenance 계약을 먼저 fail-closed로 고정한다. 실제 모델�
 
 ## 5. 바로 다음 작업
 
-Isaac policy 작업은 결정론적 한팔 기준선 뒤로 동결했다. Motion-1 host 계약,
-Motion-2 STM32 queue·보간과 Motion-3 dormant command route·확장 terminal codec·
-host-only timing 분석기까지 완료했다. 현재 운영값은 비어 있고 0x218 runtime은
-single-sample이다. 다음은 firmware route 연결과 Pi–VCP timing 실측, ROS adapter,
-mock/plan-only, 제한 실기 순서다. Git 조작은 사용자가 직접 수행한다.
+Isaac policy 작업은 결정론적 한팔 기준선 뒤로 동결했다. `0x00022100`
+buffered physical route와 bounded lateness, observable 단일 관절, Motion-9
+다중 관절 Action 왕복 실기까지 통과했다. 다음은 현재 계약으로 q0 왕복,
+Pick pregrasp, grasp/lift/place/retreat/q0 연속 Pick/Place, 10회 pilot와 50회
+benchmark 순서다. Git 조작은 사용자가 직접 수행한다.

@@ -40,6 +40,7 @@ DIAGNOSTIC_RESPONSE_TIMEOUT_S = 0.5
 DIAGNOSTIC_CAPABILITY = 0x00000010
 HEARTBEAT_RESPONSE_TIMEOUT_S = 0.25
 BUFFERED_VALIDATION_ROUTE_CAPABILITY = 0x00000400
+BUFFERED_EXECUTION_ROUTE_CAPABILITY = 0x00000800
 
 
 class TransportError(RuntimeError):
@@ -125,7 +126,20 @@ class ActuatorTransport:
         self._sequence = 1
         self.hello_info: Hello | None = None
         self._motion_results: deque[Any] = deque(maxlen=16)
+        self._buffered_motion_results: deque[Any] = deque(maxlen=4)
         self._io_lock = threading.RLock()
+
+    def _record_unsolicited_motion_result(self, frame: Frame) -> MotionResult:
+        result = parse_setpoint_status(frame.payload)
+        if result.status_code != 0:
+            self._motion_results.append(result)
+            if result.executor_state is not None:
+                from .buffered_transport_driver import BufferedExchangeResponse
+
+                self._buffered_motion_results.append(
+                    BufferedExchangeResponse(frame.sequence, result)
+                )
+        return result
 
     def _next_sequence(self) -> int:
         result = self._sequence
@@ -171,9 +185,8 @@ class ActuatorTransport:
             if frame.sequence == sequence and frame.message_type is message_type:
                 return frame
             if frame.message_type is MessageType.SETPOINT_STATUS:
-                result = parse_setpoint_status(frame.payload)
+                result = self._record_unsolicited_motion_result(frame)
                 if result.status_code != 0:
-                    self._motion_results.append(result)
                     if defer_state_after_motion_result:
                         # A valid terminal result proves that the link is alive,
                         # but the MCU may omit a GET_STATE response while final
@@ -197,9 +210,7 @@ class ActuatorTransport:
                 continue
             if frame.message_type is not MessageType.SETPOINT_STATUS:
                 continue
-            result = parse_setpoint_status(frame.payload)
-            if result.status_code != 0:
-                self._motion_results.append(result)
+            self._record_unsolicited_motion_result(frame)
 
     @_synchronized
     def drain_motion_results(self) -> list[Any]:
@@ -208,6 +219,15 @@ class ActuatorTransport:
         self._collect_available_motion_results()
         results = list(self._motion_results)
         self._motion_results.clear()
+        return results
+
+    @_synchronized
+    def drain_buffered_motion_results(self) -> list[Any]:
+        """Return queued extended terminals with their outer frame identity."""
+
+        self._collect_available_motion_results()
+        results = list(self._buffered_motion_results)
+        self._buffered_motion_results.clear()
         return results
 
     @_synchronized
@@ -474,6 +494,54 @@ class ActuatorTransport:
                 "buffered validation response does not prove no-motion state"
             )
         return result
+
+    @_synchronized
+    def exchange_buffered_command(
+        self,
+        command: Any,
+        *,
+        timeout_s: float,
+    ) -> Any:
+        """Exchange one physical buffered frame exactly once.
+
+        Admission rejection remains a parsed response for the scheduler to
+        classify.  Transport failures raise without any automatic resend.
+        """
+        from .buffered_transport_driver import BufferedExchangeResponse
+
+        hello = self.hello_info
+        if hello is None:
+            raise TransportError(
+                "buffered execution requires a completed HELLO"
+            )
+        if (
+            hello.capabilities
+            & BUFFERED_EXECUTION_ROUTE_CAPABILITY
+        ) == 0:
+            raise TransportError(
+                "firmware does not provide buffered execution route"
+            )
+        if (
+            isinstance(timeout_s, bool)
+            or not isinstance(timeout_s, (int, float))
+            or not 0.0 < float(timeout_s) <= 1.0
+        ):
+            raise ValueError("buffered exchange timeout must be within 0..1s")
+
+        sequence = self._send(
+            MessageType.SETPOINT_BATCH,
+            command.payload,
+            int(command.flags),
+        )
+        frame = self._receive_matching(
+            sequence,
+            MessageType.SETPOINT_STATUS,
+            timeout_s=float(timeout_s),
+        )
+        return BufferedExchangeResponse(
+            frame_sequence=frame.sequence,
+            result=parse_setpoint_status(frame.payload),
+        )
 
     @_synchronized
     def safe_stop(self) -> None:

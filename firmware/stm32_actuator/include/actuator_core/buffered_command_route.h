@@ -59,6 +59,7 @@ actuator_buffered_command_result_t actuator_buffered_command_decode(
 actuator_buffered_result_t actuator_buffered_command_route_init(
     actuator_buffered_command_route_t *route,
     size_t minimum_start_samples,
+    uint32_t maximum_apply_lateness_ticks,
     const actuator_joint_limit_t limits[ACTUATOR_JOINT_COUNT]);
 
 actuator_buffered_command_result_t actuator_buffered_command_route_admit(

@@ -11,7 +11,7 @@ from typing import Any, Sequence
 
 
 CONTRACT_KIND = "single_arm_buffered_trajectory"
-CONTRACT_STATUS = "BOARD_VALIDATION_ONLY"
+CONTRACT_STATUS = "PHYSICAL_ACTION_COMMISSIONED"
 TOTAL_JOINT_COUNT = 6
 ARM_JOINT_COUNT = 5
 WIRE_BATCH_MAX_SAMPLES = 9
@@ -30,14 +30,17 @@ REQUIRED_SAFETY = {
 }
 
 REQUIRED_MEASUREMENTS = [
+    "sample_period_ms",
     "minimum_lead_ms",
     "maximum_lead_ms",
     "startup_prime_depth_samples",
     "low_watermark_samples",
     "refill_target_samples",
     "serial_round_trip_p95_ms",
+    "serial_round_trip_p99_ms",
     "host_command_jitter_p95_ms",
     "delivery_lateness_p95_ms",
+    "observed_max_host_outage_ms",
 ]
 
 
@@ -125,12 +128,13 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
 
     runtime = _require_object(document, "current_runtime")
     if runtime != {
-        "firmware_supports_buffered_execution": False,
-        "action_adapter_supports_buffered_execution": False,
-        "maximum_accepted_sample_count": 1,
+        "firmware_supports_buffered_execution": True,
+        "action_adapter_supports_buffered_execution": True,
+        "maximum_accepted_sample_count": None,
+        "execution_mode": "streamed_20ms_batches",
     }:
         raise BufferedTrajectoryContractError(
-            "current runtime gate must remain single-sample and disabled"
+            "local runtime must expose only the reviewed streamed Action route"
         )
 
     candidate = _require_object(document, "firmware_candidate")
@@ -140,16 +144,124 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "extended_terminal_status_candidate_implemented": True,
         "g474_cross_build_compiles_source": True,
         "binary_command_route_connected": True,
-        "binary_command_route_mode": "validation_only",
+        "binary_command_route_mode": "validation_and_physical_separated",
+        "validation_only_safety_state": "safe_disabled_read_only_allowed",
         "host_candidate_codec_implemented": True,
         "host_timing_analysis_implemented": True,
         "firmware_identity_changed": True,
         "capability_advertised": True,
         "host_fail_closed_capability_required": True,
-        "timing_parameters_measured": False,
+        "timing_parameters_measured": True,
+        "physical_execution_route_implemented": True,
+        "physical_execution_capability": "0x00000800",
+        "physical_execution_deployed": True,
     }:
         raise BufferedTrajectoryContractError(
-            "firmware route must remain validation-only until timing gates pass"
+            "firmware validation and physical routes must remain separated"
+        )
+
+    host_adapter = _require_object(document, "host_adapter_candidate")
+    if host_adapter != {
+        "multi_point_validation_reused": True,
+        "linear_resampling_period_ms": 20,
+        "initial_first_sample_lead_ms": 140,
+        "physical_uart_baud": 115200,
+        "startup_prime_wire_lower_bound_ms": 87.674,
+        "startup_anchor_wire_margin_ms": 32.326,
+        "fresh_start_wire_sample_included": True,
+        "firmware_anchor_lead_ms": 80,
+        "firmware_anchor_source": "validated_t0_wire_sample",
+        "startup_prime_depth_samples": 16,
+        "low_watermark_samples": 10,
+        "refill_target_samples": 16,
+        "maximum_samples_per_batch": 9,
+        "gripper_position_preserved": True,
+        "ack_accounting_fail_closed": True,
+        "extended_motion_result_mapping": True,
+        "terminal_state_reason_gate": True,
+        "transport_timeout_discards_pending": True,
+        "outbound_frame_encoder_implemented": True,
+        "mock_exchange_driver_implemented": True,
+        "response_sequence_gate": True,
+        "automatic_retransmission": False,
+        "clock_progress_source": (
+            "firmware_heartbeat_tick_after_5ms_lateness_margin"
+        ),
+        "clock_progress_cannot_create_success": True,
+        "firmware_terminal_required": True,
+        "ros_action_server_connected": True,
+        "transport_execution_connected": True,
+        "motion_authorized": False,
+    }:
+        raise BufferedTrajectoryContractError(
+            "host adapter must remain action-disconnected and fail-closed"
+        )
+
+    physical = _require_object(document, "physical_execution_candidate")
+    if physical != {
+        "firmware_version": "0x00022100",
+        "capabilities": "0x00000FFF",
+        "validation_route_preserved": True,
+        "execution_route_separate": True,
+        "fresh_t0_anchor_without_servo_read_sweep": True,
+        "executor_step_period_ms": 1,
+        "servo_sync_write_period_ms": 5,
+        "validation_maximum_apply_lateness_ms": 0,
+        "execution_maximum_apply_lateness_ms": 5,
+        "lateness_exceeded_action": "missed_apply_tick_safe_stop",
+        "success_terminal_detail": "maximum_apply_lateness_ms",
+        "sample_period_ms": 20,
+        "minimum_lead_ms": 60,
+        "maximum_lead_ms": 400,
+        "startup_prime_depth_samples": 16,
+        "terminal_safe_stop_mapping": True,
+        "firmware_terminal_scope": "setpoint_application_complete",
+        "host_success_requires_post_settle": True,
+        "post_settle_tolerance_raw": 30,
+        "post_settle_consecutive_snapshots": 2,
+        "commissioning_observable_motion_gate": True,
+        "commissioning_minimum_command_delta_raw": 16,
+        "commissioning_minimum_directional_progress_raw": 10,
+        "commissioning_selected_joint_target_tolerance_raw": 8,
+        "commissioning_other_axis_tolerance_raw": 30,
+        "commissioning_tool_disables_after_attempt": True,
+        "failed_attempt_disable_confirmation": "disable_ack_latch_preserved",
+        "commissioning_motion_passed": True,
+        "ros_action_server_connected": True,
+        "deployed": True,
+        "motion_authorized": False,
+    }:
+        raise BufferedTrajectoryContractError(
+            "physical execution must remain commissioned and motion-disabled"
+        )
+
+    evidence = _require_object(document, "motion9_physical_evidence")
+    if evidence != {
+        "status": "PASS",
+        "plan_sha256": (
+            "d5378b6c0eb5eb4069e79e609ee12efb14750d228b61b009d29555fb573f47f8"
+        ),
+        "sender_sha256": (
+            "d66f26f7b3907fda1988895a01e657bafa902ea901396a2c38f8524f16e93671"
+        ),
+        "execution_log_sha256": (
+            "80f14845bab532de3217fcee7a9c4c2b0b5cf4241b65023844d6ba7d615de087"
+        ),
+        "firmware_version": "0x00022100",
+        "calibration_hash": "0x8AD27897",
+        "duration_ms": 1200,
+        "sample_count": 61,
+        "action_send_count": 1,
+        "automatic_retry_count": 0,
+        "maximum_apply_lateness_ms": 4,
+        "firmware_post_settle_max_error_raw": 6,
+        "independent_round_trip_max_error_raw": 6,
+        "physical_disable_6axis_pass": True,
+        "abnormal_noise_or_vibration": False,
+        "motion_authorized": False,
+    }:
+        raise BufferedTrajectoryContractError(
+            "Motion-9 physical evidence must match the commissioned run"
         )
 
     timing = _require_object(document, "timing_analysis")
@@ -159,15 +271,32 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "required_clock_source": "monotonic_raw",
         "requires_buffered_capability": True,
         "synthetic_measurements_can_authorize_values": False,
-        "operational_values_authorized": False,
-        "minimum_lead_ms": None,
-        "maximum_lead_ms": None,
-        "startup_prime_depth_samples": None,
-        "low_watermark_samples": None,
-        "refill_target_samples": None,
+        "operational_values_authorized": True,
+        "motion_authorized": False,
+        "policy_path": (
+            "artifacts/motion/2026-08-03/"
+            "buffered_timing_policy_reviewed.json"
+        ),
+        "policy_sha256": (
+            "362e09c91e696ca587963c664f26cc49e06a44d205e2b5d6daf186c63e1fd8f2"
+        ),
+        "sample_period_ms": 20,
+        "minimum_lead_ms": 60,
+        "maximum_lead_ms": 400,
+        "startup_prime_depth_samples": 16,
+        "low_watermark_samples": 10,
+        "refill_target_samples": 16,
+        "serial_round_trip_p95_ms": 17.428593,
+        "serial_round_trip_p99_ms": 17.533277,
+        "host_command_jitter_p95_ms": 0.062925,
+        "delivery_lateness_p95_ms": 0.0,
+        "observed_max_host_outage_ms": 80.064074,
+        "rejected_first_lead_ms": 40,
+        "rejected_status_code": 1,
+        "rejected_detail": 9,
     }:
         raise BufferedTrajectoryContractError(
-            "timing values must remain unconfigured before hardware measurement"
+            "timing values must match the reviewed no-motion hardware policy"
         )
 
     wire = _require_object(document, "existing_wire_limits")
@@ -187,11 +316,15 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
     trajectory = _require_object(document, "trajectory")
     required_trajectory = {
         "minimum_points": 2,
-        "timestamps": "strictly_increasing_integer_milliseconds",
+        "timestamps": (
+            "strictly_increasing_nanoseconds_rounded_up_to_20ms_sample"
+        ),
         "requires_fresh_start_feedback": True,
         "zero_time_point_must_match_fresh_start": True,
         "interpolation": "linear_position_between_validated_points",
-        "dynamic_fields": "reject_nonempty",
+        "dynamic_fields": (
+            "validate_velocity_acceleration_limits_reject_effort"
+        ),
         "velocity_limit_source": "so101_moveit_config/config/joint_limits.yaml",
         "acceleration_limit_source": "so101_moveit_config/config/joint_limits.yaml",
     }

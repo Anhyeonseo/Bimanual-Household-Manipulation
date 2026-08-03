@@ -30,6 +30,16 @@ typedef struct
     ServoPositionSweep verify_sweep;
 } HostBinaryMotion;
 
+typedef struct
+{
+    uint8_t active;
+    uint8_t last_step_valid;
+    uint32_t request_sequence;
+    uint32_t anchor_tick;
+    uint32_t last_step_tick;
+    int32_t anchor_positions_urad[SINGLE_ARM_JOINT_COUNT];
+} HostBinaryBufferedMotion;
+
 static UART_HandleTypeDef *binary_host_uart = NULL;
 static volatile uint8_t host_stop_latched = 0U;
 static actuator_stream_parser_t host_binary_parser;
@@ -44,6 +54,9 @@ static uint8_t host_position_read_failure_streak = 0U;
 static uint8_t host_position_read_failed_servo_id = 0U;
 static actuator_buffered_command_route_t host_buffered_validation_route;
 static uint8_t host_buffered_validation_route_ready = 0U;
+static actuator_buffered_command_route_t host_buffered_execution_route;
+static uint8_t host_buffered_execution_route_ready = 0U;
+static HostBinaryBufferedMotion host_binary_buffered_motion;
 
 static void Host_WriteU32Le(uint8_t *destination, uint32_t value)
 {
@@ -123,9 +136,18 @@ static uint32_t Host_CalibrationHash(void)
     return actuator_crc32c(calibration_bytes, offset);
 }
 
-static uint8_t Host_InitBufferedValidationRoute(void)
+static uint8_t Host_InitBufferedRoute(
+    actuator_buffered_command_route_t *route,
+    uint8_t minimum_start_samples,
+    uint32_t maximum_apply_lateness_ms
+)
 {
     actuator_joint_limit_t limits[ACTUATOR_JOINT_COUNT];
+
+    if (route == NULL)
+    {
+        return 0U;
+    }
 
     for (uint8_t joint = 0U; joint < servo_joint_count; joint++)
     {
@@ -161,10 +183,34 @@ static uint8_t Host_InitBufferedValidationRoute(void)
     }
 
     return (actuator_buffered_command_route_init(
-                &host_buffered_validation_route,
-                HOST_BUFFERED_VALIDATION_MINIMUM_START_SAMPLES,
+                route,
+                minimum_start_samples,
+                maximum_apply_lateness_ms,
                 limits
             ) == ACTUATOR_BUFFERED_OK) ? 1U : 0U;
+}
+
+static uint8_t Host_InitBufferedValidationRoute(void)
+{
+    return Host_InitBufferedRoute(
+        &host_buffered_validation_route,
+        HOST_BUFFERED_VALIDATION_MINIMUM_START_SAMPLES,
+        HOST_BUFFERED_VALIDATION_MAXIMUM_APPLY_LATENESS_MS
+    );
+}
+
+static uint8_t Host_InitBufferedExecutionRoute(void)
+{
+    return Host_InitBufferedRoute(
+        &host_buffered_execution_route,
+        HOST_BUFFERED_EXECUTION_MINIMUM_START_SAMPLES,
+        HOST_BUFFERED_EXECUTION_MAXIMUM_APPLY_LATENESS_MS
+    );
+}
+
+static uint8_t Host_BufferedExecutionIsActive(void)
+{
+    return host_binary_buffered_motion.active;
 }
 
 static uint32_t Host_BinaryCapabilities(void)
@@ -174,6 +220,10 @@ static uint32_t Host_BinaryCapabilities(void)
     if (host_buffered_validation_route_ready == 0U)
     {
         capabilities &= ~HOST_BUFFERED_VALIDATION_CAPABILITY;
+    }
+    if (host_buffered_execution_route_ready == 0U)
+    {
+        capabilities &= ~HOST_BUFFERED_EXECUTION_CAPABILITY;
     }
     return capabilities;
 }
@@ -371,7 +421,8 @@ static void Host_SendBinaryDiagnostics(
      * between joints, so a complete six-joint snapshot cannot starve the
      * 500 ms host watchdog even when one bus read reaches its timeout.
      */
-    if (host_binary_motion.active != 0U)
+    if ((host_binary_motion.active != 0U) ||
+        (Host_BufferedExecutionIsActive() != 0U))
     {
         read_status = UINT8_C(0x80);
     }
@@ -601,6 +652,7 @@ static void Host_SendBinarySetpointStatus(
 }
 
 static void Host_SendBinaryBufferedSetpointStatus(
+    const actuator_buffered_command_route_t *route,
     uint32_t request_sequence,
     uint8_t status_code,
     uint8_t sample_count,
@@ -610,11 +662,15 @@ static void Host_SendBinaryBufferedSetpointStatus(
 {
     actuator_frame_t response;
     size_t payload_length = 0U;
-    const actuator_buffered_diagnostics_t *diagnostics =
-        actuator_buffered_executor_diagnostics(
-            &host_buffered_validation_route.executor
-        );
+    const actuator_buffered_diagnostics_t *diagnostics = NULL;
     memset(&response, 0, sizeof(response));
+
+    if (route != NULL)
+    {
+        diagnostics = actuator_buffered_executor_diagnostics(
+            &route->executor
+        );
+    }
 
     response.message_type = ACTUATOR_MSG_SETPOINT_STATUS;
     response.sequence = request_sequence;
@@ -1010,7 +1066,8 @@ static void Host_ValidateLegacyBinarySetpointBatch(
 
     if (!actuator_safety_accepts_setpoint(&host_binary_safety) ||
         (host_stop_latched != 0U) ||
-        (host_binary_motion.active != 0U))
+        (host_binary_motion.active != 0U) ||
+        (Host_BufferedExecutionIsActive() != 0U))
     {
         status_code = 2U;
     }
@@ -1146,9 +1203,17 @@ static void Host_ValidateBufferedCandidate(
         status_code = 7U;
         command_result = ACTUATOR_BUFFERED_COMMAND_BAD_STATE;
     }
-    else if (!actuator_safety_accepts_setpoint(&host_binary_safety) ||
-             (host_stop_latched != 0U) ||
-             (host_binary_motion.active != 0U))
+    /*
+     * Validation-only frames never enter the executor or write a servo.
+     * Allow them while physically disabled so Pi-VCP timing can be measured
+     * under the READ_ONLY contract.  Faulted, latched, and active-motion
+     * states remain fail-closed.
+     */
+    else if ((host_stop_latched != 0U) ||
+             (host_binary_safety.state == ACTUATOR_STATE_FAULT) ||
+             (host_binary_safety.state == ACTUATOR_STATE_ESTOPPED) ||
+             (host_binary_motion.active != 0U) ||
+             (Host_BufferedExecutionIsActive() != 0U))
     {
         status_code = 2U;
         command_result = ACTUATOR_BUFFERED_COMMAND_BAD_STATE;
@@ -1179,12 +1244,407 @@ static void Host_ValidateBufferedCandidate(
     }
 
     Host_SendBinaryBufferedSetpointStatus(
+        &host_buffered_validation_route,
         request->sequence,
         status_code,
         sample_count,
         first_apply_tick,
         (uint8_t)command_result
     );
+}
+
+static void Host_ResetBufferedExecution(void)
+{
+    memset(
+        &host_binary_buffered_motion,
+        0,
+        sizeof(host_binary_buffered_motion)
+    );
+    host_buffered_execution_route_ready =
+        Host_InitBufferedExecutionRoute();
+}
+
+static void Host_FinalizeBufferedExecution(uint8_t detail)
+{
+    const actuator_buffered_diagnostics_t *diagnostics =
+        actuator_buffered_executor_diagnostics(
+            &host_buffered_execution_route.executor
+        );
+    uint32_t apply_tick = HAL_GetTick();
+    uint32_t sequence = host_binary_buffered_motion.request_sequence;
+
+    if (diagnostics != NULL)
+    {
+        apply_tick = (diagnostics->last_applied_tick != 0U) ?
+            diagnostics->last_applied_tick : diagnostics->terminal_tick;
+        if (diagnostics->safe_stop_required)
+        {
+            host_stop_latched = 1U;
+            if (actuator_safety_accepts_setpoint(&host_binary_safety))
+            {
+                (void)actuator_safety_request_hold(&host_binary_safety);
+            }
+        }
+    }
+
+    Servo_MotionSafetyEnd();
+    Host_SendBinaryBufferedSetpointStatus(
+        &host_buffered_execution_route,
+        sequence,
+        6U,
+        0U,
+        apply_tick,
+        detail
+    );
+    Host_ResetBufferedExecution();
+}
+
+static void Host_AbortBufferedExecution(
+    actuator_buffered_reason_t reason,
+    uint8_t detail
+)
+{
+    actuator_buffered_result_t result = ACTUATOR_BUFFERED_BAD_STATE;
+    uint32_t now;
+
+    if (Host_BufferedExecutionIsActive() == 0U)
+    {
+        return;
+    }
+
+    now = HAL_GetTick();
+    if (reason == ACTUATOR_BUFFERED_REASON_PLANNED_HOLD)
+    {
+        result = actuator_buffered_command_route_planned_hold(
+            &host_buffered_execution_route,
+            now
+        );
+    }
+    else if (reason == ACTUATOR_BUFFERED_REASON_OPERATOR_CANCEL)
+    {
+        result = actuator_buffered_command_route_cancel(
+            &host_buffered_execution_route,
+            now
+        );
+    }
+    else if (reason == ACTUATOR_BUFFERED_REASON_CONNECTION_LOSS)
+    {
+        result = actuator_buffered_command_route_connection_loss(
+            &host_buffered_execution_route,
+            now
+        );
+    }
+    else
+    {
+        result = actuator_buffered_command_route_tracking_error(
+            &host_buffered_execution_route,
+            now
+        );
+    }
+
+    if (result == ACTUATOR_BUFFERED_TERMINAL)
+    {
+        Host_FinalizeBufferedExecution(detail);
+    }
+    else
+    {
+        host_stop_latched = 1U;
+        Servo_MotionSafetyEnd();
+        Host_ResetBufferedExecution();
+    }
+}
+
+static void Host_ExecuteBufferedCandidate(
+    const actuator_frame_t *request
+)
+{
+    actuator_buffered_command_t command;
+    actuator_buffered_command_result_t command_result =
+        ACTUATOR_BUFFERED_COMMAND_INVALID_LENGTH;
+    uint8_t sample_count = 0U;
+    uint32_t first_apply_tick = 0U;
+    uint8_t status_code = 1U;
+    uint8_t reset_after_response = 0U;
+    const uint8_t begin =
+        ((request->flags & ACTUATOR_BUFFERED_FLAG_BEGIN) != 0U) ? 1U : 0U;
+    const uint8_t start =
+        ((request->flags & ACTUATOR_BUFFERED_FLAG_START) != 0U) ? 1U : 0U;
+
+    if (request->payload_length >= ACTUATOR_BUFFERED_WIRE_HEADER_SIZE)
+    {
+        first_apply_tick = Host_ReadU32Le(&request->payload[0]);
+        sample_count = request->payload[4];
+    }
+
+    if ((request->flags & ACTUATOR_BUFFERED_FLAG_VALIDATION_ONLY) != 0U)
+    {
+        command_result = ACTUATOR_BUFFERED_COMMAND_INVALID_FLAGS;
+    }
+    else if (host_buffered_execution_route_ready == 0U)
+    {
+        status_code = 7U;
+        command_result = ACTUATOR_BUFFERED_COMMAND_BAD_STATE;
+    }
+    else if (!actuator_safety_accepts_setpoint(&host_binary_safety) ||
+             (host_stop_latched != 0U) ||
+             (host_binary_servos_configured == 0U) ||
+             (host_binary_motion.active != 0U) ||
+             ((begin != 0U) &&
+              (Host_BufferedExecutionIsActive() != 0U)) ||
+             ((begin == 0U) &&
+              (Host_BufferedExecutionIsActive() == 0U)))
+    {
+        status_code = 2U;
+        command_result = ACTUATOR_BUFFERED_COMMAND_BAD_STATE;
+    }
+    else
+    {
+        command_result = actuator_buffered_command_decode(
+            request->payload,
+            request->payload_length,
+            request->flags,
+            &command
+        );
+        if (command_result == ACTUATOR_BUFFERED_COMMAND_OK)
+        {
+            if (begin != 0U)
+            {
+                host_binary_buffered_motion.request_sequence =
+                    request->sequence;
+                host_binary_buffered_motion.anchor_tick =
+                    command.samples[0].apply_tick -
+                    HOST_BUFFERED_EXECUTION_ANCHOR_OFFSET_MS;
+                memcpy(
+                    host_binary_buffered_motion.anchor_positions_urad,
+                    command.samples[0].position_urad,
+                    sizeof(
+                        host_binary_buffered_motion.anchor_positions_urad
+                    )
+                );
+            }
+
+            command_result = actuator_buffered_command_route_admit(
+                &host_buffered_execution_route,
+                &command,
+                request->sequence,
+                HAL_GetTick(),
+                HOST_BUFFERED_EXECUTION_MINIMUM_LEAD_MS,
+                HOST_BUFFERED_EXECUTION_MAXIMUM_LEAD_MS
+            );
+            if (command_result == ACTUATOR_BUFFERED_COMMAND_OK)
+            {
+                if (begin != 0U)
+                {
+                    host_binary_buffered_motion.active = 1U;
+                }
+                if (start != 0U)
+                {
+                    actuator_buffered_result_t start_result =
+                        actuator_buffered_command_route_start(
+                            &host_buffered_execution_route,
+                            host_binary_buffered_motion.anchor_tick,
+                            host_binary_buffered_motion.
+                                anchor_positions_urad
+                        );
+                    if (start_result != ACTUATOR_BUFFERED_OK)
+                    {
+                        (void)actuator_buffered_command_route_tracking_error(
+                            &host_buffered_execution_route,
+                            HAL_GetTick()
+                        );
+                        host_stop_latched = 1U;
+                        status_code = 2U;
+                        command_result =
+                            ACTUATOR_BUFFERED_COMMAND_BAD_STATE;
+                        reset_after_response = 1U;
+                    }
+                    else
+                    {
+                        Servo_MotionSafetyBegin(
+                            (uint8_t)(
+                                (1U << SINGLE_ARM_JOINT_COUNT) - 1U
+                            )
+                        );
+                    }
+                }
+                if (reset_after_response == 0U)
+                {
+                    status_code = 0U;
+                }
+            }
+        }
+    }
+
+    Host_SendBinaryBufferedSetpointStatus(
+        &host_buffered_execution_route,
+        request->sequence,
+        status_code,
+        sample_count,
+        first_apply_tick,
+        (uint8_t)command_result
+    );
+
+    if (reset_after_response != 0U)
+    {
+        Servo_MotionSafetyEnd();
+        Host_ResetBufferedExecution();
+    }
+}
+
+static void Host_ServiceBufferedExecution(void)
+{
+    uint32_t now;
+    int32_t output_positions_urad[SINGLE_ARM_JOINT_COUNT] = {0};
+    uint16_t output_positions_raw[SINGLE_ARM_JOINT_COUNT] = {0U};
+    actuator_buffered_result_t result;
+    const actuator_buffered_diagnostics_t *diagnostics;
+
+    if (Host_BufferedExecutionIsActive() == 0U)
+    {
+        return;
+    }
+
+    if ((host_stop_latched != 0U) ||
+        !actuator_safety_accepts_setpoint(&host_binary_safety))
+    {
+        Host_AbortBufferedExecution(
+            ACTUATOR_BUFFERED_REASON_CONNECTION_LOSS,
+            (uint8_t)host_binary_safety.state
+        );
+        return;
+    }
+
+    now = HAL_GetTick();
+    if (!host_buffered_execution_route.started)
+    {
+        /*
+         * BEGIN and START are deliberately split across the 9+7 startup
+         * prime frames.  A lost START must not leave a live trajectory in
+         * PRIMING forever while heartbeats continue.  The anchor is the last
+         * safe deadline because no setpoint has been applied before it.
+         */
+        if ((int32_t)(now - host_binary_buffered_motion.anchor_tick) >= 0)
+        {
+            Host_AbortBufferedExecution(
+                ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
+                (uint8_t)ACTUATOR_BUFFERED_REASON_MISSED_APPLY_TICK
+            );
+        }
+        return;
+    }
+
+    if ((int32_t)(now - host_binary_buffered_motion.anchor_tick) < 0)
+    {
+        if (Servo_MotionSafetyPoll() != HAL_OK)
+        {
+            const ServoMotionSafetyDiagnostics *safety =
+                Servo_MotionSafetyGetDiagnostics();
+            Host_AbortBufferedExecution(
+                ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
+                safety->servo_id
+            );
+        }
+        return;
+    }
+
+    if ((host_binary_buffered_motion.last_step_valid != 0U) &&
+        (host_binary_buffered_motion.last_step_tick == now))
+    {
+        return;
+    }
+    host_binary_buffered_motion.last_step_tick = now;
+    host_binary_buffered_motion.last_step_valid = 1U;
+
+    result = actuator_buffered_command_route_step(
+        &host_buffered_execution_route,
+        now,
+        output_positions_urad
+    );
+    diagnostics = actuator_buffered_executor_diagnostics(
+        &host_buffered_execution_route.executor
+    );
+
+    if (result == ACTUATOR_BUFFERED_OUTPUT)
+    {
+        uint8_t write_due =
+            (((now - host_binary_buffered_motion.anchor_tick) %
+              HOST_BUFFERED_EXECUTION_OUTPUT_PERIOD_MS) == 0U) ? 1U : 0U;
+
+        if ((diagnostics != NULL) &&
+            (diagnostics->state == ACTUATOR_BUFFERED_SUCCEEDED))
+        {
+            write_due = 1U;
+        }
+
+        if (write_due != 0U)
+        {
+            for (uint8_t joint = 0U;
+                 joint < servo_joint_count;
+                 joint++)
+            {
+                const actuator_joint_calibration_t calibration =
+                    Host_JointCalibration(joint);
+                if (actuator_urad_to_raw(
+                        &calibration,
+                        output_positions_urad[joint],
+                        &output_positions_raw[joint]
+                    ) != ACTUATOR_CALIBRATION_OK)
+                {
+                    Host_AbortBufferedExecution(
+                        ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
+                        servo_joints[joint].id
+                    );
+                    return;
+                }
+            }
+
+            if (Servo_SyncWritePositions(output_positions_raw) != HAL_OK)
+            {
+                Host_AbortBufferedExecution(
+                    ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
+                    0U
+                );
+                return;
+            }
+        }
+
+        if ((diagnostics != NULL) &&
+            (diagnostics->state == ACTUATOR_BUFFERED_SUCCEEDED))
+        {
+            uint32_t maximum_lateness =
+                diagnostics->maximum_apply_lateness_ticks;
+            Host_FinalizeBufferedExecution(
+                (maximum_lateness > UINT8_MAX) ?
+                    UINT8_MAX : (uint8_t)maximum_lateness
+            );
+            return;
+        }
+    }
+    else if (result == ACTUATOR_BUFFERED_TERMINAL)
+    {
+        Host_FinalizeBufferedExecution(
+            (diagnostics == NULL) ? 0U : (uint8_t)diagnostics->reason
+        );
+        return;
+    }
+    else if (result != ACTUATOR_BUFFERED_WAITING)
+    {
+        Host_AbortBufferedExecution(
+            ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
+            (uint8_t)result
+        );
+        return;
+    }
+
+    if (Servo_MotionSafetyPoll() != HAL_OK)
+    {
+        const ServoMotionSafetyDiagnostics *safety =
+            Servo_MotionSafetyGetDiagnostics();
+        Host_AbortBufferedExecution(
+            ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
+            safety->servo_id
+        );
+    }
 }
 
 static uint8_t Host_BinaryClearStopIsSafe(void)
@@ -1340,7 +1800,15 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
         case ACTUATOR_MSG_SETPOINT_BATCH:
             if ((request->flags & ACTUATOR_BUFFERED_FLAG_CANDIDATE) != 0U)
             {
-                Host_ValidateBufferedCandidate(request);
+                if ((request->flags &
+                     ACTUATOR_BUFFERED_FLAG_VALIDATION_ONLY) != 0U)
+                {
+                    Host_ValidateBufferedCandidate(request);
+                }
+                else
+                {
+                    Host_ExecuteBufferedCandidate(request);
+                }
             }
             else
             {
@@ -1351,6 +1819,10 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
         case ACTUATOR_MSG_SAFE_STOP:
             if (request->payload_length == 0U)
             {
+                Host_AbortBufferedExecution(
+                    ACTUATOR_BUFFERED_REASON_OPERATOR_CANCEL,
+                    0U
+                );
                 if (actuator_safety_accepts_setpoint(
                         &host_binary_safety))
                 {
@@ -1397,6 +1869,10 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
                 actuator_safety_accepts_setpoint(
                     &host_binary_safety))
             {
+                Host_AbortBufferedExecution(
+                    ACTUATOR_BUFFERED_REASON_PLANNED_HOLD,
+                    0U
+                );
                 actuator_safety_result_t hold_result =
                     actuator_safety_request_hold(
                         &host_binary_safety
@@ -1418,6 +1894,11 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
             {
                 actuator_safety_result_t disable_result =
                     ACTUATOR_SAFETY_OK;
+
+                Host_AbortBufferedExecution(
+                    ACTUATOR_BUFFERED_REASON_OPERATOR_CANCEL,
+                    0U
+                );
 
                 /*
                  * DISABLE is an idempotent physical safety operation.  A
@@ -1507,7 +1988,14 @@ void BinaryControl_Init(UART_HandleTypeDef *host_uart)
     host_position_read_failed_servo_id = 0U;
     host_buffered_validation_route_ready =
         Host_InitBufferedValidationRoute();
+    host_buffered_execution_route_ready =
+        Host_InitBufferedExecutionRoute();
     memset(&host_binary_motion, 0, sizeof(host_binary_motion));
+    memset(
+        &host_binary_buffered_motion,
+        0,
+        sizeof(host_binary_buffered_motion)
+    );
     Servo_MotionSafetyEnd();
 
     actuator_stream_parser_init(&host_binary_parser);
@@ -1539,6 +2027,7 @@ void BinaryControl_Service(void)
         host_stop_latched = 1U;
     }
 
+    Host_ServiceBufferedExecution();
     Host_ServiceBinaryMotion();
 }
 
@@ -1572,6 +2061,10 @@ void BinaryControl_HandleHostUartError(void)
      * after HAL may already have cleared the peripheral flag. Every reported RX
      * fault invalidates the parser and must fail closed regardless of ORE state.
      */
+    Host_AbortBufferedExecution(
+        ACTUATOR_BUFFERED_REASON_CONNECTION_LOSS,
+        0U
+    );
     actuator_stream_parser_init(&host_binary_parser);
     host_binary_rejected_frame_count++;
     if (actuator_safety_accepts_setpoint(&host_binary_safety))

@@ -23,8 +23,11 @@ from .action_execution import (
 from .action_validation import (
     GoalValidationError,
     TrajectoryPointData,
+    ValidatedBufferedTrajectory,
+    validate_buffered_trajectory,
     validate_single_point_trajectory,
 )
+from .buffered_action_execution import BufferedActionExecutionCore
 from .calibration import ArmCalibration
 from .commanded_setpoint_state import CommandedSetpointState
 from .motion_goal_arbiter import MotionGoalArbiter
@@ -42,6 +45,7 @@ class PreparedArmGoal:
     full_positions: tuple[float, ...]
     actual_arm_positions: tuple[float, ...]
     duration_ms: int
+    buffered_trajectory: ValidatedBufferedTrajectory | None = None
 
 
 def _duration_ns(duration: Any) -> int:
@@ -164,13 +168,6 @@ def prepare_follow_joint_trajectory_goal(
         name: calibration.ros_radian_limits[name]
         for name in arm_joint_names
     }
-    validated = validate_single_point_trajectory(
-        request.trajectory.joint_names,
-        points,
-        arm_joint_names,
-        arm_limits,
-    )
-
     if latest_positions is None:
         raise GoalValidationError("fresh joint feedback is required")
     actual = tuple(float(value) for value in latest_positions)
@@ -188,14 +185,6 @@ def prepare_follow_joint_trajectory_goal(
         overrun > RECOVERY_FEEDBACK_OVERRUN_RAW
         for overrun in outside_strict.values()
     )
-    if needs_bounded_recovery:
-        _validate_bounded_inward_recovery(
-            calibration,
-            actual,
-            validated.ordered_positions,
-            outside_strict,
-            validated.duration_ms,
-        )
 
     preserved = actual
     if commanded_positions is not None:
@@ -207,7 +196,49 @@ def prepare_follow_joint_trajectory_goal(
                 "commanded setpoint contains a non-finite value"
             )
 
-    full_positions = validated.ordered_positions + (preserved[5],)
+    buffered_trajectory = None
+    if len(points) >= 2:
+        if needs_bounded_recovery:
+            raise GoalValidationError(
+                "buffered trajectory cannot start from a bounded recovery pose"
+            )
+        velocity_limits = {name: 0.5 for name in arm_joint_names}
+        acceleration_limits = {name: 1.0 for name in arm_joint_names}
+        start_tolerances = {
+            name: (0.055 if name.endswith("shoulder_joint") else 0.050)
+            for name in arm_joint_names
+        }
+        buffered_trajectory = validate_buffered_trajectory(
+            request.trajectory.joint_names,
+            points,
+            arm_joint_names,
+            arm_limits,
+            actual[:5],
+            velocity_limits,
+            acceleration_limits,
+            start_tolerance_rad=start_tolerances,
+        )
+        ordered_positions = buffered_trajectory.ordered_points[-1]
+        duration_ms = buffered_trajectory.duration_ms
+    else:
+        validated = validate_single_point_trajectory(
+            request.trajectory.joint_names,
+            points,
+            arm_joint_names,
+            arm_limits,
+        )
+        if needs_bounded_recovery:
+            _validate_bounded_inward_recovery(
+                calibration,
+                actual,
+                validated.ordered_positions,
+                outside_strict,
+                validated.duration_ms,
+            )
+        ordered_positions = validated.ordered_positions
+        duration_ms = validated.duration_ms
+
+    full_positions = ordered_positions + (preserved[5],)
     try:
         calibration.radians_to_urad(list(full_positions))
     except ValueError as error:
@@ -215,15 +246,16 @@ def prepare_follow_joint_trajectory_goal(
             f"combined arm and gripper target is unsafe: {error}"
         ) from error
     return PreparedArmGoal(
-        arm_positions=validated.ordered_positions,
+        arm_positions=ordered_positions,
         full_positions=full_positions,
         actual_arm_positions=actual[:5],
-        duration_ms=validated.duration_ms,
+        duration_ms=duration_ms,
+        buffered_trajectory=buffered_trajectory,
     )
 
 
 class FollowJointTrajectoryActionAdapter:
-    """Expose one safe, non-preempting arm ActionServer."""
+    """Expose one safe, non-preempting legacy/buffered arm ActionServer."""
 
     def __init__(
         self,
@@ -234,6 +266,7 @@ class FollowJointTrajectoryActionAdapter:
         latest_positions: Callable[[], Sequence[float] | None],
         motion_arbiter: MotionGoalArbiter | None = None,
         setpoint_state: CommandedSetpointState | None = None,
+        buffered_execution_core: BufferedActionExecutionCore | None = None,
         action_name: str = DEFAULT_ACTION_NAME,
         poll_interval_s: float = 0.02,
         completion_timeout_s: float = 3.5,
@@ -242,6 +275,7 @@ class FollowJointTrajectoryActionAdapter:
             raise ValueError("Action timing values must be positive")
         self._node = node
         self._execution_core = execution_core
+        self._buffered_execution_core = buffered_execution_core
         self._calibration = calibration
         self._motion_ready = motion_ready
         self._latest_positions = latest_positions
@@ -270,7 +304,15 @@ class FollowJointTrajectoryActionAdapter:
                     "arm goal rejected: another goal is reserved"
                 )
                 return GoalResponse.REJECT
-            if not self._motion_ready() or self._execution_core.blocked:
+            buffered_blocked = (
+                self._buffered_execution_core is not None
+                and self._buffered_execution_core.blocked
+            )
+            if (
+                not self._motion_ready()
+                or self._execution_core.blocked
+                or buffered_blocked
+            ):
                 self._node.get_logger().warning(
                     "arm goal rejected: motion backend is not ready"
                 )
@@ -319,10 +361,22 @@ class FollowJointTrajectoryActionAdapter:
             )
 
         try:
-            self._execution_core.start_goal(
-                prepared.full_positions,
-                prepared.duration_ms,
-            )
+            active_core = self._execution_core
+            if prepared.buffered_trajectory is not None:
+                if self._buffered_execution_core is None:
+                    raise ExecutionError(
+                        "buffered Action execution core is unavailable"
+                    )
+                active_core = self._buffered_execution_core
+                active_core.start_goal(
+                    prepared.buffered_trajectory,
+                    preserved_gripper_rad=prepared.full_positions[5],
+                )
+            else:
+                active_core.start_goal(
+                    prepared.full_positions,
+                    prepared.duration_ms,
+                )
             self._publish_initial_feedback(goal_handle, prepared)
             deadline = (
                 time.monotonic()
@@ -333,7 +387,7 @@ class FollowJointTrajectoryActionAdapter:
                 outcome = self._take_external_outcome()
                 if outcome is None and goal_handle.is_cancel_requested:
                     try:
-                        outcome = self._execution_core.cancel_active_goal()
+                        outcome = active_core.cancel_active_goal()
                     except ExecutionError as error:
                         outcome = ExecutionOutcome(
                             TerminalState.ABORTED,
@@ -343,11 +397,11 @@ class FollowJointTrajectoryActionAdapter:
                             f"cancel failed: {error}",
                         )
                 if outcome is None:
-                    outcome = self._execution_core.poll()
+                    outcome = active_core.poll()
                 if outcome is not None:
                     return self._finish_goal(goal_handle, outcome)
                 if time.monotonic() >= deadline:
-                    outcome = self._execution_core.handle_connection_loss(
+                    outcome = active_core.handle_connection_loss(
                         "motion result timeout"
                     )
                     if outcome is None:
@@ -442,7 +496,13 @@ class FollowJointTrajectoryActionAdapter:
         self._setpoint_state.reset()
         if self._motion_arbiter.owner != "arm":
             return
-        outcome = self._execution_core.handle_connection_loss(reason)
+        core = self._execution_core
+        if (
+            self._buffered_execution_core is not None
+            and self._buffered_execution_core.active
+        ):
+            core = self._buffered_execution_core
+        outcome = core.handle_connection_loss(reason)
         if outcome is None:
             return
         with self._state_lock:

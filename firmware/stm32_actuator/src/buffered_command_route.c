@@ -98,13 +98,17 @@ actuator_buffered_command_result_t actuator_buffered_command_decode(
 actuator_buffered_result_t actuator_buffered_command_route_init(
     actuator_buffered_command_route_t *route,
     size_t minimum_start_samples,
+    uint32_t maximum_apply_lateness_ticks,
     const actuator_joint_limit_t limits[ACTUATOR_JOINT_COUNT]) {
     actuator_buffered_result_t result;
     if (route == NULL || limits == NULL) {
         return ACTUATOR_BUFFERED_NULL_ARGUMENT;
     }
     memset(route, 0, sizeof(*route));
-    result = actuator_buffered_executor_init(&route->executor, minimum_start_samples);
+    result = actuator_buffered_executor_init(
+        &route->executor,
+        minimum_start_samples,
+        maximum_apply_lateness_ticks);
     if (result != ACTUATOR_BUFFERED_OK) {
         return result;
     }

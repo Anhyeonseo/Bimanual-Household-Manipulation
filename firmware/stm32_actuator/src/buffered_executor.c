@@ -36,7 +36,8 @@ static actuator_buffered_result_t transition_terminal(
 
 actuator_buffered_result_t actuator_buffered_executor_init(
     actuator_buffered_executor_t *executor,
-    size_t minimum_start_samples) {
+    size_t minimum_start_samples,
+    uint32_t maximum_apply_lateness_ticks) {
     if (executor == NULL) {
         return ACTUATOR_BUFFERED_NULL_ARGUMENT;
     }
@@ -48,6 +49,7 @@ actuator_buffered_result_t actuator_buffered_executor_init(
     memset(executor, 0, sizeof(*executor));
     actuator_setpoint_queue_init(&executor->queue);
     executor->minimum_start_samples = minimum_start_samples;
+    executor->maximum_apply_lateness_ticks = maximum_apply_lateness_ticks;
     executor->diagnostics.state = ACTUATOR_BUFFERED_PRIMING;
     executor->diagnostics.reason = ACTUATOR_BUFFERED_REASON_NONE;
     executor->diagnostics.last_queue_result = ACTUATOR_QUEUE_OK;
@@ -153,6 +155,7 @@ actuator_buffered_result_t actuator_buffered_executor_step(
     uint32_t current_tick,
     int32_t output_positions_urad[ACTUATOR_JOINT_COUNT]) {
     actuator_setpoint_t next;
+    uint32_t apply_lateness;
     uint32_t segment_ticks;
     uint32_t elapsed_ticks;
     size_t joint;
@@ -185,10 +188,20 @@ actuator_buffered_result_t actuator_buffered_executor_step(
         return ACTUATOR_BUFFERED_QUEUE_REJECTED;
     }
 
-    if (current_tick == next.apply_tick) {
+    if (current_tick == next.apply_tick ||
+        tick_is_after(current_tick, next.apply_tick)) {
+        apply_lateness = current_tick - next.apply_tick;
+        if (apply_lateness > executor->maximum_apply_lateness_ticks) {
+            return transition_terminal(
+                executor,
+                ACTUATOR_BUFFERED_HOLD,
+                ACTUATOR_BUFFERED_REASON_MISSED_APPLY_TICK,
+                true,
+                current_tick);
+        }
         actuator_queue_result_t take_result = actuator_setpoint_queue_take_due(
             &executor->queue,
-            current_tick,
+            next.apply_tick,
             &next);
         executor->diagnostics.last_queue_result = take_result;
         if (take_result != ACTUATOR_QUEUE_OK) {
@@ -200,6 +213,12 @@ actuator_buffered_result_t actuator_buffered_executor_step(
             sizeof(next.position_urad));
         executor->anchor = next;
         executor->diagnostics.last_applied_tick = current_tick;
+        executor->diagnostics.last_apply_lateness_ticks = apply_lateness;
+        if (apply_lateness >
+            executor->diagnostics.maximum_apply_lateness_ticks) {
+            executor->diagnostics.maximum_apply_lateness_ticks =
+                apply_lateness;
+        }
         if (executor->diagnostics.applied_samples < UINT32_MAX) {
             executor->diagnostics.applied_samples++;
         }
@@ -218,14 +237,6 @@ actuator_buffered_result_t actuator_buffered_executor_step(
             }
         }
         return ACTUATOR_BUFFERED_OUTPUT;
-    }
-    if (tick_is_after(current_tick, next.apply_tick)) {
-        return transition_terminal(
-            executor,
-            ACTUATOR_BUFFERED_HOLD,
-            ACTUATOR_BUFFERED_REASON_MISSED_APPLY_TICK,
-            true,
-            current_tick);
     }
     if (current_tick != executor->anchor.apply_tick &&
         !tick_is_after(current_tick, executor->anchor.apply_tick)) {

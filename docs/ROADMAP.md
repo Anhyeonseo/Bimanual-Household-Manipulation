@@ -270,8 +270,42 @@
 - 2026-08-02 Motion-4: `binary_control.c`에 candidate validation-only
   route를 연결하고 identity `0x00021900`, capability `0x000007FF`와
   host fail-closed를 추가했다. 검증 성공 응답에서도 queue/accepted/applied는
-  0이며 multi-sample servo output은 금지한다. 다음 gate는 Pi–VCP timing
-  장기 측정이다.
+  0이며 multi-sample servo output은 금지한다.
+- 2026-08-03 Motion-4 timing: READ_ONLY Pi–VCP에서 100/80/60 ms lead와
+  400 ms horizon을 각 1000회 오류 없이 통과했고 40 ms는 queue admission에서
+  fail-closed 거부됐다. reviewed 운영 입력은 20 ms period, 60/400 ms lead,
+  prime/watermark/refill `16/10/16`이다. 물리 execution과 ROS Action은 다음
+  gate이며 `motion_authorized=false`를 유지한다.
+- 2026-08-03 Motion-5 host adapter: 검증된 다중점 경로를 20 ms로 재샘플링하고
+  첫 lead 100 ms, 9+7 prime, watermark 10, refill target 16을 적용하는 순수
+  host 스케줄러를 구현했다. 80 ms outage의 9+2 refill, ACK 불일치, late lead,
+  underflow, cancel과 uint32 wrap mock을 통과했다. ROS Action·serial execution은
+  아직 미연결이고 `motion_authorized=false`다.
+- 2026-08-03 Motion-6 status mapping: 32-byte extended admission ACK와
+  SUCCEEDED/HOLD/CANCELED/ABORTED terminal의 state·reason·safe-stop 조합을
+  host scheduler에 연결했다. timeout·legacy/mismatch는 pending frame을 폐기하고
+  무재전송 abort한다. transport send와 physical route는 아직 미연결이다.
+- 2026-08-03 Motion-7 mock transport: batch binary encode, one-shot exchange,
+  outer/payload sequence 일치, timeout·legacy response·terminal-before-ACK
+  fail-closed를 mock port에서 검증했다. 실제 serial method는 미연결이다.
+- 2026-08-03 Motion-8 physical route 후보: validation route와 분리된
+  `0x00022000 / 0x00000FFF` G474 execution route와 host one-shot serial
+  method를 구현했다. `t=0` fresh anchor, 1 ms executor, 5 ms 6축 출력,
+  underflow/missed-tick/cancel/connection-loss/tracking terminal을 연결했고
+  전체 `494` Python/ROS tests, C `2/2`, Cortex-M4 Release build를 통과했다.
+- 2026-08-04 Motion-8/9: `0x00022100` bounded lateness에서 Wrist Roll
+  `+0.03 rad` 가시 이동을 `accepted=16 / applied=16 / max lateness=2 ms`,
+  실측 `+16 raw`, 목표 오차 `4 raw`로 확인했다. 이어 다중점
+  `FollowJointTrajectory`를 20 ms streamed queue에 로컬 연결했다.
+  heartbeat 기반 진행도는 refill에만 쓰고 extended terminal과 post-settle
+  2회 전에는 성공할 수 없다. MoveIt nanosecond timestamp와 검증된
+  velocity/acceleration 필드를 지원한다. 이어 Motion-9 Action runtime을 Pi에
+  배포하고 Base `+0.015 rad`, Shoulder `+0.015 rad`, Wrist Roll `+0.030 rad`의
+  1.2초 왕복 경로를 61 sample·단일 Action goal로 실기 통과했다. 최대 apply
+  lateness는 `4 ms`, firmware/독립 readback 최대 오차는 모두 `6 raw`, 자동
+  재시도는 0회였고 6축 physical DISABLE도 확인했다. buffered Action 경로는
+  `PHYSICAL_ACTION_COMMISSIONED`지만 일반 작업 권한 `motion_authorized=false`는
+  유지한다. 다음 gate는 q0 왕복, Pick pregrasp, 연속 Pick/Place 순이다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정
 - 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반

@@ -25,15 +25,17 @@
 - underflow·missed tick: HOLD 후 safe-stop latch 필요
 - cancel·reconnect: queue 폐기, 자동 재개·재전송 없음
 
-## 미확정 실측값
+## 확정된 실측 운영 입력
 
-다음 이슈 전에는 아래 값을 코드 기본값으로 만들지 않는다.
+Pi–VCP validation-only 측정과 별도 reviewed derivation으로 아래 값을 고정했다.
+물리 motion authority는 계속 `false`다.
 
-- minimum/maximum lead ms
-- startup prime depth
-- low watermark와 refill target
-- serial round-trip p95
-- host command jitter p95
+- sample period: `20 ms`
+- minimum/maximum lead: `60/400 ms`
+- startup prime depth: `16`
+- low watermark/refill target: `10/16`
+- serial RTT worst p95/p99: `17.428593/17.533277 ms`
+- host jitter worst p95: `0.062925 ms`
 
 ## 완료 확인
 
@@ -48,7 +50,8 @@
 - [x] 기존 single-point 실행 경로를 변경하지 않는다.
 - [x] STM32 공통 C core의 queue·선형 보간·terminal 후보를 구현했다.
 - [ ] STM32 board execution path에 queue를 연결한다.
-- [ ] 실측 lead·watermark를 고정한다.
+- [x] 실측 lead·watermark를 고정한다.
+- [x] host-only 20 ms resampling·prime/refill·ACK/cancel 스케줄러를 구현한다.
 - [ ] 제한 실기를 수행한다.
 
 Motion-1 계약과 Motion-2 STM32 core 후보는 완료했지만 `MOT-003`의 실제
@@ -56,7 +59,7 @@ Motion-1 계약과 Motion-2 STM32 core 후보는 완료했지만 `MOT-003`의 �
 
 ## 로컬 검증 결과
 
-- Python 전체 회귀: `430 passed`
+- Python 전체 회귀: `473 passed`
 - STM32 공통 C core: `1/1 passed`
 - ROS package build: `single_arm_bridge` 1 package PASS
 - serial 접근, Pi 전송, STM32 flash와 실제 로봇 이동: `0`
