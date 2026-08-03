@@ -299,9 +299,13 @@
   `FollowJointTrajectory`를 20 ms streamed queue에 로컬 연결했다.
   heartbeat 기반 진행도는 refill에만 쓰고 extended terminal과 post-settle
   2회 전에는 성공할 수 없다. MoveIt nanosecond timestamp와 검증된
-  velocity/acceleration 필드를 지원하며 전체 `539` tests를 통과했다.
-  새 Action 경로의 Pi 배포와 다중 관절 실기는 다음 gate다.
-  Pi 배포·flash·실기·ROS Action 연결은 아직 0회이며 별도 승인 gate다.
+  velocity/acceleration 필드를 지원한다. 이어 Motion-9 Action runtime을 Pi에
+  배포하고 Base `+0.015 rad`, Shoulder `+0.015 rad`, Wrist Roll `+0.030 rad`의
+  1.2초 왕복 경로를 61 sample·단일 Action goal로 실기 통과했다. 최대 apply
+  lateness는 `4 ms`, firmware/독립 readback 최대 오차는 모두 `6 raw`, 자동
+  재시도는 0회였고 6축 physical DISABLE도 확인했다. buffered Action 경로는
+  `PHYSICAL_ACTION_COMMISSIONED`지만 일반 작업 권한 `motion_authorized=false`는
+  유지한다. 다음 gate는 q0 왕복, Pick pregrasp, 연속 Pick/Place 순이다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정
 - 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반

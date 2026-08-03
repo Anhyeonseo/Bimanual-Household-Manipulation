@@ -77,15 +77,34 @@ def immediate_wait(unused_node, future, unused_timeout):
     return future.result()
 
 
-def test_loads_exact_plan_and_recomputes_all_samples():
+def current_contract_plan(tmp_path):
+    document = json.loads(PLAN.read_text(encoding="utf-8"))
+    document["contract_sha256"] = MODULE.sha256_file(CONTRACT)
+    path = tmp_path / "current_contract_plan.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path, MODULE.sha256_file(path)
+
+
+def test_historical_plan_is_invalidated_by_deployed_contract():
+    with pytest.raises(ValueError, match="plan buffered contract sha256 mismatch"):
+        MODULE.load_commissioning_plan(
+            PLAN,
+            PLAN_SHA,
+            CALIBRATION,
+            CONTRACT,
+        )
+
+
+def test_current_contract_copy_recomputes_all_samples(tmp_path):
+    path, digest = current_contract_plan(tmp_path)
     plan = MODULE.load_commissioning_plan(
-        PLAN,
-        PLAN_SHA,
+        path,
+        digest,
         CALIBRATION,
         CONTRACT,
     )
 
-    assert plan.sha256 == PLAN_SHA
+    assert plan.sha256 == digest
     assert plan.duration_ms == 1200
     assert plan.sample_count == 61
     assert len(plan.waypoints) == 7
@@ -105,6 +124,7 @@ def test_rejects_sha_mismatch_before_loading_plan():
 
 def test_rejects_tampered_reviewed_delta_even_with_matching_sha(tmp_path):
     document = json.loads(PLAN.read_text(encoding="utf-8"))
+    document["contract_sha256"] = MODULE.sha256_file(CONTRACT)
     document["requested_deltas_rad"]["left_base_joint"] = 0.02
     tampered = tmp_path / "tampered.json"
     tampered.write_text(json.dumps(document), encoding="utf-8")
@@ -131,10 +151,11 @@ def test_fresh_start_uses_shoulder_specific_tolerance():
         )
 
 
-def test_goal_spec_preserves_reviewed_joint_order_and_waypoints():
+def test_goal_spec_preserves_reviewed_joint_order_and_waypoints(tmp_path):
+    path, digest = current_contract_plan(tmp_path)
     plan = MODULE.load_commissioning_plan(
-        PLAN,
-        PLAN_SHA,
+        path,
+        digest,
         CALIBRATION,
         CONTRACT,
     )
@@ -148,11 +169,12 @@ def test_goal_spec_preserves_reviewed_joint_order_and_waypoints():
     assert specification["points"][-1]["time_from_start_ms"] == 1200
 
 
-def test_ros_goal_preserves_reviewed_joint_order_and_waypoints():
+def test_ros_goal_preserves_reviewed_joint_order_and_waypoints(tmp_path):
     pytest.importorskip("control_msgs.action")
+    path, digest = current_contract_plan(tmp_path)
     plan = MODULE.load_commissioning_plan(
-        PLAN,
-        PLAN_SHA,
+        path,
+        digest,
         CALIBRATION,
         CONTRACT,
     )
@@ -167,7 +189,7 @@ def test_ros_goal_preserves_reviewed_joint_order_and_waypoints():
     assert goal.trajectory.points[-1].time_from_start.nanosec == 200_000_000
 
 
-def test_one_shot_sender_calls_send_exactly_once_and_accepts_terminal():
+def test_one_shot_sender_calls_send_exactly_once_and_accepts_terminal(tmp_path):
     result = SimpleNamespace(
         error_code=MODULE.FOLLOW_JOINT_TRAJECTORY_SUCCESSFUL,
         error_string=(
@@ -182,9 +204,10 @@ def test_one_shot_sender_calls_send_exactly_once_and_accepts_terminal():
     )
     handle = FakeGoalHandle(response)
     client = FakeActionClient(handle)
+    path, digest = current_contract_plan(tmp_path)
     plan = MODULE.load_commissioning_plan(
-        PLAN,
-        PLAN_SHA,
+        path,
+        digest,
         CALIBRATION,
         CONTRACT,
     )

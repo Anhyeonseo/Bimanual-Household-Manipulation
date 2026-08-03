@@ -4,7 +4,9 @@
 
 검증 전용 `0x00021900` route를 보존한 채 실제 서보 출력 route를 별도
 capability로 구현하고, 검증된 `0x00022100` queue를 ROS Action의 다중점
-경로와 로컬 연결한다. 새 Action 경로의 Pi 배포·실기 권한은 아직 없다.
+경로와 연결해 Pi 배포와 소형 다중 관절 왕복 실기까지 확인한다. 물리
+경로는 commissioned 상태지만 일반 작업 권한 `motion_authorized=false`는
+유지한다.
 
 ## 고정 계약
 
@@ -74,8 +76,8 @@ capability로 구현하고, 검증된 `0x00022100` queue를 ROS Action의 다중
 - [x] observable-motion commissioning host gate와 단위 테스트 구현
 - [x] observable gate Pi 배포와 `0.03 rad` 가시 변위 실기
 - [x] ROS Action runtime 로컬 연결과 전체 회귀
-- [ ] ROS Action runtime Pi 배포·무동작 gate
-- [ ] 짧은 다중 관절 연속경로 실기
+- [x] ROS Action runtime Pi 배포·무동작 gate
+- [x] 짧은 다중 관절 연속경로 실기
 - [ ] 연속 Pick/Place
 
 세부 결과는

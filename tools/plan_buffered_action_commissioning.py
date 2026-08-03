@@ -140,8 +140,8 @@ def build_plan(
     contract = load_buffered_trajectory_contract(contract_path)
     if contract["motion_authorized"] is not False:
         raise ValueError("contract must keep motion_authorized false")
-    if contract["physical_execution_candidate"]["deployed"] is not False:
-        raise ValueError("Action physical execution must remain undeployed")
+    if contract["physical_execution_candidate"]["deployed"] is not True:
+        raise ValueError("Action physical execution must be commissioned")
 
     if len(anchor_raw) != 6:
         raise ValueError("anchor must contain six raw positions")

@@ -84,10 +84,10 @@ def queue_model(**overrides) -> BufferedSetpointQueueModel:
     return BufferedSetpointQueueModel(**values)
 
 
-def test_machine_contract_is_mock_only_and_fail_closed() -> None:
+def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
     contract = load_buffered_trajectory_contract(CONTRACT_PATH)
 
-    assert contract["status"] == "LOCAL_ACTION_INTEGRATION_CANDIDATE"
+    assert contract["status"] == "PHYSICAL_ACTION_COMMISSIONED"
     assert contract["motion_authorized"] is False
     assert contract["current_runtime"] == {
         "firmware_supports_buffered_execution": True,
@@ -111,7 +111,7 @@ def test_machine_contract_is_mock_only_and_fail_closed() -> None:
         "timing_parameters_measured": True,
         "physical_execution_route_implemented": True,
         "physical_execution_capability": "0x00000800",
-        "physical_execution_deployed": False,
+        "physical_execution_deployed": True,
     }
     assert contract["timing_analysis"]["operational_values_authorized"] is True
     assert contract["timing_analysis"]["motion_authorized"] is False
@@ -182,7 +182,31 @@ def test_machine_contract_is_mock_only_and_fail_closed() -> None:
         "failed_attempt_disable_confirmation": "disable_ack_latch_preserved",
         "commissioning_motion_passed": True,
         "ros_action_server_connected": True,
-        "deployed": False,
+        "deployed": True,
+        "motion_authorized": False,
+    }
+    assert contract["motion9_physical_evidence"] == {
+        "status": "PASS",
+        "plan_sha256": (
+            "d5378b6c0eb5eb4069e79e609ee12efb14750d228b61b009d29555fb573f47f8"
+        ),
+        "sender_sha256": (
+            "d66f26f7b3907fda1988895a01e657bafa902ea901396a2c38f8524f16e93671"
+        ),
+        "execution_log_sha256": (
+            "80f14845bab532de3217fcee7a9c4c2b0b5cf4241b65023844d6ba7d615de087"
+        ),
+        "firmware_version": "0x00022100",
+        "calibration_hash": "0x8AD27897",
+        "duration_ms": 1200,
+        "sample_count": 61,
+        "action_send_count": 1,
+        "automatic_retry_count": 0,
+        "maximum_apply_lateness_ms": 4,
+        "firmware_post_settle_max_error_raw": 6,
+        "independent_round_trip_max_error_raw": 6,
+        "physical_disable_6axis_pass": True,
+        "abnormal_noise_or_vibration": False,
         "motion_authorized": False,
     }
 
@@ -219,7 +243,22 @@ def test_machine_contract_cannot_equate_terminal_with_servo_settle(
 
     with pytest.raises(
         BufferedTrajectoryContractError,
-        match="physical execution candidate",
+        match="physical execution",
+    ):
+        load_buffered_trajectory_contract(path)
+
+
+def test_motion9_physical_evidence_cannot_be_weakened(tmp_path: Path) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    contract["motion9_physical_evidence"][
+        "maximum_apply_lateness_ms"
+    ] = 5
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+
+    with pytest.raises(
+        BufferedTrajectoryContractError,
+        match="Motion-9 physical evidence",
     ):
         load_buffered_trajectory_contract(path)
 

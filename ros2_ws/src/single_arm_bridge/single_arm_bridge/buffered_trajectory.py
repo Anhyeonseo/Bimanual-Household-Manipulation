@@ -11,7 +11,7 @@ from typing import Any, Sequence
 
 
 CONTRACT_KIND = "single_arm_buffered_trajectory"
-CONTRACT_STATUS = "LOCAL_ACTION_INTEGRATION_CANDIDATE"
+CONTRACT_STATUS = "PHYSICAL_ACTION_COMMISSIONED"
 TOTAL_JOINT_COUNT = 6
 ARM_JOINT_COUNT = 5
 WIRE_BATCH_MAX_SAMPLES = 9
@@ -154,7 +154,7 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "timing_parameters_measured": True,
         "physical_execution_route_implemented": True,
         "physical_execution_capability": "0x00000800",
-        "physical_execution_deployed": False,
+        "physical_execution_deployed": True,
     }:
         raise BufferedTrajectoryContractError(
             "firmware validation and physical routes must remain separated"
@@ -228,11 +228,40 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "failed_attempt_disable_confirmation": "disable_ack_latch_preserved",
         "commissioning_motion_passed": True,
         "ros_action_server_connected": True,
-        "deployed": False,
+        "deployed": True,
         "motion_authorized": False,
     }:
         raise BufferedTrajectoryContractError(
-            "physical execution candidate must remain local and motion-disabled"
+            "physical execution must remain commissioned and motion-disabled"
+        )
+
+    evidence = _require_object(document, "motion9_physical_evidence")
+    if evidence != {
+        "status": "PASS",
+        "plan_sha256": (
+            "d5378b6c0eb5eb4069e79e609ee12efb14750d228b61b009d29555fb573f47f8"
+        ),
+        "sender_sha256": (
+            "d66f26f7b3907fda1988895a01e657bafa902ea901396a2c38f8524f16e93671"
+        ),
+        "execution_log_sha256": (
+            "80f14845bab532de3217fcee7a9c4c2b0b5cf4241b65023844d6ba7d615de087"
+        ),
+        "firmware_version": "0x00022100",
+        "calibration_hash": "0x8AD27897",
+        "duration_ms": 1200,
+        "sample_count": 61,
+        "action_send_count": 1,
+        "automatic_retry_count": 0,
+        "maximum_apply_lateness_ms": 4,
+        "firmware_post_settle_max_error_raw": 6,
+        "independent_round_trip_max_error_raw": 6,
+        "physical_disable_6axis_pass": True,
+        "abnormal_noise_or_vibration": False,
+        "motion_authorized": False,
+    }:
+        raise BufferedTrajectoryContractError(
+            "Motion-9 physical evidence must match the commissioned run"
         )
 
     timing = _require_object(document, "timing_analysis")
