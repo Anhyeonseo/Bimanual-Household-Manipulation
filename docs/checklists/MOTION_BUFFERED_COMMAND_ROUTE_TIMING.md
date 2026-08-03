@@ -43,7 +43,7 @@ watermark와 refill target은 자동 채택하지 않고 별도 검토로 고정
 
 - [x] Motion-4에서 `binary_control.c` validation-only 후보 route 연결
 - [x] `0x00021900` identity·`0x000007FF` capability와 이전 host fail-closed 검증
-- [ ] Pi–VCP 실제 timing 장기 측정 및 운영값 검토
+- [x] Pi–VCP 실제 timing 측정 및 운영값 검토
 - [ ] ROS multi-point Action adapter
 - [ ] mock/plan-only 후 제한 실기
 

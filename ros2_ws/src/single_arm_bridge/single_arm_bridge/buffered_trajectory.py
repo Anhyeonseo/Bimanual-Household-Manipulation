@@ -30,14 +30,17 @@ REQUIRED_SAFETY = {
 }
 
 REQUIRED_MEASUREMENTS = [
+    "sample_period_ms",
     "minimum_lead_ms",
     "maximum_lead_ms",
     "startup_prime_depth_samples",
     "low_watermark_samples",
     "refill_target_samples",
     "serial_round_trip_p95_ms",
+    "serial_round_trip_p99_ms",
     "host_command_jitter_p95_ms",
     "delivery_lateness_p95_ms",
+    "observed_max_host_outage_ms",
 ]
 
 
@@ -147,7 +150,7 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "firmware_identity_changed": True,
         "capability_advertised": True,
         "host_fail_closed_capability_required": True,
-        "timing_parameters_measured": False,
+        "timing_parameters_measured": True,
     }:
         raise BufferedTrajectoryContractError(
             "firmware route must remain validation-only until timing gates pass"
@@ -160,15 +163,32 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "required_clock_source": "monotonic_raw",
         "requires_buffered_capability": True,
         "synthetic_measurements_can_authorize_values": False,
-        "operational_values_authorized": False,
-        "minimum_lead_ms": None,
-        "maximum_lead_ms": None,
-        "startup_prime_depth_samples": None,
-        "low_watermark_samples": None,
-        "refill_target_samples": None,
+        "operational_values_authorized": True,
+        "motion_authorized": False,
+        "policy_path": (
+            "artifacts/motion/2026-08-03/"
+            "buffered_timing_policy_reviewed.json"
+        ),
+        "policy_sha256": (
+            "362e09c91e696ca587963c664f26cc49e06a44d205e2b5d6daf186c63e1fd8f2"
+        ),
+        "sample_period_ms": 20,
+        "minimum_lead_ms": 60,
+        "maximum_lead_ms": 400,
+        "startup_prime_depth_samples": 16,
+        "low_watermark_samples": 10,
+        "refill_target_samples": 16,
+        "serial_round_trip_p95_ms": 17.428593,
+        "serial_round_trip_p99_ms": 17.533277,
+        "host_command_jitter_p95_ms": 0.062925,
+        "delivery_lateness_p95_ms": 0.0,
+        "observed_max_host_outage_ms": 80.064074,
+        "rejected_first_lead_ms": 40,
+        "rejected_status_code": 1,
+        "rejected_detail": 9,
     }:
         raise BufferedTrajectoryContractError(
-            "timing values must remain unconfigured before hardware measurement"
+            "timing values must match the reviewed no-motion hardware policy"
         )
 
     wire = _require_object(document, "existing_wire_limits")

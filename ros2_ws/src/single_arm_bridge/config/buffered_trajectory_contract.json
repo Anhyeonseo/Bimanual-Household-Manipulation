@@ -21,7 +21,7 @@
     "firmware_identity_changed": true,
     "capability_advertised": true,
     "host_fail_closed_capability_required": true,
-    "timing_parameters_measured": false
+    "timing_parameters_measured": true
   },
   "timing_analysis": {
     "minimum_hardware_samples_per_series": 1000,
@@ -29,12 +29,24 @@
     "required_clock_source": "monotonic_raw",
     "requires_buffered_capability": true,
     "synthetic_measurements_can_authorize_values": false,
-    "operational_values_authorized": false,
-    "minimum_lead_ms": null,
-    "maximum_lead_ms": null,
-    "startup_prime_depth_samples": null,
-    "low_watermark_samples": null,
-    "refill_target_samples": null
+    "operational_values_authorized": true,
+    "motion_authorized": false,
+    "policy_path": "artifacts/motion/2026-08-03/buffered_timing_policy_reviewed.json",
+    "policy_sha256": "362e09c91e696ca587963c664f26cc49e06a44d205e2b5d6daf186c63e1fd8f2",
+    "sample_period_ms": 20,
+    "minimum_lead_ms": 60,
+    "maximum_lead_ms": 400,
+    "startup_prime_depth_samples": 16,
+    "low_watermark_samples": 10,
+    "refill_target_samples": 16,
+    "serial_round_trip_p95_ms": 17.428593,
+    "serial_round_trip_p99_ms": 17.533277,
+    "host_command_jitter_p95_ms": 0.062925,
+    "delivery_lateness_p95_ms": 0.0,
+    "observed_max_host_outage_ms": 80.064074,
+    "rejected_first_lead_ms": 40,
+    "rejected_status_code": 1,
+    "rejected_detail": 9
   },
   "existing_wire_limits": {
     "protocol_version": 1,
@@ -65,14 +77,17 @@
   },
   "deployment_gate": {
     "required_measurements": [
+      "sample_period_ms",
       "minimum_lead_ms",
       "maximum_lead_ms",
       "startup_prime_depth_samples",
       "low_watermark_samples",
       "refill_target_samples",
       "serial_round_trip_p95_ms",
+      "serial_round_trip_p99_ms",
       "host_command_jitter_p95_ms",
-      "delivery_lateness_p95_ms"
+      "delivery_lateness_p95_ms",
+      "observed_max_host_outage_ms"
     ],
     "firmware_change_requires_separate_issue": true,
     "physical_motion_requires_explicit_approval": true

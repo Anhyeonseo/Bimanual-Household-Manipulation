@@ -27,13 +27,13 @@ CLEAR_FAULT와 실제 로봇 이동은 범위 밖이다.
 - 현재 실제 수락 sample 수: `1`
 - buffered binary command route: `false`
 - buffered capability 광고: `false`
-- timing parameter 실측 완료: `false`
+- timing parameter 실측 완료: `true` (`60/400/16/10/16`)
 - terminal/HOLD 뒤 init 없는 자동 재개: 금지
 - batch 검증 실패 시 부분 queue 반영: `0`
 
 minimum/maximum lead, startup prime depth, low watermark와 refill target은
-이번 코드에 운영 기본값으로 넣지 않았다. API 인자로만 주입하며 host latency
-측정 뒤 별도 이슈에서 고정한다.
+Pi–VCP 실측과 reviewed derivation으로 `60/400/16/10/16`을 채택했다. 공통
+C core에는 여전히 API 인자로 주입하며 물리 execution route는 연결하지 않았다.
 
 ## 로컬 검증
 
@@ -61,7 +61,7 @@ minimum/maximum lead, startup prime depth, low watermark와 refill target은
 - [x] G474 Release cross-build가 새 core source를 경고 없이 컴파일한다.
 - [x] 0x218 identity·0x3FF capability·single-sample runtime을 보존한다.
 - [ ] binary command route와 terminal response를 연결한다.
-- [ ] lead·prime·watermark·refill 값을 host 측정으로 고정한다.
+- [x] lead·prime·watermark·refill 값을 host 측정으로 고정한다.
 - [ ] ROS multi-point Action adapter를 연결한다.
 - [ ] 제한 실기를 수행한다.
 

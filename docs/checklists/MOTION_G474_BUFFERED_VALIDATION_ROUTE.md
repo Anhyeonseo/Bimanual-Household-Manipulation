@@ -36,12 +36,21 @@ timing을 로봇 무동작으로 측정할 수 있는 fail-closed 경계를 만�
 - 운영 lead/prime/watermark/refill 값 채택
 - ROS multi-point Action adapter
 
-## 다음 gate
+## 완료된 실측 gate
 
-1. 12V OFF/팔 지지에서 host와 HEX를 Pi에 배포하고 전체 flash backup을 남긴다.
-2. 명시적 승인 후 program/verify/reset 1회와 identity gate를 확인한다.
-3. READ_ONLY와 validation-only route로 Pi–VCP timing을 1000회 이상 측정한다.
-4. 측정값 검토 전에는 물리 buffered execution을 연결하지 않는다.
+1. [x] host/HEX Pi 배포, 기존 flash 전체 backup, program/verify/reset
+2. [x] `0x00021900` identity·`0x000007FF` capability 확인
+3. [x] READ_ONLY validation-only Pi–VCP timing 각 1000회 측정
+4. [x] 60/400 ms lead와 16/10/16 queue 운영 입력 검토
+5. [ ] 별도 gate에서 물리 buffered execution과 ROS Action 연결
+
+실측은 `tools/capture_buffered_validation_timing.py`가 담당한다. 이 도구는
+HELLO·HEARTBEAT와 `VALIDATION_ONLY|CANDIDATE` frame만 사용하며, 모든 응답에서
+`status=5`, `SAFE_DISABLED`, queue/accepted/applied sample 0을 확인한다.
+`CLOCK_MONOTONIC_RAW` 기준 serial RTT, 예정 dispatch 대비 host jitter, apply
+deadline 대비 response lateness를 각각 1000개 이상 저장한다. 세 차례 계획된
+20/40/80 ms host pause도 로봇 무동작 상태에서만 기록한다. 측정 결과는 운영
+lead·prime·watermark 값을 자동 승인하지 않는다.
 
 로컬 검증 수치는
 [Motion-4 결과](../test-results/2026-08-02-motion4-g474-buffered-validation-route.md)에
