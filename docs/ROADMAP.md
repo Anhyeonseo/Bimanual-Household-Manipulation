@@ -276,6 +276,11 @@
   fail-closed 거부됐다. reviewed 운영 입력은 20 ms period, 60/400 ms lead,
   prime/watermark/refill `16/10/16`이다. 물리 execution과 ROS Action은 다음
   gate이며 `motion_authorized=false`를 유지한다.
+- 2026-08-03 Motion-5 host adapter: 검증된 다중점 경로를 20 ms로 재샘플링하고
+  첫 lead 100 ms, 9+7 prime, watermark 10, refill target 16을 적용하는 순수
+  host 스케줄러를 구현했다. 80 ms outage의 9+2 refill, ACK 불일치, late lead,
+  underflow, cancel과 uint32 wrap mock을 통과했다. ROS Action·serial execution은
+  아직 미연결이고 `motion_authorized=false`다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정
 - 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반

@@ -23,6 +23,21 @@
     "host_fail_closed_capability_required": true,
     "timing_parameters_measured": true
   },
+  "host_adapter_candidate": {
+    "multi_point_validation_reused": true,
+    "linear_resampling_period_ms": 20,
+    "initial_first_sample_lead_ms": 100,
+    "startup_prime_depth_samples": 16,
+    "low_watermark_samples": 10,
+    "refill_target_samples": 16,
+    "maximum_samples_per_batch": 9,
+    "gripper_position_preserved": true,
+    "ack_accounting_fail_closed": true,
+    "automatic_retransmission": false,
+    "ros_action_server_connected": false,
+    "transport_execution_connected": false,
+    "motion_authorized": false
+  },
   "timing_analysis": {
     "minimum_hardware_samples_per_series": 1000,
     "required_provenance": "pi_vcp_hardware",

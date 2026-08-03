@@ -116,6 +116,21 @@ def test_machine_contract_is_mock_only_and_fail_closed() -> None:
     assert contract["timing_analysis"]["startup_prime_depth_samples"] == 16
     assert contract["timing_analysis"]["low_watermark_samples"] == 10
     assert contract["timing_analysis"]["refill_target_samples"] == 16
+    assert contract["host_adapter_candidate"] == {
+        "multi_point_validation_reused": True,
+        "linear_resampling_period_ms": 20,
+        "initial_first_sample_lead_ms": 100,
+        "startup_prime_depth_samples": 16,
+        "low_watermark_samples": 10,
+        "refill_target_samples": 16,
+        "maximum_samples_per_batch": 9,
+        "gripper_position_preserved": True,
+        "ack_accounting_fail_closed": True,
+        "automatic_retransmission": False,
+        "ros_action_server_connected": False,
+        "transport_execution_connected": False,
+        "motion_authorized": False,
+    }
 
 
 def test_machine_contract_cannot_enable_motion(tmp_path: Path) -> None:

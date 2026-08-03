@@ -156,6 +156,26 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
             "firmware route must remain validation-only until timing gates pass"
         )
 
+    host_adapter = _require_object(document, "host_adapter_candidate")
+    if host_adapter != {
+        "multi_point_validation_reused": True,
+        "linear_resampling_period_ms": 20,
+        "initial_first_sample_lead_ms": 100,
+        "startup_prime_depth_samples": 16,
+        "low_watermark_samples": 10,
+        "refill_target_samples": 16,
+        "maximum_samples_per_batch": 9,
+        "gripper_position_preserved": True,
+        "ack_accounting_fail_closed": True,
+        "automatic_retransmission": False,
+        "ros_action_server_connected": False,
+        "transport_execution_connected": False,
+        "motion_authorized": False,
+    }:
+        raise BufferedTrajectoryContractError(
+            "host adapter must remain mock-only and fail-closed"
+        )
+
     timing = _require_object(document, "timing_analysis")
     if timing != {
         "minimum_hardware_samples_per_series": 1000,

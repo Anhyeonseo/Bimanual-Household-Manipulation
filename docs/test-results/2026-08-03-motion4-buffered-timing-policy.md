@@ -62,6 +62,6 @@ scheduler guard + 60 ms minimum lead = 177.597351 ms`다. 20 ms sample 9개가
 ## 남은 gate
 
 1. 별도 firmware 변경에서 validation-only route와 물리 execution route를 분리
-2. ROS multi-point Action adapter의 prime/refill/cancel 연결
-3. mock·plan-only 및 무동작 terminal fault injection
+2. 구현된 host-only prime/refill/cancel 스케줄러를 ROS Action에 연결
+3. mock 완료 뒤 plan-only 및 무동작 terminal fault injection
 4. 명시적 승인 후 단일 관절 제한 실기
