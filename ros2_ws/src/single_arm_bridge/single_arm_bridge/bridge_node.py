@@ -22,6 +22,7 @@ from trajectory_msgs.msg import JointTrajectory
 
 from .action_execution import MotionExecutionCore
 from .backend_lease import acquire_backend_lease
+from .buffered_action_execution import BufferedActionExecutionCore
 from .calibration import load_calibration
 from .commanded_setpoint_state import CommandedSetpointState
 from .device_discovery import resolve_serial_device
@@ -112,6 +113,11 @@ class SingleArmBridge(Node):
                 hello,
                 self._calibration,
             )
+            self._buffered_execution_core = BufferedActionExecutionCore(
+                self._transport,
+                hello,
+                self._calibration,
+            )
         except Exception as error:
             if self._serial is not None and self._serial.is_open:
                 self._serial.close()
@@ -156,6 +162,7 @@ class SingleArmBridge(Node):
                     self._fresh_joint_positions,
                     motion_arbiter=self._motion_arbiter,
                     setpoint_state=self._commanded_setpoints,
+                    buffered_execution_core=self._buffered_execution_core,
                 )
                 self._gripper_action_adapter = (
                     ParallelGripperCommandActionAdapter(
@@ -242,7 +249,7 @@ class SingleArmBridge(Node):
             return
         if time.monotonic() < self._feedback_resume_at:
             return
-        if self._execution_core.active:
+        if self._motion_active():
             # Firmware trajectory execution owns the servo bus. The Action
             # polling thread collects its unsolicited terminal status; resume
             # physical position reads on the first regular cycle after it ends.
@@ -357,7 +364,7 @@ class SingleArmBridge(Node):
         reserved = False
         try:
             reserved = self._motion_arbiter.try_reserve("diagnostics")
-            if not reserved or self._execution_core.active:
+            if not reserved or self._motion_active():
                 raise RuntimeError(
                     "cannot read diagnostics while a motion goal is active"
                 )
@@ -442,7 +449,7 @@ class SingleArmBridge(Node):
     def _on_clear_fault(self, request: Trigger.Request, response: Trigger.Response):
         del request
         try:
-            if self._execution_core.active or self._motion_arbiter.owner is not None:
+            if self._motion_active() or self._motion_arbiter.owner is not None:
                 raise RuntimeError("cannot clear fault while an Action goal is active")
             self._transport.clear_fault()
             self._commanded_setpoints.reset()
@@ -457,6 +464,10 @@ class SingleArmBridge(Node):
                 self._transport.arm_and_enable(self._calibration.calibration_hash)
                 self._motion_armed = True
             self._execution_core.replace_transport_after_explicit_recovery(
+                self._transport,
+                hello,
+            )
+            self._buffered_execution_core.replace_transport_after_explicit_recovery(
                 self._transport,
                 hello,
             )
@@ -572,6 +583,13 @@ class SingleArmBridge(Node):
             and self._motion_armed
             and not self._faulted
             and not self._execution_core.blocked
+            and not self._buffered_execution_core.blocked
+        )
+
+    def _motion_active(self) -> bool:
+        return (
+            self._execution_core.active
+            or self._buffered_execution_core.active
         )
 
     def _fresh_joint_positions(self) -> tuple[float, ...] | None:

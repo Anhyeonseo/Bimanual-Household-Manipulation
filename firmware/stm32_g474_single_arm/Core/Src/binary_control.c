@@ -138,7 +138,8 @@ static uint32_t Host_CalibrationHash(void)
 
 static uint8_t Host_InitBufferedRoute(
     actuator_buffered_command_route_t *route,
-    uint8_t minimum_start_samples
+    uint8_t minimum_start_samples,
+    uint32_t maximum_apply_lateness_ms
 )
 {
     actuator_joint_limit_t limits[ACTUATOR_JOINT_COUNT];
@@ -184,6 +185,7 @@ static uint8_t Host_InitBufferedRoute(
     return (actuator_buffered_command_route_init(
                 route,
                 minimum_start_samples,
+                maximum_apply_lateness_ms,
                 limits
             ) == ACTUATOR_BUFFERED_OK) ? 1U : 0U;
 }
@@ -192,7 +194,8 @@ static uint8_t Host_InitBufferedValidationRoute(void)
 {
     return Host_InitBufferedRoute(
         &host_buffered_validation_route,
-        HOST_BUFFERED_VALIDATION_MINIMUM_START_SAMPLES
+        HOST_BUFFERED_VALIDATION_MINIMUM_START_SAMPLES,
+        HOST_BUFFERED_VALIDATION_MAXIMUM_APPLY_LATENESS_MS
     );
 }
 
@@ -200,7 +203,8 @@ static uint8_t Host_InitBufferedExecutionRoute(void)
 {
     return Host_InitBufferedRoute(
         &host_buffered_execution_route,
-        HOST_BUFFERED_EXECUTION_MINIMUM_START_SAMPLES
+        HOST_BUFFERED_EXECUTION_MINIMUM_START_SAMPLES,
+        HOST_BUFFERED_EXECUTION_MAXIMUM_APPLY_LATENESS_MS
     );
 }
 
@@ -1607,7 +1611,12 @@ static void Host_ServiceBufferedExecution(void)
         if ((diagnostics != NULL) &&
             (diagnostics->state == ACTUATOR_BUFFERED_SUCCEEDED))
         {
-            Host_FinalizeBufferedExecution(0U);
+            uint32_t maximum_lateness =
+                diagnostics->maximum_apply_lateness_ticks;
+            Host_FinalizeBufferedExecution(
+                (maximum_lateness > UINT8_MAX) ?
+                    UINT8_MAX : (uint8_t)maximum_lateness
+            );
             return;
         }
     }

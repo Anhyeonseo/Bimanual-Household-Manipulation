@@ -1,8 +1,7 @@
 """Mockable exchange driver for the buffered host scheduler.
 
-The driver never opens serial and is not connected to the ROS Action server.
-It defines the one-shot frame/response ordering used by the physical transport
-method while keeping runtime ownership and motion authorization separate.
+The driver never opens serial.  It defines the one-shot frame/response ordering
+used by both commissioning and the ROS Action buffered execution core.
 """
 
 from __future__ import annotations

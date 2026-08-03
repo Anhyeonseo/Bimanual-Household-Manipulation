@@ -293,6 +293,14 @@
   method를 구현했다. `t=0` fresh anchor, 1 ms executor, 5 ms 6축 출력,
   underflow/missed-tick/cancel/connection-loss/tracking terminal을 연결했고
   전체 `494` Python/ROS tests, C `2/2`, Cortex-M4 Release build를 통과했다.
+- 2026-08-04 Motion-8/9: `0x00022100` bounded lateness에서 Wrist Roll
+  `+0.03 rad` 가시 이동을 `accepted=16 / applied=16 / max lateness=2 ms`,
+  실측 `+16 raw`, 목표 오차 `4 raw`로 확인했다. 이어 다중점
+  `FollowJointTrajectory`를 20 ms streamed queue에 로컬 연결했다.
+  heartbeat 기반 진행도는 refill에만 쓰고 extended terminal과 post-settle
+  2회 전에는 성공할 수 없다. MoveIt nanosecond timestamp와 검증된
+  velocity/acceleration 필드를 지원하며 전체 `539` tests를 통과했다.
+  새 Action 경로의 Pi 배포와 다중 관절 실기는 다음 gate다.
   Pi 배포·flash·실기·ROS Action 연결은 아직 0회이며 별도 승인 gate다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정

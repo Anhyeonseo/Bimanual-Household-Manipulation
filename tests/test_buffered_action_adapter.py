@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 import sys
 
@@ -14,6 +15,9 @@ from single_arm_bridge.action_validation import (  # noqa: E402
     validate_buffered_trajectory,
 )
 from single_arm_bridge.buffered_action_adapter import (  # noqa: E402
+    INITIAL_FIRST_SAMPLE_LEAD_MS,
+    MAXIMUM_APPLY_LATENESS_MS,
+    SAMPLE_PERIOD_MS,
     BufferedActionAdapterError,
     BufferedAdapterState,
     BufferedBatchScheduler,
@@ -24,7 +28,12 @@ from single_arm_bridge.buffered_action_adapter import (  # noqa: E402
 from single_arm_bridge.calibration import load_calibration  # noqa: E402
 from single_arm_bridge.protocol import (  # noqa: E402
     BufferedSetpointFlags,
+    BufferedSetpointSample,
+    Frame,
+    MessageType,
     MotionResult,
+    encode_buffered_setpoint_payload,
+    encode_frame,
 )
 
 
@@ -85,7 +94,7 @@ def prime(value: BufferedBatchScheduler, *, current_tick_ms: int = 1_000):
     first = value.next_batch(current_tick_ms=current_tick_ms)
     assert first is not None
     ack_pending(value, first, applied=0)
-    second = value.next_batch(current_tick_ms=current_tick_ms + 18)
+    second = value.next_batch(current_tick_ms=current_tick_ms + 55)
     assert second is not None
     ack_pending(value, second, applied=0)
     return first, second
@@ -103,12 +112,13 @@ def extended_result(
     accepted: int,
     applied: int,
     calibration_hash: int = 0x8AD27897,
+    detail: int = 0,
 ) -> MotionResult:
     return MotionResult(
         status_code=status,
         sample_count=sample_count,
         safety_state=3,
-        detail=0,
+        detail=detail,
         request_sequence=123,
         apply_tick_ms=apply_tick_ms,
         calibration_hash=calibration_hash,
@@ -123,32 +133,38 @@ def extended_result(
     )
 
 
-def test_resamples_at_20ms_with_100ms_initial_lead_and_preserves_gripper() -> None:
+def test_resamples_at_20ms_with_140ms_initial_lead_and_preserves_gripper() -> None:
     plan, _ = scheduler()
 
-    assert plan.anchor_tick_ms == 1_080
+    assert plan.anchor_tick_ms == 1_120
     assert len(plan.samples) == 41
     assert plan.samples[0].trajectory_elapsed_ms == 0
-    assert plan.samples[0].apply_tick_ms == 1_100
+    assert plan.samples[0].apply_tick_ms == 1_140
     assert plan.samples[0].positions_urad[:5] == (0,) * 5
     assert plan.samples[0].positions_urad[5] == 60_000
     assert plan.samples[1].trajectory_elapsed_ms == 20
-    assert plan.samples[1].apply_tick_ms == 1_120
+    assert plan.samples[1].apply_tick_ms == 1_160
     assert plan.samples[1].positions_urad[:5] == (2_000,) * 5
     assert plan.samples[-1].trajectory_elapsed_ms == 800
     assert plan.samples[-1].positions_urad[:5] == (80_000,) * 5
 
 
-@pytest.mark.parametrize("duration_ms", [280, 330])
-def test_plan_rejects_short_or_non_20ms_duration(duration_ms: int) -> None:
-    calibration, trajectory = validated_path(duration_ms, target=0.01)
+def test_plan_rejects_duration_too_short_for_prime() -> None:
     with pytest.raises(GoalValidationError):
-        prepare_buffered_execution_plan(
-            trajectory,
-            calibration,
-            preserved_gripper_rad=0.06,
-            current_tick_ms=1_000,
-        )
+        validated_path(280, target=0.01)
+
+
+def test_plan_rounds_non_20ms_duration_up_to_sample_boundary() -> None:
+    calibration, trajectory = validated_path(330, target=0.01)
+    plan = prepare_buffered_execution_plan(
+        trajectory,
+        calibration,
+        preserved_gripper_rad=0.06,
+        current_tick_ms=1_000,
+    )
+
+    assert trajectory.duration_ms == 340
+    assert len(plan.samples) == 18
 
 
 def test_initial_prime_is_9_plus_7_and_starts_only_at_depth_16() -> None:
@@ -234,11 +250,29 @@ def test_late_refill_aborts_before_a_frame_can_be_sent() -> None:
     value.record_applied(6)
 
     with pytest.raises(BufferedActionAdapterError, match="below 60 ms"):
-        value.next_batch(current_tick_ms=1_370)
+        value.next_batch(current_tick_ms=1_405)
     snapshot = value.snapshot()
     assert snapshot.state is BufferedAdapterState.ABORTED
     assert snapshot.reason == "batch_lead_outside_reviewed_window"
     assert snapshot.pending_batch is False
+
+
+def test_early_second_prime_waits_until_maximum_horizon() -> None:
+    _, value = scheduler()
+    first = value.next_batch(current_tick_ms=1_000)
+    assert first is not None
+    value.acknowledge_batch(
+        status_code=0,
+        accepted_samples=9,
+        applied_samples=0,
+        queued_samples=9,
+    )
+
+    assert value.next_batch(current_tick_ms=1_020) is None
+    snapshot = value.snapshot()
+    assert snapshot.state is BufferedAdapterState.PRIMING
+    assert snapshot.pending_batch is False
+    assert value.next_batch(current_tick_ms=1_055) is not None
 
 
 def test_underflow_and_cancel_are_terminal_fail_closed() -> None:
@@ -276,12 +310,63 @@ def test_uint32_tick_wrap_preserves_lead_and_offsets() -> None:
     current = 0xFFFFFFB0
     plan, value = scheduler(current_tick_ms=current)
 
-    assert plan.anchor_tick_ms == 0
-    assert plan.samples[0].apply_tick_ms == 20
+    assert plan.anchor_tick_ms == 40
+    assert plan.samples[0].apply_tick_ms == 60
     first = value.next_batch(current_tick_ms=current)
     assert first is not None
-    assert first.first_apply_tick_ms == 20
+    assert first.first_apply_tick_ms == 60
     assert first.samples[-1].tick_offset_ms == 160
+
+
+def test_140ms_lead_covers_physical_9_plus_7_uart_wire_budget() -> None:
+    def encoded_command_size(sample_count: int, flags: int) -> int:
+        samples = tuple(
+            BufferedSetpointSample(index * 20, (0,) * 6)
+            for index in range(sample_count)
+        )
+        payload = encode_buffered_setpoint_payload(1_000, samples)
+        return len(
+            encode_frame(
+                Frame(
+                    MessageType.SETPOINT_BATCH,
+                    flags,
+                    1,
+                    0,
+                    payload,
+                )
+            )
+        )
+
+    first_bytes = encoded_command_size(
+        9,
+        int(BufferedSetpointFlags.CANDIDATE | BufferedSetpointFlags.BEGIN),
+    )
+    second_bytes = encoded_command_size(
+        7,
+        int(
+            BufferedSetpointFlags.CANDIDATE
+            | BufferedSetpointFlags.START
+            | BufferedSetpointFlags.END
+        ),
+    )
+    ack_bytes = len(
+        encode_frame(Frame(MessageType.SETPOINT_STATUS, 0, 1, 0, bytes(32)))
+    )
+    heartbeat_bytes = len(
+        encode_frame(Frame(MessageType.HEARTBEAT, 0, 2, 0, b""))
+    ) + len(
+        encode_frame(Frame(MessageType.STATE_FEEDBACK, 0, 2, 0, bytes(20)))
+    )
+    wire_ms = (
+        first_bytes + ack_bytes + heartbeat_bytes + second_bytes
+    ) * 10_000.0 / 115_200.0
+    anchor_lead_ms = INITIAL_FIRST_SAMPLE_LEAD_MS - SAMPLE_PERIOD_MS
+
+    assert wire_ms == pytest.approx(87.673611, abs=0.000001)
+    assert anchor_lead_ms - wire_ms >= 32.0
+    assert INITIAL_FIRST_SAMPLE_LEAD_MS - (
+        first_bytes * 10_000.0 / 115_200.0
+    ) >= 60.0
 
 
 def test_extended_motion_result_ack_maps_priming_then_running() -> None:
@@ -301,7 +386,7 @@ def test_extended_motion_result_ack_maps_priming_then_running() -> None:
             applied=0,
         )
     )
-    second = value.next_batch(current_tick_ms=1_018)
+    second = value.next_batch(current_tick_ms=1_055)
     assert second is not None
     value.acknowledge_motion_result(
         extended_result(
@@ -382,9 +467,35 @@ def test_extended_success_terminal_requires_all_samples_applied() -> None:
             queued=0,
             accepted=16,
             applied=16,
+            detail=MAXIMUM_APPLY_LATENESS_MS,
         )
     )
     assert value.state is BufferedAdapterState.SUCCEEDED
+
+
+def test_extended_success_terminal_rejects_lateness_above_contract() -> None:
+    plan, value = scheduler(duration_ms=300)
+    prime(value)
+    result = extended_result(
+        status=6,
+        sample_count=0,
+        apply_tick_ms=plan.samples[-1].apply_tick_ms,
+        executor_state=BufferedExecutorState.SUCCEEDED.value,
+        terminal_reason=BufferedTerminalReason.NONE.value,
+        safe_stop_required=False,
+        queued=0,
+        accepted=16,
+        applied=16,
+        detail=MAXIMUM_APPLY_LATENESS_MS,
+    )
+    result = replace(result, detail=MAXIMUM_APPLY_LATENESS_MS + 1)
+
+    with pytest.raises(
+        BufferedActionAdapterError,
+        match="state and reason",
+    ):
+        value.observe_terminal_motion_result(result)
+    assert value.state is BufferedAdapterState.ABORTED
 
 
 def test_extended_underflow_terminal_clears_queue_and_requires_safe_stop() -> None:

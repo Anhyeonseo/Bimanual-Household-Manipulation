@@ -172,7 +172,7 @@ def validate_buffered_trajectory(
     velocity_limits_rad_s: Mapping[str, float],
     acceleration_limits_rad_s2: Mapping[str, float],
     *,
-    start_tolerance_rad: float,
+    start_tolerance_rad: float | Mapping[str, float],
 ) -> ValidatedBufferedTrajectory:
     """Validate a position-only multi-point path without enabling execution."""
 
@@ -183,17 +183,36 @@ def validate_buffered_trajectory(
     _validate_strictly_increasing_times(points)
     if points[-1].time_from_start_ns <= 0:
         raise GoalValidationError("buffered trajectory duration must be positive")
-    if any(point.time_from_start_ns % 1_000_000 for point in points):
-        raise GoalValidationError(
-            "buffered trajectory times must align to integer milliseconds"
+    if isinstance(start_tolerance_rad, Mapping):
+        if set(start_tolerance_rad) != set(expected):
+            raise GoalValidationError(
+                "start tolerances do not match expected joints"
+            )
+        values = tuple(start_tolerance_rad[name] for name in expected)
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < 0.0
+            for value in values
+        ):
+            raise GoalValidationError(
+                "start tolerances must be finite and non-negative"
+            )
+        start_tolerances = tuple(float(value) for value in values)
+    else:
+        if (
+            isinstance(start_tolerance_rad, bool)
+            or not isinstance(start_tolerance_rad, (int, float))
+            or not math.isfinite(float(start_tolerance_rad))
+            or start_tolerance_rad < 0.0
+        ):
+            raise GoalValidationError(
+                "start tolerance must be finite and non-negative"
+            )
+        start_tolerances = tuple(
+            float(start_tolerance_rad) for _ in expected
         )
-    if (
-        isinstance(start_tolerance_rad, bool)
-        or not isinstance(start_tolerance_rad, (int, float))
-        or not math.isfinite(float(start_tolerance_rad))
-        or start_tolerance_rad < 0.0
-    ):
-        raise GoalValidationError("start tolerance must be finite and non-negative")
 
     start = tuple(start_positions)
     if len(start) != len(expected):
@@ -218,11 +237,36 @@ def validate_buffered_trajectory(
     for point in points:
         if len(point.positions) != len(names):
             raise GoalValidationError("trajectory point position count is invalid")
-        if point.velocities or point.accelerations or point.effort:
+        if point.effort:
             raise GoalValidationError(
-                "buffered linear-position contract does not accept velocity, "
-                "acceleration, or effort fields"
+                "buffered trajectory does not accept effort fields"
             )
+        for field, values, limits_for_field in (
+            ("velocity", point.velocities, velocity_limits),
+            ("acceleration", point.accelerations, acceleration_limits),
+        ):
+            if not values:
+                continue
+            if len(values) != len(names):
+                raise GoalValidationError(
+                    f"trajectory point {field} count is invalid"
+                )
+            by_name = dict(zip(names, values, strict=True))
+            for name, limit in zip(
+                expected,
+                limits_for_field,
+                strict=True,
+            ):
+                value = by_name[name]
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    or abs(float(value)) > limit + 1.0e-12
+                ):
+                    raise GoalValidationError(
+                        f"{name} declared {field} exceeds {limit}"
+                    )
         by_name = dict(zip(names, point.positions, strict=True))
         ordered_points.append(
             tuple(
@@ -233,13 +277,21 @@ def validate_buffered_trajectory(
         times.append(point.time_from_start_ns)
 
     if times[0] == 0:
-        maximum_start_error = max(
-            abs(value - actual)
-            for value, actual in zip(ordered_points[0], start, strict=True)
-        )
-        if maximum_start_error > start_tolerance_rad:
+        outside_start_tolerance = [
+            name
+            for name, value, actual, tolerance in zip(
+                expected,
+                ordered_points[0],
+                start,
+                start_tolerances,
+                strict=True,
+            )
+            if abs(value - actual) > tolerance
+        ]
+        if outside_start_tolerance:
             raise GoalValidationError(
-                "zero-time trajectory point exceeds fresh start tolerance"
+                "zero-time trajectory point exceeds fresh start tolerance: "
+                + ",".join(outside_start_tolerance)
             )
 
     previous_positions = start
@@ -287,12 +339,20 @@ def validate_buffered_trajectory(
         previous_time_ns = time_ns
         previous_velocity = velocities
 
+    rounded_duration_ms = (
+        (times[-1] + 19_999_999) // 20_000_000
+    ) * 20
+    if rounded_duration_ms < 300:
+        raise GoalValidationError(
+            "buffered trajectory duration must provide at least 300 ms"
+        )
+
     return ValidatedBufferedTrajectory(
         start_positions=start,
         ordered_points=tuple(ordered_points),
         time_from_start_ns=tuple(times),
         segment_velocities_rad_s=tuple(segment_velocities),
-        duration_ms=times[-1] // 1_000_000,
+        duration_ms=rounded_duration_ms,
     )
 
 

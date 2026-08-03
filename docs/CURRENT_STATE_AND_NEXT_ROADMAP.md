@@ -182,8 +182,9 @@ runtime·provenance 계약을 먼저 fail-closed로 고정한다. 실제 모델�
 
 ## 5. 바로 다음 작업
 
-Isaac policy 작업은 결정론적 한팔 기준선 뒤로 동결했다. Motion-1 host 계약,
-Motion-2 STM32 queue·보간과 Motion-3 dormant command route·확장 terminal codec·
-host-only timing 분석기까지 완료했다. 현재 운영값은 비어 있고 0x218 runtime은
-single-sample이다. 다음은 firmware route 연결과 Pi–VCP timing 실측, ROS adapter,
-mock/plan-only, 제한 실기 순서다. Git 조작은 사용자가 직접 수행한다.
+Isaac policy 작업은 결정론적 한팔 기준선 뒤로 동결했다. `0x00022100`
+buffered physical route와 bounded lateness, observable 단일 관절 실기는
+통과했다. 다중점 `FollowJointTrajectory`의 20 ms prime/refill/terminal/
+post-settle 경로도 로컬 연결과 전체 회귀를 마쳤다. 다음은 새 host의 Pi
+무동작 배포, 짧은 다중 관절 plan-only/제한 실기, q0 왕복, Pick pregrasp,
+연속 Pick/Place 순서다. Git 조작은 사용자가 직접 수행한다.

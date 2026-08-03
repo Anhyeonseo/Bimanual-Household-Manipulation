@@ -106,7 +106,7 @@ static void test_route_runs_and_encodes_status(void) {
     CHECK(actuator_buffered_command_decode(
         payload, make_payload(payload, 10u, offsets, positions, 2u),
         flags, &command) == ACTUATOR_BUFFERED_COMMAND_OK);
-    CHECK(actuator_buffered_command_route_init(&route, 2u, limits) ==
+    CHECK(actuator_buffered_command_route_init(&route, 2u, 0u, limits) ==
           ACTUATOR_BUFFERED_OK);
     CHECK(actuator_buffered_command_route_admit(&route, &command, 42u, 0u, 5u, 100u) ==
           ACTUATOR_BUFFERED_COMMAND_OK);
@@ -143,7 +143,7 @@ static void test_validation_refill_and_cancel_are_terminal(void) {
         payload, make_payload(payload, 10u, offsets, positions, 2u),
         ACTUATOR_BUFFERED_FLAG_CANDIDATE | ACTUATOR_BUFFERED_FLAG_BEGIN,
         &first) == ACTUATOR_BUFFERED_COMMAND_OK);
-    CHECK(actuator_buffered_command_route_init(&route, 1u, limits) ==
+    CHECK(actuator_buffered_command_route_init(&route, 1u, 0u, limits) ==
           ACTUATOR_BUFFERED_OK);
     CHECK(actuator_buffered_command_route_admit(&route, &first, 1u, 0u, 1u, 100u) ==
           ACTUATOR_BUFFERED_COMMAND_OK);
@@ -184,7 +184,7 @@ static void test_queue_underflow_requires_safe_stop(void) {
     CHECK(actuator_buffered_command_decode(
         payload, make_payload(payload, 10u, offsets, positions, 2u),
         flags, &command) == ACTUATOR_BUFFERED_COMMAND_OK);
-    CHECK(actuator_buffered_command_route_init(&route, 2u, limits) ==
+    CHECK(actuator_buffered_command_route_init(&route, 2u, 0u, limits) ==
           ACTUATOR_BUFFERED_OK);
     CHECK(actuator_buffered_command_route_admit(
         &route, &command, 7u, 0u, 5u, 100u) ==
@@ -220,7 +220,7 @@ static void test_missed_apply_tick_requires_safe_stop(void) {
     CHECK(actuator_buffered_command_decode(
         payload, make_payload(payload, 10u, offsets, positions, 2u),
         flags, &command) == ACTUATOR_BUFFERED_COMMAND_OK);
-    CHECK(actuator_buffered_command_route_init(&route, 2u, limits) ==
+    CHECK(actuator_buffered_command_route_init(&route, 2u, 0u, limits) ==
           ACTUATOR_BUFFERED_OK);
     CHECK(actuator_buffered_command_route_admit(
         &route, &command, 8u, 0u, 5u, 100u) ==

@@ -2,8 +2,7 @@
 
 This module has no ROS or serial side effects.  It produces deterministic
 batches and accounts for admission/terminal acknowledgements; ROS Action
-ownership remains deliberately disconnected from the local 0x00022000 physical
-execution candidate.
+ownership is connected through a separately testable runtime execution core.
 """
 
 from __future__ import annotations
@@ -23,13 +22,14 @@ from .protocol import BufferedSetpointFlags, BufferedSetpointSample, MotionResul
 UINT32_MAX = 0xFFFFFFFF
 UINT32_HALF_RANGE = 0x7FFFFFFF
 SAMPLE_PERIOD_MS = 20
-INITIAL_FIRST_SAMPLE_LEAD_MS = 100
+INITIAL_FIRST_SAMPLE_LEAD_MS = 140
 MINIMUM_LEAD_MS = 60
 MAXIMUM_LEAD_MS = 400
 STARTUP_PRIME_SAMPLES = 16
 LOW_WATERMARK_SAMPLES = 10
 REFILL_TARGET_SAMPLES = 16
 MAXIMUM_BATCH_SAMPLES = 9
+MAXIMUM_APPLY_LATENESS_MS = 5
 
 
 class BufferedActionAdapterError(RuntimeError):
@@ -245,11 +245,7 @@ class BufferedBatchScheduler:
             self._abort("queue_accounting_invalid")
             raise BufferedActionAdapterError("buffered queue accounting is invalid")
         if self._accepted == total:
-            self._state = (
-                BufferedAdapterState.SUCCEEDED
-                if self._applied == total
-                else BufferedAdapterState.INPUT_COMPLETE
-            )
+            self._state = BufferedAdapterState.INPUT_COMPLETE
             return None
 
         if self._state is BufferedAdapterState.PRIMING:
@@ -267,8 +263,21 @@ class BufferedBatchScheduler:
         count = min(MAXIMUM_BATCH_SAMPLES, needed, total - self._accepted)
         selected = self._plan.samples[self._accepted : self._accepted + count]
         try:
-            for sample in selected:
-                _checked_lead(sample.apply_tick_ms, current_tick_ms)
+            leads = tuple(
+                _tick_delta(sample.apply_tick_ms, current_tick_ms)
+                for sample in selected
+            )
+            if any(lead == 0 or lead > UINT32_HALF_RANGE for lead in leads):
+                raise BufferedActionAdapterError("buffered sample tick is stale")
+            if any(lead < MINIMUM_LEAD_MS for lead in leads):
+                raise BufferedActionAdapterError(
+                    "buffered sample lead is below 60 ms"
+                )
+            # A valid future batch may be outside the maximum horizon only
+            # because the host is polling early.  Wait without creating a
+            # pending frame; stale/late batches above remain fail-closed.
+            if any(lead > MAXIMUM_LEAD_MS for lead in leads):
+                return None
         except BufferedActionAdapterError:
             self._abort("batch_lead_outside_reviewed_window")
             raise
@@ -340,11 +349,9 @@ class BufferedBatchScheduler:
             self._refill_active = False
 
         if self._accepted == len(self._plan.samples):
-            self._state = (
-                BufferedAdapterState.SUCCEEDED
-                if self._applied == self._accepted
-                else BufferedAdapterState.INPUT_COMPLETE
-            )
+            # Admission/progress accounting is not a terminal.  Success is
+            # entered only by observe_terminal_motion_result().
+            self._state = BufferedAdapterState.INPUT_COMPLETE
 
     def acknowledge_motion_result(self, result: MotionResult) -> None:
         """Map one extended admission response without accepting legacy status."""
@@ -383,10 +390,28 @@ class BufferedBatchScheduler:
             and result.queue_result == 0
         )
         if not valid_envelope:
+            actual = {
+                "status_code": result.status_code,
+                "sample_count": result.sample_count,
+                "apply_tick_ms": result.apply_tick_ms,
+                "calibration_hash": f"0x{result.calibration_hash:08X}",
+                "executor_state": result.executor_state,
+                "terminal_reason": result.terminal_reason,
+                "safe_stop_required": result.safe_stop_required,
+                "queue_result": result.queue_result,
+                "queued_samples": result.queued_samples,
+                "accepted_samples": result.accepted_samples,
+                "applied_samples": result.applied_samples,
+            }
             self._pending = None
             self._abort("extended_ack_rejected_or_mismatched")
             raise BufferedActionAdapterError(
-                "extended buffered ACK rejected or mismatched"
+                "extended buffered ACK rejected or mismatched: "
+                f"expected_state={expected_state} "
+                f"expected_sample_count={pending.sample_count} "
+                f"expected_apply_tick={pending.first_apply_tick_ms} "
+                f"expected_calibration=0x{self._plan.calibration_hash:08X} "
+                f"actual={actual}"
             )
         self.acknowledge_batch(
             status_code=result.status_code,
@@ -439,6 +464,7 @@ class BufferedBatchScheduler:
             valid = (
                 reason == BufferedTerminalReason.NONE.value
                 and result.safe_stop_required is False
+                and 0 <= result.detail <= MAXIMUM_APPLY_LATENESS_MS
                 and self._accepted == len(self._plan.samples)
                 and self._applied == self._accepted
                 and result.queued_samples == 0
@@ -504,6 +530,24 @@ class BufferedBatchScheduler:
         elif self._applied == self._accepted:
             self._abort("queue_underflow")
             raise BufferedActionAdapterError("buffered queue underflow")
+
+    def record_clock_progress(self, applied_samples: int) -> None:
+        """Record conservative clock progress while still requiring terminal ACK."""
+
+        self._require_schedulable(allow_input_complete=True)
+        if (
+            isinstance(applied_samples, bool)
+            or not isinstance(applied_samples, int)
+            or not self._applied <= applied_samples <= self._accepted
+        ):
+            self._abort("clock_progress_invalid")
+            raise BufferedActionAdapterError("clock progress count is invalid")
+        self._applied = applied_samples
+        if self._applied == self._accepted < len(self._plan.samples):
+            self._abort("queue_underflow")
+            raise BufferedActionAdapterError("buffered queue underflow")
+        if self._accepted == len(self._plan.samples):
+            self._state = BufferedAdapterState.INPUT_COMPLETE
 
     def cancel(self) -> None:
         self._require_schedulable(allow_input_complete=True)

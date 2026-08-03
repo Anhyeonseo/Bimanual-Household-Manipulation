@@ -126,7 +126,20 @@ class ActuatorTransport:
         self._sequence = 1
         self.hello_info: Hello | None = None
         self._motion_results: deque[Any] = deque(maxlen=16)
+        self._buffered_motion_results: deque[Any] = deque(maxlen=4)
         self._io_lock = threading.RLock()
+
+    def _record_unsolicited_motion_result(self, frame: Frame) -> MotionResult:
+        result = parse_setpoint_status(frame.payload)
+        if result.status_code != 0:
+            self._motion_results.append(result)
+            if result.executor_state is not None:
+                from .buffered_transport_driver import BufferedExchangeResponse
+
+                self._buffered_motion_results.append(
+                    BufferedExchangeResponse(frame.sequence, result)
+                )
+        return result
 
     def _next_sequence(self) -> int:
         result = self._sequence
@@ -172,9 +185,8 @@ class ActuatorTransport:
             if frame.sequence == sequence and frame.message_type is message_type:
                 return frame
             if frame.message_type is MessageType.SETPOINT_STATUS:
-                result = parse_setpoint_status(frame.payload)
+                result = self._record_unsolicited_motion_result(frame)
                 if result.status_code != 0:
-                    self._motion_results.append(result)
                     if defer_state_after_motion_result:
                         # A valid terminal result proves that the link is alive,
                         # but the MCU may omit a GET_STATE response while final
@@ -198,9 +210,7 @@ class ActuatorTransport:
                 continue
             if frame.message_type is not MessageType.SETPOINT_STATUS:
                 continue
-            result = parse_setpoint_status(frame.payload)
-            if result.status_code != 0:
-                self._motion_results.append(result)
+            self._record_unsolicited_motion_result(frame)
 
     @_synchronized
     def drain_motion_results(self) -> list[Any]:
@@ -209,6 +219,15 @@ class ActuatorTransport:
         self._collect_available_motion_results()
         results = list(self._motion_results)
         self._motion_results.clear()
+        return results
+
+    @_synchronized
+    def drain_buffered_motion_results(self) -> list[Any]:
+        """Return queued extended terminals with their outer frame identity."""
+
+        self._collect_available_motion_results()
+        results = list(self._buffered_motion_results)
+        self._buffered_motion_results.clear()
         return results
 
     @_synchronized

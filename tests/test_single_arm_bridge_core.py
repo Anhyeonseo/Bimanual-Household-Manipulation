@@ -88,6 +88,35 @@ class FakeSerial:
             )
         )
 
+    def queue_buffered_terminal_motion_result(self) -> None:
+        self._responses.append(
+            encode_frame(
+                Frame(
+                    message_type=MessageType.SETPOINT_STATUS,
+                    sequence=78,
+                    sender_time_ms=1200,
+                    payload=struct.pack(
+                        "<BBBBIII" "BBBBHHII",
+                        6,
+                        0,
+                        3,
+                        0,
+                        78,
+                        1200,
+                        0x8AD27897,
+                        3,
+                        0,
+                        0,
+                        0,
+                        0,
+                        16,
+                        16,
+                        16,
+                    ),
+                )
+            )
+        )
+
     def reset_input_buffer(self) -> None:
         self._responses.clear()
 
@@ -110,7 +139,7 @@ class FakeSerial:
                 6,
                 0,
                 0,
-                0x00022000,
+                0x00022100,
                 0x8AD27897,
                 0x00000FFF,
                 0,
@@ -430,7 +459,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
     def test_transport_enters_binary_mode_and_reads_positions(self) -> None:
         transport = ActuatorTransport(FakeSerial(), response_timeout_s=0.01)
         hello = transport.enter_binary_mode()
-        self.assertEqual(hello.firmware_version, 0x00022000)
+        self.assertEqual(hello.firmware_version, 0x00022100)
         state = transport.get_state(include_positions=True)
         self.assertEqual(
             state.raw_positions,
@@ -608,6 +637,24 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
         self.assertEqual(results[0].status_code, 6)
         self.assertEqual(results[0].detail, 4)
         self.assertEqual(serial.get_state_request_count, 0)
+
+    def test_transport_preserves_buffered_terminal_outer_sequence(self) -> None:
+        serial = FakeSerial()
+        transport = ActuatorTransport(serial, response_timeout_s=0.01)
+        transport.enter_binary_mode()
+        serial.queue_buffered_terminal_motion_result()
+
+        buffered = transport.drain_buffered_motion_results()
+
+        self.assertEqual(len(buffered), 1)
+        self.assertEqual(buffered[0].frame_sequence, 78)
+        self.assertEqual(buffered[0].result.request_sequence, 78)
+        self.assertEqual(buffered[0].result.executor_state, 3)
+        self.assertEqual(buffered[0].result.accepted_samples, 16)
+        self.assertEqual(buffered[0].result.applied_samples, 16)
+        legacy = transport.drain_motion_results()
+        self.assertEqual(len(legacy), 1)
+        self.assertEqual(legacy[0].status_code, 6)
 
     def test_async_result_defers_state_to_next_feedback_cycle(self) -> None:
         serial = FakeSerial(

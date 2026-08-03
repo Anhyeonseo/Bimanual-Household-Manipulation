@@ -47,6 +47,8 @@ typedef struct {
     uint32_t accepted_samples;
     uint32_t applied_samples;
     uint32_t last_applied_tick;
+    uint32_t last_apply_lateness_ticks;
+    uint32_t maximum_apply_lateness_ticks;
     uint32_t terminal_tick;
     bool input_complete;
     bool safe_stop_required;
@@ -57,12 +59,14 @@ typedef struct {
     actuator_setpoint_t anchor;
     actuator_buffered_diagnostics_t diagnostics;
     size_t minimum_start_samples;
+    uint32_t maximum_apply_lateness_ticks;
     bool anchor_valid;
 } actuator_buffered_executor_t;
 
 actuator_buffered_result_t actuator_buffered_executor_init(
     actuator_buffered_executor_t *executor,
-    size_t minimum_start_samples);
+    size_t minimum_start_samples,
+    uint32_t maximum_apply_lateness_ticks);
 
 actuator_buffered_result_t actuator_buffered_executor_admit_batch(
     actuator_buffered_executor_t *executor,

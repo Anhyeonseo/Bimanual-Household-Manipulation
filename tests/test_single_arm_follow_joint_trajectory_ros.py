@@ -20,6 +20,7 @@ try:
     from trajectory_msgs.msg import JointTrajectoryPoint
 
     from single_arm_bridge.action_execution import MotionExecutionCore
+    from single_arm_bridge.action_execution import ExecutionOutcome, TerminalState
     from single_arm_bridge.calibration import load_calibration
     from single_arm_bridge.commanded_setpoint_state import CommandedSetpointState
     from single_arm_bridge.follow_joint_trajectory_server import (
@@ -84,6 +85,49 @@ if ROS_AVAILABLE:
             self.safe_stop_calls += 1
 
 
+    class FakeBufferedExecutionCore:
+        def __init__(self) -> None:
+            self.blocked = False
+            self.active = False
+            self.start_calls = []
+
+        def start_goal(self, trajectory, *, preserved_gripper_rad):
+            self.start_calls.append((trajectory, preserved_gripper_rad))
+            self.active = True
+
+        def poll(self):
+            self.active = False
+            return ExecutionOutcome(
+                TerminalState.SUCCEEDED,
+                900,
+                6,
+                2,
+                "buffered integration test completed",
+            )
+
+        def cancel_active_goal(self):
+            self.active = False
+            self.blocked = True
+            return ExecutionOutcome(
+                TerminalState.CANCELED,
+                900,
+                8,
+                None,
+                "buffered integration test canceled",
+            )
+
+        def handle_connection_loss(self, reason):
+            self.active = False
+            self.blocked = True
+            return ExecutionOutcome(
+                TerminalState.ABORTED,
+                900,
+                None,
+                None,
+                str(reason),
+            )
+
+
 @unittest.skipUnless(ROS_AVAILABLE, "ROS Jazzy environment is not sourced")
 class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
     @classmethod
@@ -105,7 +149,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
             1,
             6,
             False,
-            0x00022000,
+            0x00022100,
             0x8AD27897,
             0x00000FFF,
             0,
@@ -119,6 +163,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         self.positions = (0.0, 0.0, 0.0, 0.0, 0.0, 0.1)
         self.motion_arbiter = MotionGoalArbiter()
         self.setpoint_state = CommandedSetpointState()
+        self.buffered_core = FakeBufferedExecutionCore()
         self.adapter = FollowJointTrajectoryActionAdapter(
             self.server_node,
             self.core,
@@ -127,6 +172,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
             lambda: self.positions,
             motion_arbiter=self.motion_arbiter,
             setpoint_state=self.setpoint_state,
+            buffered_execution_core=self.buffered_core,
             action_name=self.action_name,
             poll_interval_s=0.005,
             completion_timeout_s=0.2,
@@ -176,6 +222,22 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         request.trajectory.points = [point]
         return request
 
+    def buffered_goal(self):
+        request = FollowJointTrajectory.Goal()
+        request.trajectory.joint_names = list(
+            self.calibration.ros_joint_names[:5]
+        )
+        start = JointTrajectoryPoint()
+        start.positions = [0.0] * 5
+        middle = JointTrajectoryPoint()
+        middle.positions = [0.02] * 5
+        middle.time_from_start.nanosec = 200_000_000
+        final = JointTrajectoryPoint()
+        final.positions = [0.04] * 5
+        final.time_from_start.nanosec = 400_000_000
+        request.trajectory.points = [start, middle, final]
+        return request
+
     def send_goal(self, goal, feedback_callback=None):
         return self.wait_future(
             self.client.send_goal_async(
@@ -223,6 +285,40 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status, GoalStatus.STATUS_SUCCEEDED)
         self.assertEqual(self.transport.send_calls[0][0][5], 130_000)
         self.assertAlmostEqual(self.setpoint_state.snapshot()[5], 0.13)
+
+    def test_multi_point_goal_routes_once_to_buffered_core(self) -> None:
+        self.setpoint_state.commit((0.0, 0.0, 0.0, 0.0, 0.0, 0.13))
+        goal_handle = self.send_goal(self.buffered_goal())
+        self.assertTrue(goal_handle.accepted)
+
+        response = self.wait_future(goal_handle.get_result_async())
+
+        self.assertEqual(response.status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(self.transport.send_calls, [])
+        self.assertEqual(len(self.buffered_core.start_calls), 1)
+        trajectory, gripper = self.buffered_core.start_calls[0]
+        self.assertEqual(trajectory.duration_ms, 400)
+        self.assertEqual(trajectory.ordered_points[-1], (0.04,) * 5)
+        self.assertAlmostEqual(gripper, 0.13)
+        self.assertEqual(
+            self.setpoint_state.snapshot(),
+            (0.04, 0.04, 0.04, 0.04, 0.04, 0.13),
+        )
+
+    def test_moveit_nanosecond_duration_is_rounded_to_next_sample(self) -> None:
+        request = self.buffered_goal()
+        request.trajectory.points[-1].time_from_start.nanosec = 401_000_000
+
+        goal_handle = self.send_goal(request)
+
+        self.assertTrue(goal_handle.accepted)
+        response = self.wait_future(goal_handle.get_result_async())
+        self.assertEqual(response.status, GoalStatus.STATUS_SUCCEEDED)
+        self.assertEqual(
+            self.buffered_core.start_calls[0][0].duration_ms,
+            420,
+        )
+        self.assertEqual(self.transport.send_calls, [])
 
     def test_recovery_thresholds_remain_20_raw(self) -> None:
         self.assertEqual(RECOVERY_FEEDBACK_OVERRUN_RAW, 20)

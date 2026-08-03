@@ -41,7 +41,7 @@ def function_body(source: str, signature: str) -> str:
 
 def hello(
     *,
-    firmware_version: int = 0x00022000,
+    firmware_version: int = 0x00022100,
     capabilities: int = 0x00000FFF,
 ) -> Hello:
     return Hello(
@@ -82,7 +82,7 @@ def test_identity_and_capability_are_fail_closed() -> None:
 
 
 def test_capability_is_removed_when_route_initialization_fails() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022000)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022100)" in CONFIG
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in CONFIG
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in CONFIG

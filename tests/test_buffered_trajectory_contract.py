@@ -87,12 +87,13 @@ def queue_model(**overrides) -> BufferedSetpointQueueModel:
 def test_machine_contract_is_mock_only_and_fail_closed() -> None:
     contract = load_buffered_trajectory_contract(CONTRACT_PATH)
 
-    assert contract["status"] == "LOCAL_PHYSICAL_EXECUTION_CANDIDATE"
+    assert contract["status"] == "LOCAL_ACTION_INTEGRATION_CANDIDATE"
     assert contract["motion_authorized"] is False
     assert contract["current_runtime"] == {
-        "firmware_supports_buffered_execution": False,
-        "action_adapter_supports_buffered_execution": False,
-        "maximum_accepted_sample_count": 1,
+        "firmware_supports_buffered_execution": True,
+        "action_adapter_supports_buffered_execution": True,
+        "maximum_accepted_sample_count": None,
+        "execution_mode": "streamed_20ms_batches",
     }
     assert contract["firmware_candidate"] == {
         "core_executor_implemented": True,
@@ -122,7 +123,10 @@ def test_machine_contract_is_mock_only_and_fail_closed() -> None:
     assert contract["host_adapter_candidate"] == {
         "multi_point_validation_reused": True,
         "linear_resampling_period_ms": 20,
-        "initial_first_sample_lead_ms": 100,
+        "initial_first_sample_lead_ms": 140,
+        "physical_uart_baud": 115200,
+        "startup_prime_wire_lower_bound_ms": 87.674,
+        "startup_anchor_wire_margin_ms": 32.326,
         "fresh_start_wire_sample_included": True,
         "firmware_anchor_lead_ms": 80,
         "firmware_anchor_source": "validated_t0_wire_sample",
@@ -139,24 +143,45 @@ def test_machine_contract_is_mock_only_and_fail_closed() -> None:
         "mock_exchange_driver_implemented": True,
         "response_sequence_gate": True,
         "automatic_retransmission": False,
-        "ros_action_server_connected": False,
+        "clock_progress_source": (
+            "firmware_heartbeat_tick_after_5ms_lateness_margin"
+        ),
+        "clock_progress_cannot_create_success": True,
+        "firmware_terminal_required": True,
+        "ros_action_server_connected": True,
         "transport_execution_connected": True,
         "motion_authorized": False,
     }
     assert contract["physical_execution_candidate"] == {
-        "firmware_version": "0x00022000",
+        "firmware_version": "0x00022100",
         "capabilities": "0x00000FFF",
         "validation_route_preserved": True,
         "execution_route_separate": True,
         "fresh_t0_anchor_without_servo_read_sweep": True,
         "executor_step_period_ms": 1,
         "servo_sync_write_period_ms": 5,
+        "validation_maximum_apply_lateness_ms": 0,
+        "execution_maximum_apply_lateness_ms": 5,
+        "lateness_exceeded_action": "missed_apply_tick_safe_stop",
+        "success_terminal_detail": "maximum_apply_lateness_ms",
         "sample_period_ms": 20,
         "minimum_lead_ms": 60,
         "maximum_lead_ms": 400,
         "startup_prime_depth_samples": 16,
         "terminal_safe_stop_mapping": True,
-        "ros_action_server_connected": False,
+        "firmware_terminal_scope": "setpoint_application_complete",
+        "host_success_requires_post_settle": True,
+        "post_settle_tolerance_raw": 30,
+        "post_settle_consecutive_snapshots": 2,
+        "commissioning_observable_motion_gate": True,
+        "commissioning_minimum_command_delta_raw": 16,
+        "commissioning_minimum_directional_progress_raw": 10,
+        "commissioning_selected_joint_target_tolerance_raw": 8,
+        "commissioning_other_axis_tolerance_raw": 30,
+        "commissioning_tool_disables_after_attempt": True,
+        "failed_attempt_disable_confirmation": "disable_ack_latch_preserved",
+        "commissioning_motion_passed": True,
+        "ros_action_server_connected": True,
         "deployed": False,
         "motion_authorized": False,
     }
@@ -172,13 +197,30 @@ def test_machine_contract_cannot_enable_motion(tmp_path: Path) -> None:
         load_buffered_trajectory_contract(path)
 
 
-def test_machine_contract_cannot_claim_runtime_support(tmp_path: Path) -> None:
+def test_machine_contract_cannot_disconnect_action_runtime(tmp_path: Path) -> None:
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-    contract["current_runtime"]["firmware_supports_buffered_execution"] = True
+    contract["current_runtime"]["action_adapter_supports_buffered_execution"] = False
     path = tmp_path / "contract.json"
     path.write_text(json.dumps(contract), encoding="utf-8")
 
-    with pytest.raises(BufferedTrajectoryContractError, match="runtime gate"):
+    with pytest.raises(BufferedTrajectoryContractError, match="streamed Action"):
+        load_buffered_trajectory_contract(path)
+
+
+def test_machine_contract_cannot_equate_terminal_with_servo_settle(
+    tmp_path: Path,
+) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    contract["physical_execution_candidate"][
+        "host_success_requires_post_settle"
+    ] = False
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+
+    with pytest.raises(
+        BufferedTrajectoryContractError,
+        match="physical execution candidate",
+    ):
         load_buffered_trajectory_contract(path)
 
 
@@ -219,7 +261,7 @@ def test_g474_identity_advertises_separate_validation_and_execution_routes() -> 
         / "binary_control.c"
     ).read_text(encoding="utf-8")
 
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022000)" in config
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022100)" in config
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in config
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in config
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in config
@@ -287,8 +329,8 @@ def test_multi_point_requires_two_points_and_strict_millisecond_time(
         point(0.0, 0),
         TrajectoryPointData((0.01,) * 5, 500_000_001),
     ]
-    with pytest.raises(GoalValidationError, match="integer milliseconds"):
-        validate(arm_contract, non_millisecond)
+    validated = validate(arm_contract, non_millisecond)
+    assert validated.duration_ms == 520
 
 
 def test_zero_time_point_must_match_fresh_feedback(arm_contract) -> None:
@@ -298,7 +340,9 @@ def test_zero_time_point_must_match_fresh_feedback(arm_contract) -> None:
         validate(arm_contract, points)
 
 
-def test_dynamic_fields_are_never_silently_discarded(arm_contract) -> None:
+def test_moveit_dynamic_fields_are_validated_before_position_resampling(
+    arm_contract,
+) -> None:
     points = [
         point(0.0, 0),
         TrajectoryPointData(
@@ -308,8 +352,29 @@ def test_dynamic_fields_are_never_silently_discarded(arm_contract) -> None:
         ),
     ]
 
-    with pytest.raises(GoalValidationError, match="does not accept velocity"):
-        validate(arm_contract, points)
+    assert validate(arm_contract, points).duration_ms == 1000
+
+    invalid = [
+        point(0.0, 0),
+        TrajectoryPointData(
+            (0.01,) * 5,
+            1_000_000_000,
+            velocities=(0.51,) * 5,
+        ),
+    ]
+    with pytest.raises(GoalValidationError, match="declared velocity exceeds"):
+        validate(arm_contract, invalid)
+
+    effort = [
+        point(0.0, 0),
+        TrajectoryPointData(
+            (0.01,) * 5,
+            1_000_000_000,
+            effort=(0.0,) * 5,
+        ),
+    ]
+    with pytest.raises(GoalValidationError, match="effort"):
+        validate(arm_contract, effort)
 
 
 def test_segment_velocity_and_acceleration_limits_are_enforced(

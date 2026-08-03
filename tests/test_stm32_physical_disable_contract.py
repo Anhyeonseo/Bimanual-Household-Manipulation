@@ -153,7 +153,7 @@ class Stm32PhysicalDisableContractTest(unittest.TestCase):
 
     def test_safety_change_bumps_firmware_identity(self):
         self.assertIn(
-            "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022000)",
+            "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022100)",
             CONFIG_HEADER,
         )
 

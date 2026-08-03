@@ -76,7 +76,7 @@ def test_partial_write_reply_drain_is_removed() -> None:
 
 
 def test_identity_and_failure_payload_advertise_recovery_diagnostics() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022000)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022100)" in CONFIG
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
     assert "response.payload_length = 40U;" in BINARY
     assert "ServoBus_GetDiagnostics()" in BINARY
