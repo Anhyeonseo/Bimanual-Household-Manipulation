@@ -258,30 +258,58 @@ class BufferedActionExecutionCore:
         consecutive = 0
         maximum = 0
         last_error = 0
+        observations = 0
         while time.monotonic() < deadline:
-            diagnostics = self._transport.get_diagnostics()
-            if any(not sample.torque_enabled for sample in diagnostics.joints):
-                raise ExecutionError(
-                    "torque disabled before post-settle verification"
-                )
+            state = self._transport.get_state(include_positions=True)
+            if state.raw_positions is None:
+                raise ExecutionError("position-only post-settle feedback is missing")
             errors = tuple(
-                abs(sample.position_raw - target)
-                for sample, target in zip(diagnostics.joints, targets, strict=True)
+                abs(position - target)
+                for position, target in zip(
+                    state.raw_positions,
+                    targets,
+                    strict=True,
+                )
             )
+            observations += 1
             last_error = max(errors)
             if last_error <= POST_SETTLE_TOLERANCE_RAW:
                 consecutive += 1
                 maximum = max(maximum, last_error)
                 if consecutive >= POST_SETTLE_CONSECUTIVE_SNAPSHOTS:
-                    return maximum
+                    break
             else:
                 consecutive = 0
                 maximum = 0
             time.sleep(self._post_settle_poll_interval_s)
-        raise ExecutionError(
-            f"maximum error {last_error} did not settle within "
-            f"{POST_SETTLE_TOLERANCE_RAW} raw"
+        else:
+            raise ExecutionError(
+                f"last maximum error {last_error} did not provide "
+                f"{POST_SETTLE_CONSECUTIVE_SNAPSHOTS} consecutive "
+                f"position-only snapshots within "
+                f"{POST_SETTLE_TOLERANCE_RAW} raw; "
+                f"observations={observations} consecutive={consecutive}"
+            )
+
+        diagnostics = self._transport.get_diagnostics()
+        if any(not sample.torque_enabled for sample in diagnostics.joints):
+            raise ExecutionError(
+                "torque disabled before final full diagnostics verification"
+            )
+        diagnostic_error = max(
+            abs(sample.position_raw - target)
+            for sample, target in zip(
+                diagnostics.joints,
+                targets,
+                strict=True,
+            )
         )
+        if diagnostic_error > POST_SETTLE_TOLERANCE_RAW:
+            raise ExecutionError(
+                f"final full diagnostics maximum error {diagnostic_error} "
+                f"exceeds {POST_SETTLE_TOLERANCE_RAW} raw"
+            )
+        return max(maximum, diagnostic_error)
 
     def _abort_active(
         self,

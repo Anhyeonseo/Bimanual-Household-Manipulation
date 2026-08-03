@@ -305,7 +305,13 @@
   lateness는 `4 ms`, firmware/독립 readback 최대 오차는 모두 `6 raw`, 자동
   재시도는 0회였고 6축 physical DISABLE도 확인했다. buffered Action 경로는
   `PHYSICAL_ACTION_COMMISSIONED`지만 일반 작업 권한 `motion_authorized=false`는
-  유지한다. 다음 gate는 q0 왕복, Pick pregrasp, 연속 Pick/Place 순이다.
+  유지한다. Motion-10의 첫 q0 왕복은 물리 경로와 복귀를 완료했지만 희소한
+  9개 waypoint의 선형 연결로 전 구간 가시적 떨림이 있었고, 마지막 오차가
+  `19 raw`인데도 느린 전체 진단 반복 때문에 host post-settle이 abort했다.
+  자동 재시도는 0회였다. 수정 후보는 20 ms 간격의 해석적 quintic
+  minimum-jerk `201`점을 직접 보내며, position-only 상태 2회 뒤 전체 진단
+  1회만 수행한다. 전체 로컬 회귀 뒤 Shoulder/Elbow 축별 추종, q0 왕복,
+  Pick pregrasp와 연속 Pick/Place 순으로 다시 gate한다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정
 - 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반

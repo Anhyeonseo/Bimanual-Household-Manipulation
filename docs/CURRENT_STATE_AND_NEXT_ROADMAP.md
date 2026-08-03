@@ -31,8 +31,11 @@
 
 - 기존 single-point 정착형 실행은 생산용 연속 trajectory가 아니었다.
   현재 G474 buffered physical route와 ROS multi-point Action을 Pi에 배포했고
-  소형 다중 관절 왕복 실기를 통과했다. 다만 q0·Pick pregrasp·전체
-  Pick/Place 연속경로와 반복성 시험은 아직 남아 있다.
+  소형 다중 관절 왕복 실기를 통과했다. 첫 q0 왕복은 물리적으로 완료됐지만
+  희소 waypoint의 속도 불연속으로 전 구간 떨림이 있었고 host post-settle도
+  오탐성 abort했다. 해석적 quintic 201점과 position-only 정착 판정 수정은
+  로컬 후보이며, 축별 추종·q0 재시험·Pick/Place 연속경로와 반복성 시험은
+  아직 남아 있다.
 - Place 높이는 실제 안착에서 총 10 mm 추가 하강이 필요해 Pick/Place 접촉
   offset을 분리해 다시 계측해야 한다.
 - 반사·무늬 배경의 검은 펜 holdout에서 legacy 명도 임계값 검출기는
@@ -100,8 +103,10 @@ STM32
    `0x00022100 / 0x00000FFF`에서 bounded lateness, observable 단일 관절과
    Motion-9 다중 관절 buffered Action 왕복 실기를 통과했다. Action 1회,
    61 samples, 최대 apply lateness `4 ms`, 독립 복귀 오차 `6 raw`였으며
-   `motion_authorized=false`는 유지한다. 다음은 q0 왕복과 Pick pregrasp를
-   같은 연속 경로로 확대하는 것이다.
+   `motion_authorized=false`는 유지한다. 첫 q0 왕복의 실제 이동과 복귀는
+   완료됐지만 가시적 떨림과 post-settle abort로 부분 실패했다. 다음은 dense
+   quintic 계획과 빠른 position-only 정착 판정의 로컬·Pi gate, Shoulder/Elbow
+   축별 추종, q0 재시험과 Pick pregrasp 확대 순이다.
 3. Pick/Place TCP-to-contact offset을 분리하고 Place 후보 0.015 m를 다시 계측한다.
 4. 반사·무늬 배경 holdout과 legacy 실패 기준선을 고정하고 별도 학습
    데이터로 경량 YOLO-OBB를 학습·ONNX export했다. 같은 holdout과 Pi 5

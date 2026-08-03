@@ -173,6 +173,8 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
         "host_success_requires_post_settle": True,
         "post_settle_tolerance_raw": 30,
         "post_settle_consecutive_snapshots": 2,
+        "post_settle_position_source": "position_only_get_state",
+        "post_settle_full_diagnostics_after_position_gate": 1,
         "commissioning_observable_motion_gate": True,
         "commissioning_minimum_command_delta_raw": 16,
         "commissioning_minimum_directional_progress_raw": 10,
