@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "contract_kind": "so101_isaac_joint_contract",
+  "status": "gate1_confirmed",
+  "arm": "left",
+  "unit": "deg",
+  "source": {
+    "limits": "isaac_sim/assets/so101_new_calib/payloads/Physics/physics.usda",
+    "default_candidate": "isaac_sim/README.md (arm target 0 deg, gripper target -10 deg)",
+    "note": "limits here are the Isaac Sim asset's authored PhysX joint limits, not the real-hardware conservative software limits in config/single_arm_calibration.json. Confirm both stay compatible before sim-to-real deployment."
+  },
+  "joint_order": [
+    "shoulder_pan",
+    "shoulder_lift",
+    "elbow_flex",
+    "wrist_flex",
+    "wrist_roll",
+    "gripper"
+  ],
+  "joints": {
+    "shoulder_pan": {
+      "lower_deg": -109.99988,
+      "upper_deg": 109.99988,
+      "default_deg_candidate": 0.0,
+      "gui_confirmed_positive_direction": "clockwise viewed from behind the robot (rear joint side)",
+      "gui_confirmed_default_deg": 0.0
+    },
+    "shoulder_lift": {
+      "lower_deg": -10.000043,
+      "upper_deg": 190.00005,
+      "default_deg_candidate": 0.0,
+      "gui_confirmed_positive_direction": "arm lifts upward",
+      "gui_confirmed_default_deg": 0.0
+    },
+    "elbow_flex": {
+      "lower_deg": -151.82986,
+      "upper_deg": 41.82987,
+      "default_deg_candidate": 0.0,
+      "gui_confirmed_positive_direction": "flexes more closed (upper-arm/forearm link gap narrows, not a lift)",
+      "gui_confirmed_default_deg": 0.0
+    },
+    "wrist_flex": {
+      "lower_deg": -159.89812,
+      "upper_deg": 30.101559,
+      "default_deg_candidate": 0.0,
+      "gui_confirmed_positive_direction": "wrist curls further inward",
+      "gui_confirmed_default_deg": 0.0
+    },
+    "wrist_roll": {
+      "lower_deg": -247.21103,
+      "upper_deg": 72.78934,
+      "default_deg_candidate": 0.0,
+      "gui_confirmed_positive_direction": "counterclockwise, looking along the robot's forward-facing direction",
+      "gui_confirmed_default_deg": 0.0
+    },
+    "gripper": {
+      "lower_deg": -10.000004,
+      "upper_deg": 100.000046,
+      "default_deg_candidate": -10.0,
+      "gui_confirmed_positive_direction": "gripper opens",
+      "gui_confirmed_default_deg": -10.0
+    }
+  }
+}
