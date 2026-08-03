@@ -17,10 +17,15 @@ from single_arm_bridge.buffered_action_adapter import (  # noqa: E402
     BufferedActionAdapterError,
     BufferedAdapterState,
     BufferedBatchScheduler,
+    BufferedExecutorState,
+    BufferedTerminalReason,
     prepare_buffered_execution_plan,
 )
 from single_arm_bridge.calibration import load_calibration  # noqa: E402
-from single_arm_bridge.protocol import BufferedSetpointFlags  # noqa: E402
+from single_arm_bridge.protocol import (  # noqa: E402
+    BufferedSetpointFlags,
+    MotionResult,
+)
 
 
 CALIBRATION_PATH = PACKAGE_ROOT / "config" / "single_arm_calibration.json"
@@ -84,6 +89,38 @@ def prime(value: BufferedBatchScheduler, *, current_tick_ms: int = 1_000):
     assert second is not None
     ack_pending(value, second, applied=0)
     return first, second
+
+
+def extended_result(
+    *,
+    status: int,
+    sample_count: int,
+    apply_tick_ms: int,
+    executor_state: int,
+    terminal_reason: int,
+    safe_stop_required: bool,
+    queued: int,
+    accepted: int,
+    applied: int,
+    calibration_hash: int = 0x8AD27897,
+) -> MotionResult:
+    return MotionResult(
+        status_code=status,
+        sample_count=sample_count,
+        safety_state=3,
+        detail=0,
+        request_sequence=123,
+        apply_tick_ms=apply_tick_ms,
+        calibration_hash=calibration_hash,
+        executor_state=executor_state,
+        terminal_reason=terminal_reason,
+        safe_stop_required=safe_stop_required,
+        queue_result=0,
+        queued_samples=queued,
+        peak_queued_samples=16,
+        accepted_samples=accepted,
+        applied_samples=applied,
+    )
 
 
 def test_resamples_at_20ms_with_100ms_initial_lead_and_preserves_gripper() -> None:
@@ -242,3 +279,149 @@ def test_uint32_tick_wrap_preserves_lead_and_offsets() -> None:
     assert first is not None
     assert first.first_apply_tick_ms == 20
     assert first.samples[-1].tick_offset_ms == 160
+
+
+def test_extended_motion_result_ack_maps_priming_then_running() -> None:
+    _, value = scheduler()
+    first = value.next_batch(current_tick_ms=1_000)
+    assert first is not None
+    value.acknowledge_motion_result(
+        extended_result(
+            status=0,
+            sample_count=9,
+            apply_tick_ms=first.first_apply_tick_ms,
+            executor_state=BufferedExecutorState.PRIMING.value,
+            terminal_reason=BufferedTerminalReason.NONE.value,
+            safe_stop_required=False,
+            queued=9,
+            accepted=9,
+            applied=0,
+        )
+    )
+    second = value.next_batch(current_tick_ms=1_018)
+    assert second is not None
+    value.acknowledge_motion_result(
+        extended_result(
+            status=0,
+            sample_count=7,
+            apply_tick_ms=second.first_apply_tick_ms,
+            executor_state=BufferedExecutorState.RUNNING.value,
+            terminal_reason=BufferedTerminalReason.NONE.value,
+            safe_stop_required=False,
+            queued=16,
+            accepted=16,
+            applied=0,
+        )
+    )
+    assert value.state is BufferedAdapterState.RUNNING
+
+
+@pytest.mark.parametrize(
+    ("change", "expected_reason"),
+    [
+        ({"status": 1}, "extended_ack_rejected_or_mismatched"),
+        ({"sample_count": 8}, "extended_ack_rejected_or_mismatched"),
+        ({"calibration_hash": 0xDEADBEEF}, "extended_ack_rejected_or_mismatched"),
+        ({"executor_state": BufferedExecutorState.RUNNING.value},
+         "extended_ack_rejected_or_mismatched"),
+        ({"safe_stop_required": True}, "extended_ack_rejected_or_mismatched"),
+    ],
+)
+def test_extended_ack_mismatch_aborts_without_retransmission(
+    change,
+    expected_reason,
+) -> None:
+    _, value = scheduler()
+    batch = value.next_batch(current_tick_ms=1_000)
+    assert batch is not None
+    fields = {
+        "status": 0,
+        "sample_count": 9,
+        "apply_tick_ms": batch.first_apply_tick_ms,
+        "executor_state": BufferedExecutorState.PRIMING.value,
+        "terminal_reason": BufferedTerminalReason.NONE.value,
+        "safe_stop_required": False,
+        "queued": 9,
+        "accepted": 9,
+        "applied": 0,
+    }
+    fields.update(change)
+    with pytest.raises(BufferedActionAdapterError, match="extended buffered ACK"):
+        value.acknowledge_motion_result(extended_result(**fields))
+    assert value.snapshot().reason == expected_reason
+    assert value.snapshot().pending_batch is False
+
+
+def test_transport_timeout_discards_pending_batch_and_aborts_once() -> None:
+    _, value = scheduler()
+    value.next_batch(current_tick_ms=1_000)
+    value.transport_failure("setpoint_status_timeout")
+
+    snapshot = value.snapshot()
+    assert snapshot.state is BufferedAdapterState.ABORTED
+    assert snapshot.pending_batch is False
+    assert snapshot.reason == "setpoint_status_timeout"
+    with pytest.raises(BufferedActionAdapterError, match="terminal"):
+        value.next_batch(current_tick_ms=1_020)
+
+
+def test_extended_success_terminal_requires_all_samples_applied() -> None:
+    plan, value = scheduler(duration_ms=320)
+    prime(value)
+    value.observe_terminal_motion_result(
+        extended_result(
+            status=6,
+            sample_count=0,
+            apply_tick_ms=plan.samples[-1].apply_tick_ms,
+            executor_state=BufferedExecutorState.SUCCEEDED.value,
+            terminal_reason=BufferedTerminalReason.NONE.value,
+            safe_stop_required=False,
+            queued=0,
+            accepted=16,
+            applied=16,
+        )
+    )
+    assert value.state is BufferedAdapterState.SUCCEEDED
+
+
+def test_extended_underflow_terminal_clears_queue_and_requires_safe_stop() -> None:
+    plan, value = scheduler()
+    prime(value)
+    value.record_applied(10)
+    value.observe_terminal_motion_result(
+        extended_result(
+            status=6,
+            sample_count=0,
+            apply_tick_ms=plan.samples[10].apply_tick_ms,
+            executor_state=BufferedExecutorState.HOLD.value,
+            terminal_reason=BufferedTerminalReason.QUEUE_UNDERFLOW.value,
+            safe_stop_required=True,
+            queued=0,
+            accepted=16,
+            applied=10,
+        )
+    )
+    snapshot = value.snapshot()
+    assert snapshot.state is BufferedAdapterState.HOLD
+    assert snapshot.safe_stop_required is True
+    assert snapshot.reason == "queue_underflow"
+
+
+def test_terminal_state_reason_or_safe_stop_mismatch_aborts() -> None:
+    plan, value = scheduler()
+    prime(value)
+    with pytest.raises(BufferedActionAdapterError, match="state and reason"):
+        value.observe_terminal_motion_result(
+            extended_result(
+                status=6,
+                sample_count=0,
+                apply_tick_ms=plan.samples[5].apply_tick_ms,
+                executor_state=BufferedExecutorState.HOLD.value,
+                terminal_reason=BufferedTerminalReason.QUEUE_UNDERFLOW.value,
+                safe_stop_required=False,
+                queued=0,
+                accepted=16,
+                applied=5,
+            )
+        )
+    assert value.state is BufferedAdapterState.ABORTED

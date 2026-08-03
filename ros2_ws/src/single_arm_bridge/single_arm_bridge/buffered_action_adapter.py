@@ -16,7 +16,7 @@ from .action_validation import (
     interpolate_buffered_trajectory,
 )
 from .calibration import ArmCalibration
-from .protocol import BufferedSetpointFlags, BufferedSetpointSample
+from .protocol import BufferedSetpointFlags, BufferedSetpointSample, MotionResult
 
 
 UINT32_MAX = 0xFFFFFFFF
@@ -40,8 +40,28 @@ class BufferedAdapterState(Enum):
     RUNNING = "running"
     INPUT_COMPLETE = "input_complete"
     SUCCEEDED = "succeeded"
+    HOLD = "hold"
     CANCELED = "canceled"
     ABORTED = "aborted"
+
+
+class BufferedExecutorState(Enum):
+    PRIMING = 0
+    RUNNING = 1
+    HOLD = 2
+    SUCCEEDED = 3
+    CANCELED = 4
+    ABORTED = 5
+
+
+class BufferedTerminalReason(Enum):
+    NONE = 0
+    PLANNED_HOLD = 1
+    OPERATOR_CANCEL = 2
+    QUEUE_UNDERFLOW = 3
+    MISSED_APPLY_TICK = 4
+    CONNECTION_LOSS = 5
+    TRACKING_ERROR = 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +79,7 @@ class BufferedExecutionPlan:
     samples: tuple[ScheduledBufferedSample, ...]
     final_arm_positions_rad: tuple[float, ...]
     preserved_gripper_rad: float
+    calibration_hash: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +183,7 @@ def prepare_buffered_execution_plan(
         samples=tuple(samples),
         final_arm_positions_rad=trajectory.ordered_points[-1],
         preserved_gripper_rad=float(preserved_gripper_rad),
+        calibration_hash=calibration.calibration_hash,
     )
 
 
@@ -317,6 +339,147 @@ class BufferedBatchScheduler:
                 if self._applied == self._accepted
                 else BufferedAdapterState.INPUT_COMPLETE
             )
+
+    def acknowledge_motion_result(self, result: MotionResult) -> None:
+        """Map one extended admission response without accepting legacy status."""
+
+        self._require_schedulable()
+        pending = self._pending
+        if pending is None:
+            self._abort("unexpected_ack")
+            raise BufferedActionAdapterError("buffered ACK has no pending batch")
+        expected_state = (
+            BufferedExecutorState.RUNNING.value
+            if (
+                BufferedSetpointFlags.START in pending.flags
+                or self._state is BufferedAdapterState.RUNNING
+            )
+            else BufferedExecutorState.PRIMING.value
+        )
+        extended = (
+            result.executor_state is not None
+            and result.terminal_reason is not None
+            and result.safe_stop_required is not None
+            and result.queue_result is not None
+            and result.queued_samples is not None
+            and result.accepted_samples is not None
+            and result.applied_samples is not None
+        )
+        valid_envelope = (
+            extended
+            and result.status_code == 0
+            and result.sample_count == pending.sample_count
+            and result.apply_tick_ms == pending.first_apply_tick_ms
+            and result.calibration_hash == self._plan.calibration_hash
+            and result.executor_state == expected_state
+            and result.terminal_reason == BufferedTerminalReason.NONE.value
+            and result.safe_stop_required is False
+            and result.queue_result == 0
+        )
+        if not valid_envelope:
+            self._pending = None
+            self._abort("extended_ack_rejected_or_mismatched")
+            raise BufferedActionAdapterError(
+                "extended buffered ACK rejected or mismatched"
+            )
+        self.acknowledge_batch(
+            status_code=result.status_code,
+            accepted_samples=result.accepted_samples,
+            applied_samples=result.applied_samples,
+            queued_samples=result.queued_samples,
+        )
+
+    def observe_terminal_motion_result(self, result: MotionResult) -> None:
+        """Map a future asynchronous terminal result into one host terminal."""
+
+        self._require_schedulable(allow_input_complete=True)
+        if self._pending is not None:
+            self._pending = None
+            self._abort("terminal_while_batch_pending")
+            raise BufferedActionAdapterError(
+                "terminal result arrived while a batch ACK was pending"
+            )
+        extended = all(
+            value is not None
+            for value in (
+                result.executor_state,
+                result.terminal_reason,
+                result.safe_stop_required,
+                result.queue_result,
+                result.queued_samples,
+                result.accepted_samples,
+                result.applied_samples,
+            )
+        )
+        accounting_valid = (
+            extended
+            and result.status_code == 6
+            and result.calibration_hash == self._plan.calibration_hash
+            and result.accepted_samples == self._accepted
+            and result.applied_samples is not None
+            and self._applied <= result.applied_samples <= self._accepted
+            and result.queued_samples == 0
+        )
+        if not accounting_valid:
+            self._abort("terminal_status_rejected_or_mismatched")
+            raise BufferedActionAdapterError(
+                "extended buffered terminal status is invalid"
+            )
+
+        self._applied = result.applied_samples
+        state = result.executor_state
+        reason = result.terminal_reason
+        if state == BufferedExecutorState.SUCCEEDED.value:
+            valid = (
+                reason == BufferedTerminalReason.NONE.value
+                and result.safe_stop_required is False
+                and self._accepted == len(self._plan.samples)
+                and self._applied == self._accepted
+                and result.queued_samples == 0
+            )
+            target = BufferedAdapterState.SUCCEEDED
+        elif state == BufferedExecutorState.HOLD.value:
+            valid = reason in (
+                BufferedTerminalReason.PLANNED_HOLD.value,
+                BufferedTerminalReason.QUEUE_UNDERFLOW.value,
+                BufferedTerminalReason.MISSED_APPLY_TICK.value,
+            )
+            valid = valid and result.safe_stop_required is (
+                reason != BufferedTerminalReason.PLANNED_HOLD.value
+            )
+            target = BufferedAdapterState.HOLD
+        elif state == BufferedExecutorState.CANCELED.value:
+            valid = (
+                reason == BufferedTerminalReason.OPERATOR_CANCEL.value
+                and result.safe_stop_required is True
+            )
+            target = BufferedAdapterState.CANCELED
+        elif state == BufferedExecutorState.ABORTED.value:
+            valid = reason in (
+                BufferedTerminalReason.CONNECTION_LOSS.value,
+                BufferedTerminalReason.TRACKING_ERROR.value,
+            ) and result.safe_stop_required is True
+            target = BufferedAdapterState.ABORTED
+        else:
+            valid = False
+            target = BufferedAdapterState.ABORTED
+        if not valid:
+            self._abort("terminal_state_reason_mismatch")
+            raise BufferedActionAdapterError(
+                "buffered terminal state and reason do not match"
+            )
+        self._state = target
+        self._safe_stop_required = bool(result.safe_stop_required)
+        self._reason = BufferedTerminalReason(reason).name.lower()
+
+    def transport_failure(self, reason: str = "transport_failure") -> None:
+        """Abort a timeout/disconnect once; no pending frame is retained."""
+
+        self._require_schedulable(allow_input_complete=True)
+        if not isinstance(reason, str) or not reason:
+            raise ValueError("transport failure reason must be non-empty")
+        self._pending = None
+        self._abort(reason)
 
     def record_applied(self, applied_samples: int) -> None:
         """Record monotonic firmware progress and detect an actual underflow."""

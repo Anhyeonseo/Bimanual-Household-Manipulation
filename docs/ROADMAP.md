@@ -281,6 +281,13 @@
   host 스케줄러를 구현했다. 80 ms outage의 9+2 refill, ACK 불일치, late lead,
   underflow, cancel과 uint32 wrap mock을 통과했다. ROS Action·serial execution은
   아직 미연결이고 `motion_authorized=false`다.
+- 2026-08-03 Motion-6 status mapping: 32-byte extended admission ACK와
+  SUCCEEDED/HOLD/CANCELED/ABORTED terminal의 state·reason·safe-stop 조합을
+  host scheduler에 연결했다. timeout·legacy/mismatch는 pending frame을 폐기하고
+  무재전송 abort한다. transport send와 physical route는 아직 미연결이다.
+- 2026-08-03 Motion-7 mock transport: batch binary encode, one-shot exchange,
+  outer/payload sequence 일치, timeout·legacy response·terminal-before-ACK
+  fail-closed를 mock port에서 검증했다. 실제 serial method는 미연결이다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정
 - 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반
