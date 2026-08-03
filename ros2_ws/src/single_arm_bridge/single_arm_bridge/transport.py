@@ -40,6 +40,7 @@ DIAGNOSTIC_RESPONSE_TIMEOUT_S = 0.5
 DIAGNOSTIC_CAPABILITY = 0x00000010
 HEARTBEAT_RESPONSE_TIMEOUT_S = 0.25
 BUFFERED_VALIDATION_ROUTE_CAPABILITY = 0x00000400
+BUFFERED_EXECUTION_ROUTE_CAPABILITY = 0x00000800
 
 
 class TransportError(RuntimeError):
@@ -474,6 +475,54 @@ class ActuatorTransport:
                 "buffered validation response does not prove no-motion state"
             )
         return result
+
+    @_synchronized
+    def exchange_buffered_command(
+        self,
+        command: Any,
+        *,
+        timeout_s: float,
+    ) -> Any:
+        """Exchange one physical buffered frame exactly once.
+
+        Admission rejection remains a parsed response for the scheduler to
+        classify.  Transport failures raise without any automatic resend.
+        """
+        from .buffered_transport_driver import BufferedExchangeResponse
+
+        hello = self.hello_info
+        if hello is None:
+            raise TransportError(
+                "buffered execution requires a completed HELLO"
+            )
+        if (
+            hello.capabilities
+            & BUFFERED_EXECUTION_ROUTE_CAPABILITY
+        ) == 0:
+            raise TransportError(
+                "firmware does not provide buffered execution route"
+            )
+        if (
+            isinstance(timeout_s, bool)
+            or not isinstance(timeout_s, (int, float))
+            or not 0.0 < float(timeout_s) <= 1.0
+        ):
+            raise ValueError("buffered exchange timeout must be within 0..1s")
+
+        sequence = self._send(
+            MessageType.SETPOINT_BATCH,
+            command.payload,
+            int(command.flags),
+        )
+        frame = self._receive_matching(
+            sequence,
+            MessageType.SETPOINT_STATUS,
+            timeout_s=float(timeout_s),
+        )
+        return BufferedExchangeResponse(
+            frame_sequence=frame.sequence,
+            result=parse_setpoint_status(frame.payload),
+        )
 
     @_synchronized
     def safe_stop(self) -> None:

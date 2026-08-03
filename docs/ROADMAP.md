@@ -288,6 +288,12 @@
 - 2026-08-03 Motion-7 mock transport: batch binary encode, one-shot exchange,
   outer/payload sequence 일치, timeout·legacy response·terminal-before-ACK
   fail-closed를 mock port에서 검증했다. 실제 serial method는 미연결이다.
+- 2026-08-03 Motion-8 physical route 후보: validation route와 분리된
+  `0x00022000 / 0x00000FFF` G474 execution route와 host one-shot serial
+  method를 구현했다. `t=0` fresh anchor, 1 ms executor, 5 ms 6축 출력,
+  underflow/missed-tick/cancel/connection-loss/tracking terminal을 연결했고
+  전체 `494` Python/ROS tests, C `2/2`, Cortex-M4 Release build를 통과했다.
+  Pi 배포·flash·실기·ROS Action 연결은 아직 0회이며 별도 승인 gate다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정
 - 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반

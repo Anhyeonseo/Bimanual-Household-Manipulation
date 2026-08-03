@@ -48,8 +48,8 @@ def function_body(source: str, signature: str) -> str:
 
 
 def test_buffered_rx_identity_and_capability_are_fail_closed() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00021900)" in CONFIG
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x000007FF)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022000)" in CONFIG
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
     assert "BUFFERED_HOST_RX_CAPABILITY = 0x00000040" in IDENTITY
     assert "interrupt-buffered host RX capability is missing" in IDENTITY
 

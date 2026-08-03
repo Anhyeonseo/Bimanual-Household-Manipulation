@@ -10,6 +10,9 @@
 ## 구현 계약
 
 - 첫 sample lead `100 ms`, 허용 lead `60..400 ms`
+- fresh feedback로 검증된 `t=0` 자세를 첫 wire sample로 포함
+- firmware interpolation anchor는 첫 sample보다 20 ms 앞선 `80 ms` tick과
+  같은 `t=0` 자세를 사용하며, 실행 직전 blocking 6축 read sweep 금지
 - 5축 arm 경로를 20 ms 선형 재샘플링하고 현재 gripper 위치 보존
 - 시작 queue는 `9 + 7` sample 두 frame으로 16개를 채운 뒤 START
 - queue가 10 이하가 되면 최대 9개/frame으로 16까지 계속 refill
@@ -29,6 +32,7 @@
 ## 완료 확인
 
 - [x] 20 ms 재샘플링과 gripper 보존
+- [x] fresh-start `t=0` wire sample 및 80 ms firmware anchor 고정
 - [x] 100 ms 초기 lead와 60/400 ms admission
 - [x] 9+7 startup prime 후 START
 - [x] watermark 10에서 target 16 refill

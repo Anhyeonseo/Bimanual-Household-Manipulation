@@ -109,9 +109,9 @@ class ParallelGripperRosIntegrationTests(unittest.TestCase):
             1,
             6,
             False,
-            0x00021900,
+            0x00022000,
             0x8AD27897,
-            0x000007FF,
+            0x00000FFF,
             0,
         )
         self.core = MotionExecutionCore(

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_kind": "single_arm_buffered_trajectory",
-  "status": "BOARD_VALIDATION_ONLY",
+  "status": "LOCAL_PHYSICAL_EXECUTION_CANDIDATE",
   "motion_authorized": false,
   "current_runtime": {
     "firmware_supports_buffered_execution": false,
@@ -14,19 +14,25 @@
     "extended_terminal_status_candidate_implemented": true,
     "g474_cross_build_compiles_source": true,
     "binary_command_route_connected": true,
-    "binary_command_route_mode": "validation_only",
+    "binary_command_route_mode": "validation_and_physical_separated",
     "validation_only_safety_state": "safe_disabled_read_only_allowed",
     "host_candidate_codec_implemented": true,
     "host_timing_analysis_implemented": true,
     "firmware_identity_changed": true,
     "capability_advertised": true,
     "host_fail_closed_capability_required": true,
-    "timing_parameters_measured": true
+    "timing_parameters_measured": true,
+    "physical_execution_route_implemented": true,
+    "physical_execution_capability": "0x00000800",
+    "physical_execution_deployed": false
   },
   "host_adapter_candidate": {
     "multi_point_validation_reused": true,
     "linear_resampling_period_ms": 20,
     "initial_first_sample_lead_ms": 100,
+    "fresh_start_wire_sample_included": true,
+    "firmware_anchor_lead_ms": 80,
+    "firmware_anchor_source": "validated_t0_wire_sample",
     "startup_prime_depth_samples": 16,
     "low_watermark_samples": 10,
     "refill_target_samples": 16,
@@ -41,7 +47,24 @@
     "response_sequence_gate": true,
     "automatic_retransmission": false,
     "ros_action_server_connected": false,
-    "transport_execution_connected": false,
+    "transport_execution_connected": true,
+    "motion_authorized": false
+  },
+  "physical_execution_candidate": {
+    "firmware_version": "0x00022000",
+    "capabilities": "0x00000FFF",
+    "validation_route_preserved": true,
+    "execution_route_separate": true,
+    "fresh_t0_anchor_without_servo_read_sweep": true,
+    "executor_step_period_ms": 1,
+    "servo_sync_write_period_ms": 5,
+    "sample_period_ms": 20,
+    "minimum_lead_ms": 60,
+    "maximum_lead_ms": 400,
+    "startup_prime_depth_samples": 16,
+    "terminal_safe_stop_mapping": true,
+    "ros_action_server_connected": false,
+    "deployed": false,
     "motion_authorized": false
   },
   "timing_analysis": {

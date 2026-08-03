@@ -7,6 +7,11 @@
 9+7 sample로 prime한 뒤, watermark 도달 시 여러 frame을 사용해 target 16까지
 보충한다.
 
+첫 wire sample은 fresh feedback와 start tolerance를 통과한 `t=0` 자세다.
+firmware는 이를 첫 apply tick보다 20 ms 앞선 anchor에도 동일하게 사용하므로,
+실행 직전 blocking 6축 read sweep 없이 시작 자세를 유지한 채 연속 보간할 수
+있다.
+
 이 모듈은 ROS, serial, firmware execution과 연결되지 않았고 기존
 single-point runtime도 변경하지 않았다. 따라서 `motion_authorized=false`다.
 

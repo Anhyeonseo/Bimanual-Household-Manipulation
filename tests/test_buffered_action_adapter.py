@@ -127,16 +127,19 @@ def test_resamples_at_20ms_with_100ms_initial_lead_and_preserves_gripper() -> No
     plan, _ = scheduler()
 
     assert plan.anchor_tick_ms == 1_080
-    assert len(plan.samples) == 40
-    assert plan.samples[0].trajectory_elapsed_ms == 20
+    assert len(plan.samples) == 41
+    assert plan.samples[0].trajectory_elapsed_ms == 0
     assert plan.samples[0].apply_tick_ms == 1_100
-    assert plan.samples[0].positions_urad[:5] == (2_000,) * 5
+    assert plan.samples[0].positions_urad[:5] == (0,) * 5
     assert plan.samples[0].positions_urad[5] == 60_000
+    assert plan.samples[1].trajectory_elapsed_ms == 20
+    assert plan.samples[1].apply_tick_ms == 1_120
+    assert plan.samples[1].positions_urad[:5] == (2_000,) * 5
     assert plan.samples[-1].trajectory_elapsed_ms == 800
     assert plan.samples[-1].positions_urad[:5] == (80_000,) * 5
 
 
-@pytest.mark.parametrize("duration_ms", [319, 330])
+@pytest.mark.parametrize("duration_ms", [280, 330])
 def test_plan_rejects_short_or_non_20ms_duration(duration_ms: int) -> None:
     calibration, trajectory = validated_path(duration_ms, target=0.01)
     with pytest.raises(GoalValidationError):
@@ -255,7 +258,7 @@ def test_underflow_and_cancel_are_terminal_fail_closed() -> None:
 
 
 def test_final_prime_batch_marks_start_end_and_completion() -> None:
-    _, value = scheduler(duration_ms=320)
+    _, value = scheduler(duration_ms=300)
     first, second = prime(value)
 
     assert BufferedSetpointFlags.END not in first.flags
@@ -366,7 +369,7 @@ def test_transport_timeout_discards_pending_batch_and_aborts_once() -> None:
 
 
 def test_extended_success_terminal_requires_all_samples_applied() -> None:
-    plan, value = scheduler(duration_ms=320)
+    plan, value = scheduler(duration_ms=300)
     prime(value)
     value.observe_terminal_motion_result(
         extended_result(

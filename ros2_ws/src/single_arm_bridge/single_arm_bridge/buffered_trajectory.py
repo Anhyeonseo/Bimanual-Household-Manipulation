@@ -11,7 +11,7 @@ from typing import Any, Sequence
 
 
 CONTRACT_KIND = "single_arm_buffered_trajectory"
-CONTRACT_STATUS = "BOARD_VALIDATION_ONLY"
+CONTRACT_STATUS = "LOCAL_PHYSICAL_EXECUTION_CANDIDATE"
 TOTAL_JOINT_COUNT = 6
 ARM_JOINT_COUNT = 5
 WIRE_BATCH_MAX_SAMPLES = 9
@@ -143,7 +143,7 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "extended_terminal_status_candidate_implemented": True,
         "g474_cross_build_compiles_source": True,
         "binary_command_route_connected": True,
-        "binary_command_route_mode": "validation_only",
+        "binary_command_route_mode": "validation_and_physical_separated",
         "validation_only_safety_state": "safe_disabled_read_only_allowed",
         "host_candidate_codec_implemented": True,
         "host_timing_analysis_implemented": True,
@@ -151,9 +151,12 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "capability_advertised": True,
         "host_fail_closed_capability_required": True,
         "timing_parameters_measured": True,
+        "physical_execution_route_implemented": True,
+        "physical_execution_capability": "0x00000800",
+        "physical_execution_deployed": False,
     }:
         raise BufferedTrajectoryContractError(
-            "firmware route must remain validation-only until timing gates pass"
+            "firmware validation and physical routes must remain separated"
         )
 
     host_adapter = _require_object(document, "host_adapter_candidate")
@@ -161,6 +164,9 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "multi_point_validation_reused": True,
         "linear_resampling_period_ms": 20,
         "initial_first_sample_lead_ms": 100,
+        "fresh_start_wire_sample_included": True,
+        "firmware_anchor_lead_ms": 80,
+        "firmware_anchor_source": "validated_t0_wire_sample",
         "startup_prime_depth_samples": 16,
         "low_watermark_samples": 10,
         "refill_target_samples": 16,
@@ -175,11 +181,33 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "response_sequence_gate": True,
         "automatic_retransmission": False,
         "ros_action_server_connected": False,
-        "transport_execution_connected": False,
+        "transport_execution_connected": True,
         "motion_authorized": False,
     }:
         raise BufferedTrajectoryContractError(
-            "host adapter must remain mock-only and fail-closed"
+            "host adapter must remain action-disconnected and fail-closed"
+        )
+
+    physical = _require_object(document, "physical_execution_candidate")
+    if physical != {
+        "firmware_version": "0x00022000",
+        "capabilities": "0x00000FFF",
+        "validation_route_preserved": True,
+        "execution_route_separate": True,
+        "fresh_t0_anchor_without_servo_read_sweep": True,
+        "executor_step_period_ms": 1,
+        "servo_sync_write_period_ms": 5,
+        "sample_period_ms": 20,
+        "minimum_lead_ms": 60,
+        "maximum_lead_ms": 400,
+        "startup_prime_depth_samples": 16,
+        "terminal_safe_stop_mapping": True,
+        "ros_action_server_connected": False,
+        "deployed": False,
+        "motion_authorized": False,
+    }:
+        raise BufferedTrajectoryContractError(
+            "physical execution candidate must remain local and motion-disabled"
         )
 
     timing = _require_object(document, "timing_analysis")

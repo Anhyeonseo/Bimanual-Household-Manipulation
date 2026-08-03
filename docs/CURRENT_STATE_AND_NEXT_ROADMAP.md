@@ -95,9 +95,11 @@ STM32
 1. single-point 정착 체인을 multi-point/buffered trajectory로 교체한다.
 2. 시간축, queue, cancel, HOLD, continuous diagnostics와 tracking error 계약을
    단위 시험·mock·plan-only·제한 실기로 검증한다.
-   현재 Motion-4의 `0x00021900` 후보는 validation-only board route와
-   capability까지만 연결했으며 multi-sample servo output은 금지한다. 다음은
-   Pi–VCP 실제 timing 측정이다.
+   `0x00021900` validation-only Pi–VCP timing 측정과 운영값 검토를 마쳤다.
+   현재 로컬 Motion-8은 별도 physical route를 가진
+   `0x00022000 / 0x00000FFF` 후보까지 구현·cross-build했지만 Pi 배포와
+   실기는 하지 않았다. 다음은 명시 승인형 배포·backup·무동작 gate와
+   단일 관절 최소 변위 시험이다.
 3. Pick/Place TCP-to-contact offset을 분리하고 Place 후보 0.015 m를 다시 계측한다.
 4. 반사·무늬 배경 holdout과 legacy 실패 기준선을 고정하고 별도 학습
    데이터로 경량 YOLO-OBB를 학습·ONNX export했다. 같은 holdout과 Pi 5

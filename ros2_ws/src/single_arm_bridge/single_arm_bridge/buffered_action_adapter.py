@@ -1,8 +1,9 @@
-"""Pure host scheduler for a future buffered FollowJointTrajectory adapter.
+"""Pure host scheduler for the buffered FollowJointTrajectory candidate.
 
-This module has no ROS or serial side effects. Firmware 0x00021900 exposes a
-validation-only route, so this scheduler stops at deterministic batch creation
-and acknowledgement accounting.
+This module has no ROS or serial side effects.  It produces deterministic
+batches and accounts for admission/terminal acknowledgements; ROS Action
+ownership remains deliberately disconnected from the local 0x00022000 physical
+execution candidate.
 """
 
 from __future__ import annotations
@@ -147,10 +148,13 @@ def prepare_buffered_execution_plan(
         raise GoalValidationError("buffered arm trajectory must contain five joints")
     if trajectory.duration_ms % SAMPLE_PERIOD_MS:
         raise GoalValidationError("buffered duration must align to 20 ms")
-    sample_count = trajectory.duration_ms // SAMPLE_PERIOD_MS
+    # Include the already-validated fresh start as the first wire sample.  The
+    # firmware can use this t=0 position as its interpolation anchor without a
+    # blocking six-servo read sweep immediately before execution.
+    sample_count = trajectory.duration_ms // SAMPLE_PERIOD_MS + 1
     if sample_count < STARTUP_PRIME_SAMPLES:
         raise GoalValidationError(
-            "buffered duration must provide at least 16 samples (320 ms)"
+            "buffered duration must provide at least 16 samples (300 ms)"
         )
 
     anchor_tick = (
@@ -158,7 +162,7 @@ def prepare_buffered_execution_plan(
     ) & UINT32_MAX
     samples: list[ScheduledBufferedSample] = []
     for sample_index in range(1, sample_count + 1):
-        elapsed_ms = sample_index * SAMPLE_PERIOD_MS
+        elapsed_ms = (sample_index - 1) * SAMPLE_PERIOD_MS
         arm_positions = interpolate_buffered_trajectory(
             trajectory,
             elapsed_ms * 1_000_000,
@@ -172,7 +176,9 @@ def prepare_buffered_execution_plan(
             ScheduledBufferedSample(
                 sample_index=sample_index,
                 trajectory_elapsed_ms=elapsed_ms,
-                apply_tick_ms=(anchor_tick + elapsed_ms) & UINT32_MAX,
+                apply_tick_ms=(
+                    anchor_tick + sample_index * SAMPLE_PERIOD_MS
+                ) & UINT32_MAX,
                 positions_urad=positions_urad,
             )
         )
