@@ -312,10 +312,13 @@
   bridge 정상 종료와 6축 physical DISABLE도 확인했다. 전 구간 떨림은 크게
   개선됐으나 상승 구간의 약한 흔들림은 후속 품질 항목으로 남긴다.
   Motion-11은 현재 anchor→q0의 실기 검증 경로와 기존 MoveIt 충돌 검사
-  q0→Pick pregrasp 12구간을 하나의 9.1초·456 sample dense Action 후보로
-  결합하고 로컬 host/ROS `572` tests를 통과했다. 현재는 plan-only이며
-  `motion_authorized=false`를 유지한다. 다음 gate는 Pi fresh-start와 제한
-  실기 뒤 grasp/lift/place/retreat 연속경로로 확대하는 것이다.
+  q0→Pick pregrasp 12구간을 하나의 dense Action 후보로 결합했다. 첫
+  9.1초·456 sample 실기는 경로를 따라 움직였지만 Shoulder/Wrist Flex가
+  속도를 추종하지 못해 host post-settle에서 fail-closed ABORTED가 됐다.
+  자동 재시도 없이 실측 약 60 raw/s를 보수적 50 raw/s 계약으로 반영해
+  43초·2151 sample 후보를 생성했다. 현재는 재검증 plan-only이며
+  `motion_authorized=false`를 유지한다. 다음 gate는 fresh anchor 재생성과
+  제한 실기 뒤 grasp/lift/place/retreat 연속경로로 확대하는 것이다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정
 - 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반

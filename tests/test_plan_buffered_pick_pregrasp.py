@@ -32,7 +32,7 @@ SOURCE_ROUTE = (
     / "full_pick_place_reindexed_headroom015"
     / "01_q0_to_pick_pregrasp.json"
 )
-ANCHOR_RAW = (2068, 2227, 1728, 1831, 2052, 2002)
+ANCHOR_RAW = (2273, 2330, 1802, 1941, 2142, 2002)
 ARTIFACT = (
     ROOT
     / "artifacts"
@@ -41,7 +41,7 @@ ARTIFACT = (
     / "motion11_buffered_pick_pregrasp_plan_only.json"
 )
 ARTIFACT_SHA256 = (
-    "d27f66ec17fbd988cc7f08ecc931b9d9b86d4454b07a3058282e1b0a78f29522"
+    "975102ee7ba1b2ec066b3bc3934c19b53a26a345fc991025491c2f04e9aedcba"
 )
 
 
@@ -72,11 +72,11 @@ def test_two_leg_profile_reaches_q0_without_settle_then_pregrasp():
     assert document["analytic_profile"] == {
         "kind": "two_leg_quintic_minimum_jerk",
         "polynomial": "10t^3-15t^4+6t^5",
-        "anchor_to_q0_duration_ms": 2100,
-        "q0_to_pregrasp_duration_ms": 7000,
-        "total_duration_ms": 9100,
+        "anchor_to_q0_duration_ms": 8000,
+        "q0_to_pregrasp_duration_ms": 35000,
+        "total_duration_ms": 43000,
         "waypoint_period_ms": 20,
-        "waypoint_count": 456,
+        "waypoint_count": 2151,
         "q0_settle_wait_ms": 0,
     }
     assert document["q0_transition"]["raw_with_preserved_gripper"] == [
@@ -85,7 +85,7 @@ def test_two_leg_profile_reaches_q0_without_settle_then_pregrasp():
     assert document["target"]["raw"] == [
         2278, 3190, 1625, 1209, 2146, 2002
     ]
-    assert document["resampling"]["sample_count"] == 456
+    assert document["resampling"]["sample_count"] == 2151
 
 
 def test_dynamic_and_firmware_output_limits_are_bounded():
@@ -101,7 +101,7 @@ def test_dynamic_and_firmware_output_limits_are_bounded():
     assert document["resampling"]["maximum_sample_step_rad"] < 0.01
     assert output["executor_step_period_ms"] == 1
     assert output["servo_sync_write_period_ms"] == 5
-    assert output["output_count"] == 1821
+    assert output["output_count"] == 8601
     assert output["maximum_arm_step_raw"] <= 2
     assert output["start_raw"] == list(ANCHOR_RAW)
     assert output["q0_raw"] == [2048, 2048, 2048, 2048, 2048, 2002]
@@ -113,12 +113,28 @@ def test_queue_admission_accepts_every_sample_without_false_success():
     queue = document["queue_contract"]
 
     assert max(queue["admission_batch_sizes"]) <= 9
-    assert sum(queue["admission_batch_sizes"]) == 456
+    assert sum(queue["admission_batch_sizes"]) == 2151
     terminal = queue["simulation_terminal"]
     assert terminal["state"] == "input_complete"
-    assert terminal["accepted_samples"] == 456
+    assert terminal["accepted_samples"] == 2151
     assert terminal["safe_stop_required"] is False
     assert terminal["success_without_firmware_terminal"] is False
+
+
+def test_measured_tracking_rate_model_bounds_peak_and_terminal_error():
+    tracking = build()["physical_tracking_model"]
+
+    assert tracking["conservative_rate_raw_s"] == 50.0
+    assert tracking["measured_rate_evidence_raw_s"] == {
+        "left_shoulder_joint": 60.0,
+        "left_wrist_flex_joint": 60.8,
+    }
+    assert tracking["maximum_modeled_peak_error_raw"] <= 100.0
+    assert tracking["maximum_modeled_terminal_error_raw"] <= 30.0
+    assert set(tracking["legs"]) == {
+        "anchor_to_q0",
+        "q0_to_pregrasp",
+    }
 
 
 def test_source_route_tamper_is_rejected_before_plan_creation(tmp_path):

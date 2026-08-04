@@ -163,9 +163,9 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
     host_adapter = _require_object(document, "host_adapter_candidate")
     if host_adapter != {
         "multi_point_validation_reused": True,
-        "linear_resampling_period_ms": 20,
-        "initial_first_sample_lead_ms": 140,
-        "physical_uart_baud": 115200,
+            "linear_resampling_period_ms": 20,
+            "initial_first_sample_lead_ms": 140,
+            "physical_uart_baud": 115200,
         "startup_prime_wire_lower_bound_ms": 87.674,
         "startup_anchor_wire_margin_ms": 32.326,
         "fresh_start_wire_sample_included": True,

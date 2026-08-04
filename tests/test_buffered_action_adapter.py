@@ -24,6 +24,7 @@ from single_arm_bridge.buffered_action_adapter import (  # noqa: E402
     BufferedExecutorState,
     BufferedTerminalReason,
     prepare_buffered_execution_plan,
+    reanchor_buffered_execution_plan,
 )
 from single_arm_bridge.calibration import load_calibration  # noqa: E402
 from single_arm_bridge.protocol import (  # noqa: E402
@@ -72,6 +73,47 @@ def scheduler(duration_ms: int = 800, *, current_tick_ms: int = 1_000):
         current_tick_ms=current_tick_ms,
     )
     return plan, BufferedBatchScheduler(plan)
+
+
+def test_reanchor_preserves_positions_and_uses_fresh_tick() -> None:
+    calibration, trajectory = validated_path(duration_ms=800)
+    provisional = prepare_buffered_execution_plan(
+        trajectory,
+        calibration,
+        preserved_gripper_rad=0.06,
+        current_tick_ms=10,
+    )
+
+    rebased = reanchor_buffered_execution_plan(
+        provisional,
+        current_tick_ms=50_000,
+    )
+
+    assert rebased.anchor_tick_ms == 50_120
+    assert rebased.samples[0].apply_tick_ms == (
+        50_000 + INITIAL_FIRST_SAMPLE_LEAD_MS
+    )
+    assert rebased.samples[-1].apply_tick_ms == 50_940
+    assert tuple(sample.positions_urad for sample in rebased.samples) == tuple(
+        sample.positions_urad for sample in provisional.samples
+    )
+    assert tuple(
+        sample.trajectory_elapsed_ms for sample in rebased.samples
+    ) == tuple(
+        sample.trajectory_elapsed_ms for sample in provisional.samples
+    )
+
+
+def test_reanchor_handles_uint32_wraparound() -> None:
+    plan, _ = scheduler(duration_ms=300)
+    rebased = reanchor_buffered_execution_plan(
+        plan,
+        current_tick_ms=0xFFFFFFC0,
+    )
+
+    assert rebased.anchor_tick_ms == 56
+    assert rebased.samples[0].apply_tick_ms == 76
+    assert rebased.samples[-1].apply_tick_ms == 376
 
 
 def ack_pending(

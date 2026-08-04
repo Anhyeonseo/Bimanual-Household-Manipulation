@@ -193,6 +193,44 @@ def prepare_buffered_execution_plan(
     )
 
 
+def reanchor_buffered_execution_plan(
+    plan: BufferedExecutionPlan,
+    *,
+    current_tick_ms: int,
+) -> BufferedExecutionPlan:
+    """Rebase precomputed samples on one fresh firmware heartbeat tick.
+
+    Position interpolation can be expensive for long trajectories. Keeping
+    that work separate from the physical apply clock prevents host compute
+    time from consuming the reviewed startup lead window.
+    """
+
+    _require_uint32(current_tick_ms, "current tick")
+    anchor_tick = (
+        current_tick_ms + INITIAL_FIRST_SAMPLE_LEAD_MS - SAMPLE_PERIOD_MS
+    ) & UINT32_MAX
+    samples = tuple(
+        ScheduledBufferedSample(
+            sample_index=sample.sample_index,
+            trajectory_elapsed_ms=sample.trajectory_elapsed_ms,
+            apply_tick_ms=(
+                anchor_tick + sample.sample_index * SAMPLE_PERIOD_MS
+            )
+            & UINT32_MAX,
+            positions_urad=sample.positions_urad,
+        )
+        for sample in plan.samples
+    )
+    return BufferedExecutionPlan(
+        anchor_tick_ms=anchor_tick,
+        sample_period_ms=plan.sample_period_ms,
+        samples=samples,
+        final_arm_positions_rad=plan.final_arm_positions_rad,
+        preserved_gripper_rad=plan.preserved_gripper_rad,
+        calibration_hash=plan.calibration_hash,
+    )
+
+
 class BufferedBatchScheduler:
     """Prime/refill state machine with no retransmission or hardware access."""
 

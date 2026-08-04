@@ -10,13 +10,16 @@ from typing import Any
 from .action_execution import ExecutionError, ExecutionOutcome, TerminalState
 from .action_validation import ValidatedBufferedTrajectory
 from .buffered_action_adapter import (
+    INITIAL_FIRST_SAMPLE_LEAD_MS,
     MAXIMUM_APPLY_LATENESS_MS,
+    STARTUP_PRIME_SAMPLES,
     UINT32_HALF_RANGE,
     UINT32_MAX,
     BufferedAdapterState,
     BufferedBatchScheduler,
     BufferedExecutionPlan,
     prepare_buffered_execution_plan,
+    reanchor_buffered_execution_plan,
 )
 from .buffered_transport_driver import BufferedExchangeResponse, BufferedTransportDriver
 from .calibration import ArmCalibration
@@ -28,6 +31,7 @@ POST_SETTLE_TOLERANCE_RAW = 30
 POST_SETTLE_CONSECUTIVE_SNAPSHOTS = 2
 POST_SETTLE_TIMEOUT_S = 2.5
 POST_SETTLE_POLL_INTERVAL_S = 0.1
+STARTUP_FIRST_SAMPLE_LEAD_GATE_MS = 80
 
 
 def _tick_has_reached(current_tick_ms: int, apply_tick_ms: int, margin_ms: int) -> bool:
@@ -80,6 +84,7 @@ class BufferedActionExecutionCore:
         self._plan: BufferedExecutionPlan | None = None
         self._scheduler: BufferedBatchScheduler | None = None
         self._driver: BufferedTransportDriver | None = None
+        self._startup_diagnostics: str | None = None
         self._lock = threading.RLock()
 
     @property
@@ -103,12 +108,26 @@ class BufferedActionExecutionCore:
                 raise ExecutionError("buffered execution is blocked pending recovery")
             if self._scheduler is not None:
                 raise ExecutionError("another buffered motion goal is active")
+            self._startup_diagnostics = None
+            stage = "precompute"
+            precompute_started = time.monotonic()
             try:
-                heartbeat = self._transport.heartbeat()
                 plan = prepare_buffered_execution_plan(
                     trajectory,
                     self._calibration,
                     preserved_gripper_rad=preserved_gripper_rad,
+                    # Provisional only: no physical apply tick is retained
+                    # across potentially expensive position resampling.
+                    current_tick_ms=0,
+                )
+                precompute_ms = round(
+                    (time.monotonic() - precompute_started) * 1000.0,
+                    3,
+                )
+                stage = "fresh_reanchor_heartbeat"
+                heartbeat = self._transport.heartbeat()
+                plan = reanchor_buffered_execution_plan(
+                    plan,
                     current_tick_ms=heartbeat.last_heartbeat_ms,
                 )
                 scheduler = BufferedBatchScheduler(plan)
@@ -116,12 +135,87 @@ class BufferedActionExecutionCore:
                 self._plan = plan
                 self._scheduler = scheduler
                 self._driver = driver
-                driver.service_once(current_tick_ms=heartbeat.last_heartbeat_ms)
+                stage = "prime_frame_1"
+                first = driver.service_once(
+                    current_tick_ms=heartbeat.last_heartbeat_ms
+                )
+                if first is None:
+                    raise ExecutionError("startup prime frame 1 was not produced")
+
+                second = None
+                prime_heartbeat = None
+                first_sample_lead_ms = None
+                prime_heartbeat_gates = 0
+                for gate_index in range(1, 3):
+                    stage = f"prime_frame_2_heartbeat_{gate_index}"
+                    prime_heartbeat = self._transport.heartbeat()
+                    prime_heartbeat_gates += 1
+                    first_sample_lead_ms = (
+                        plan.samples[0].apply_tick_ms
+                        - prime_heartbeat.last_heartbeat_ms
+                    ) & UINT32_MAX
+                    if not (
+                        STARTUP_FIRST_SAMPLE_LEAD_GATE_MS
+                        <= first_sample_lead_ms
+                        <= INITIAL_FIRST_SAMPLE_LEAD_MS
+                    ):
+                        raise ExecutionError(
+                            "startup first-sample lead gate failed: "
+                            f"lead_ms={first_sample_lead_ms} "
+                            f"required={STARTUP_FIRST_SAMPLE_LEAD_GATE_MS}.."
+                            f"{INITIAL_FIRST_SAMPLE_LEAD_MS} "
+                            f"heartbeat_gates={prime_heartbeat_gates}"
+                        )
+                    stage = f"prime_frame_2_attempt_{gate_index}"
+                    second = driver.service_once(
+                        current_tick_ms=prime_heartbeat.last_heartbeat_ms
+                    )
+                    if second is not None:
+                        break
+                if second is None:
+                    raise ExecutionError(
+                        "startup prime frame 2 did not enter the reviewed "
+                        f"horizon after {prime_heartbeat_gates} heartbeat gates"
+                    )
+                assert prime_heartbeat is not None
+                assert first_sample_lead_ms is not None
+                snapshot = scheduler.snapshot()
+                if (
+                    snapshot.accepted_samples != STARTUP_PRIME_SAMPLES
+                    or snapshot.applied_samples != 0
+                    or snapshot.queued_samples != STARTUP_PRIME_SAMPLES
+                    or snapshot.pending_batch
+                ):
+                    raise ExecutionError(
+                        "startup prime accounting gate failed: "
+                        f"accepted={snapshot.accepted_samples} "
+                        f"applied={snapshot.applied_samples} "
+                        f"queued={snapshot.queued_samples} "
+                        f"pending={int(snapshot.pending_batch)}"
+                    )
+                self._startup_diagnostics = (
+                    f"precompute_ms={precompute_ms:.3f} "
+                    f"fresh_tick={heartbeat.last_heartbeat_ms} "
+                    f"prime_tick={prime_heartbeat.last_heartbeat_ms} "
+                    f"first_sample_lead_ms={first_sample_lead_ms} "
+                    f"prime_heartbeat_gates={prime_heartbeat_gates} "
+                    f"prime_frames={driver.commands_sent} "
+                    f"accepted={snapshot.accepted_samples} "
+                    f"applied={snapshot.applied_samples} "
+                    f"queued={snapshot.queued_samples}"
+                )
                 return plan
             except Exception as error:
+                diagnostics = self._startup_diagnostics or (
+                    "precompute_ms="
+                    f"{(time.monotonic() - precompute_started) * 1000.0:.3f}"
+                )
                 self._clear_active()
                 self._fail_closed()
-                raise ExecutionError(f"buffered start failed: {error}") from error
+                raise ExecutionError(
+                    "buffered start failed: "
+                    f"stage={stage} {diagnostics} error={error}"
+                ) from error
 
     def poll(self) -> ExecutionOutcome | None:
         with self._lock:
@@ -149,7 +243,9 @@ class BufferedActionExecutionCore:
                     return self._finish_terminal(terminal)
                 return None
             except Exception as error:
-                return self._abort_active(f"buffered runtime failed: {error}")
+                return self._abort_active(
+                    f"buffered runtime failed: {error}"
+                )
 
     def cancel_active_goal(self) -> ExecutionOutcome:
         with self._lock:
@@ -234,6 +330,7 @@ class BufferedActionExecutionCore:
                 status_code=result.status_code,
                 detail=result.detail,
             )
+        startup = self._startup_diagnostics or "startup=unavailable"
         self._clear_active()
         return ExecutionOutcome(
             TerminalState.SUCCEEDED,
@@ -242,7 +339,7 @@ class BufferedActionExecutionCore:
             result.detail,
             "buffered trajectory completed; "
             f"maximum_apply_lateness_ms={result.detail} "
-            f"post_settle_max_error_raw={settle_error}",
+            f"post_settle_max_error_raw={settle_error}; {startup}",
         )
 
     def _verify_post_settle(self, plan: BufferedExecutionPlan) -> int:
@@ -411,6 +508,7 @@ class BufferedActionExecutionCore:
         status_code: int | None = None,
         detail: int | None = None,
     ) -> ExecutionOutcome:
+        startup = self._startup_diagnostics or "startup=unavailable"
         self._clear_active()
         self._fail_closed()
         return ExecutionOutcome(
@@ -418,7 +516,7 @@ class BufferedActionExecutionCore:
             request_sequence,
             status_code,
             detail,
-            reason,
+            f"{reason}; {startup}",
         )
 
     def _fail_closed(self) -> None:
@@ -437,3 +535,4 @@ class BufferedActionExecutionCore:
         self._scheduler = None
         self._driver = None
         self._plan = None
+        self._startup_diagnostics = None

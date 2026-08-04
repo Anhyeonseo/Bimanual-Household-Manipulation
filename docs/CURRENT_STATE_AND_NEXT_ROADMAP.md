@@ -36,9 +36,10 @@
   post-settle `20 raw`, 자동 재시도 0회와 physical DISABLE을 확인했다.
   상승 구간의 약한 흔들림은 후속 추종 품질 항목이며, Pick/Place 연속경로와
   반복성 시험은 아직 남아 있다. Motion-11은 실기 검증된 anchor→q0와
-  MoveIt 충돌 검사 q0→Pick pregrasp를 9.1초·456 sample의 단일 dense Action
-  후보로 결합해 plan-only와 host/ROS 전체 `572` tests를 통과했다. Pi 배포와
-  물리 실행은 아직 하지 않았다.
+  MoveIt 충돌 검사 q0→Pick pregrasp를 단일 dense Action 후보로 결합했다.
+  첫 9.1초 물리 시도는 경로를 따라 움직였지만 Shoulder/Wrist Flex 추종
+  부족으로 fail-closed ABORTED가 됐다. 자동 재시도 없이 실측 추종률을
+  반영한 43초·2151 sample 후보를 생성했으며 fresh anchor 재검증이 남았다.
 - Place 높이는 실제 안착에서 총 10 mm 추가 하강이 필요해 Pick/Place 접촉
   offset을 분리해 다시 계측해야 한다.
 - 반사·무늬 배경의 검은 펜 holdout에서 legacy 명도 임계값 검출기는
@@ -108,8 +109,8 @@ STM32
    61 samples, 최대 apply lateness `4 ms`, 독립 복귀 오차 `6 raw`였으며
    `motion_authorized=false`는 유지한다. 이어 dense quintic 211점과
    heartbeat-gated 2.5초 post-settle로 q0 왕복을 실기 통과했다. 다음은
-   plan-only를 통과한 Motion-11 Pick pregrasp 단일 Action의 Pi fresh-start와
-   제한 실기, grasp/lift/place/retreat/q0 전체 연속 실행과 반복성 gate 순이다.
+   추종률 기반 Motion-11 Pick pregrasp 단일 Action의 fresh-start와 제한 실기,
+   grasp/lift/place/retreat/q0 전체 연속 실행과 반복성 gate 순이다.
    상승 구간의 약한 흔들림은 별도 축별 추종 증거를 수집한 뒤 시간
    스케일링·가속도/jerk·servo 추종 순으로 개선한다.
 3. Pick/Place TCP-to-contact offset을 분리하고 Place 후보 0.015 m를 다시 계측한다.

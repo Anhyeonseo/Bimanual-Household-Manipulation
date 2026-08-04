@@ -37,11 +37,15 @@ PHASE = "motion11_pick_pregrasp"
 FIRMWARE_VERSION = "0x00022100"
 CAPABILITIES = "0x00000FFF"
 PLAN_TICK_MS = 100_000
-ANCHOR_TO_Q0_DURATION_MS = 2_100
-Q0_TO_PREGRASP_DURATION_MS = 7_000
+ANCHOR_TO_Q0_DURATION_MS = 8_000
+Q0_TO_PREGRASP_DURATION_MS = 35_000
 TOTAL_DURATION_MS = ANCHOR_TO_Q0_DURATION_MS + Q0_TO_PREGRASP_DURATION_MS
 FIRMWARE_OUTPUT_PERIOD_MS = 5
 Q0_RAW = (2048, 2048, 2048, 2048, 2048)
+TRACKING_SIMULATION_PERIOD_MS = 1
+CONSERVATIVE_TRACKING_RATE_RAW_S = 50.0
+MAXIMUM_MODELED_PEAK_ERROR_RAW = 100.0
+MAXIMUM_MODELED_TERMINAL_ERROR_RAW = 30.0
 EXPECTED_SOURCE_ROUTE_SHA256 = (
     "da5f3b3fc8200cbc4713e2fcf05d5b54387929ec399377ebc68ce1722587549f"
 )
@@ -161,6 +165,47 @@ def finite_difference_metrics(
     }
 
 
+def simulate_rate_limited_tracking(
+    start_raw: tuple[int, ...],
+    target_raw: tuple[int, ...],
+    duration_ms: int,
+) -> dict[str, object]:
+    """Model conservative physical tracking against a minimum-jerk leg."""
+    if len(start_raw) != 6 or len(target_raw) != 6:
+        raise ValueError("tracking simulation requires six-axis endpoints")
+    maximum_step = (
+        CONSERVATIVE_TRACKING_RATE_RAW_S
+        * TRACKING_SIMULATION_PERIOD_MS
+        / 1000.0
+    )
+    actual = [float(value) for value in start_raw]
+    peak_errors = [0.0] * 6
+    step_count = duration_ms // TRACKING_SIMULATION_PERIOD_MS
+    for step in range(1, step_count + 1):
+        progress = minimum_jerk_unit_progress(step / step_count)
+        for index, (start, target) in enumerate(
+            zip(start_raw, target_raw, strict=True)
+        ):
+            command = start + progress * (target - start)
+            error = command - actual[index]
+            actual[index] += max(-maximum_step, min(maximum_step, error))
+            peak_errors[index] = max(
+                peak_errors[index],
+                abs(command - actual[index]),
+            )
+    terminal_errors = [
+        abs(target - value)
+        for target, value in zip(target_raw, actual, strict=True)
+    ]
+    return {
+        "duration_ms": duration_ms,
+        "peak_error_raw": peak_errors,
+        "terminal_error_raw": terminal_errors,
+        "maximum_peak_error_raw": max(peak_errors),
+        "maximum_terminal_error_raw": max(terminal_errors),
+    }
+
+
 def build_plan(
     calibration_path: Path,
     contract_path: Path,
@@ -246,6 +291,28 @@ def build_plan(
     q0_raw = radians_to_raw(calibration, q0_with_gripper)
     if q0_raw[:5] != Q0_RAW:
         raise ValueError("calibration does not map arm q0 to raw 2048")
+    tracking_legs = {
+        "anchor_to_q0": simulate_rate_limited_tracking(
+            anchor_raw,
+            q0_raw,
+            ANCHOR_TO_Q0_DURATION_MS,
+        ),
+        "q0_to_pregrasp": simulate_rate_limited_tracking(
+            q0_raw,
+            target_raw,
+            Q0_TO_PREGRASP_DURATION_MS,
+        ),
+    }
+    maximum_modeled_peak_error = max(
+        leg["maximum_peak_error_raw"] for leg in tracking_legs.values()
+    )
+    maximum_modeled_terminal_error = max(
+        leg["maximum_terminal_error_raw"] for leg in tracking_legs.values()
+    )
+    if maximum_modeled_peak_error > MAXIMUM_MODELED_PEAK_ERROR_RAW:
+        raise ValueError("modeled physical tracking peak error is too large")
+    if maximum_modeled_terminal_error > MAXIMUM_MODELED_TERMINAL_ERROR_RAW:
+        raise ValueError("modeled physical tracking terminal error is too large")
 
     return {
         "schema_version": 1,
@@ -320,6 +387,24 @@ def build_plan(
             "velocity_rad_s": velocity_limits,
             "acceleration_rad_s2": acceleration_limits,
             "finite_difference": dynamics,
+        },
+        "physical_tracking_model": {
+            "kind": "per_axis_rate_limited_minimum_jerk_follower",
+            "simulation_period_ms": TRACKING_SIMULATION_PERIOD_MS,
+            "conservative_rate_raw_s": CONSERVATIVE_TRACKING_RATE_RAW_S,
+            "measured_rate_evidence_raw_s": {
+                "left_shoulder_joint": 60.0,
+                "left_wrist_flex_joint": 60.8,
+            },
+            "maximum_allowed_peak_error_raw": MAXIMUM_MODELED_PEAK_ERROR_RAW,
+            "maximum_allowed_terminal_error_raw": (
+                MAXIMUM_MODELED_TERMINAL_ERROR_RAW
+            ),
+            "maximum_modeled_peak_error_raw": maximum_modeled_peak_error,
+            "maximum_modeled_terminal_error_raw": (
+                maximum_modeled_terminal_error
+            ),
+            "legs": tracking_legs,
         },
         "firmware_output_simulation": {
             "executor_step_period_ms": 1,

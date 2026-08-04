@@ -2,6 +2,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import sys
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "ros2_ws" / "src" / "single_arm_bridge"
@@ -62,6 +64,7 @@ class SimulatedBufferedTransport:
         heartbeat_error_after_terminal: Exception | None = None,
         position_error: Exception | None = None,
         diagnostics_error: Exception | None = None,
+        heartbeat_step_ms: int = 20,
     ) -> None:
         self.tick = 1_000
         self.sequence = 100
@@ -83,6 +86,7 @@ class SimulatedBufferedTransport:
         self.heartbeat_error_after_terminal = heartbeat_error_after_terminal
         self.position_error = position_error
         self.diagnostics_error = diagnostics_error
+        self.heartbeat_step_ms = heartbeat_step_ms
         self.events = []
         self.target_raw = tuple(joint.zero_raw for joint in CALIBRATION.joints)
 
@@ -93,7 +97,7 @@ class SimulatedBufferedTransport:
             and self.heartbeat_error_after_terminal is not None
         ):
             raise self.heartbeat_error_after_terminal
-        self.tick += 20
+        self.tick += self.heartbeat_step_ms
         self._update_applied()
         return SimpleNamespace(last_heartbeat_ms=self.tick)
 
@@ -270,7 +274,16 @@ def test_continuous_runtime_refills_and_requires_terminal_and_settle() -> None:
     assert outcome is not None
     assert outcome.state.value == "succeeded"
     assert "maximum_apply_lateness_ms=2" in outcome.reason
+    assert "first_sample_lead_ms=100" in outcome.reason
+    assert "prime_heartbeat_gates=2" in outcome.reason
+    assert "prime_frames=2 accepted=16 applied=0 queued=16" in outcome.reason
     assert len(transport.commands) > 2
+    assert transport.commands[0].sample_count == 9
+    assert transport.commands[1].sample_count == 7
+    assert not (
+        transport.commands[0].flags & int(BufferedSetpointFlags.START)
+    )
+    assert transport.commands[1].flags & int(BufferedSetpointFlags.START)
     assert transport.accepted == len(plan.samples)
     assert transport.position_snapshot_calls == 2
     assert transport.diagnostics_calls == 1
@@ -285,6 +298,32 @@ def test_continuous_runtime_refills_and_requires_terminal_and_settle() -> None:
     ]
     assert core.active is False
     assert core.blocked is False
+
+
+def test_startup_lead_gate_fails_closed_before_start_frame() -> None:
+    transport = SimulatedBufferedTransport(heartbeat_step_ms=100)
+    core = BufferedActionExecutionCore(
+        transport,
+        hello(),
+        CALIBRATION,
+    )
+
+    with pytest.raises(
+        Exception,
+        match=(
+            r"stage=prime_frame_2_heartbeat_1 .*"
+            r"startup first-sample lead gate failed: lead_ms=40"
+        ),
+    ):
+        core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+
+    assert core.active is False
+    assert core.blocked is True
+    assert transport.safe_stop_calls == 1
+    assert len(transport.commands) == 1
+    assert not (
+        transport.commands[0].flags & int(BufferedSetpointFlags.START)
+    )
 
 
 def test_post_settle_failure_is_fail_closed() -> None:

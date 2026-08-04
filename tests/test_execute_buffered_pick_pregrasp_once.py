@@ -29,7 +29,7 @@ PLAN = (
     / "2026-08-04"
     / "motion11_buffered_pick_pregrasp_plan_only.json"
 )
-PLAN_SHA = "d27f66ec17fbd988cc7f08ecc931b9d9b86d4454b07a3058282e1b0a78f29522"
+PLAN_SHA = "975102ee7ba1b2ec066b3bc3934c19b53a26a345fc991025491c2f04e9aedcba"
 CALIBRATION = PACKAGE_ROOT / "config" / "single_arm_calibration.json"
 CONTRACT = PACKAGE_ROOT / "config" / "buffered_trajectory_contract.json"
 SOURCE_ROUTE = (
@@ -56,11 +56,11 @@ def test_loads_exact_motion11_plan_and_endpoints():
     plan = load()
 
     assert plan.sha256 == PLAN_SHA
-    assert plan.duration_ms == 9100
-    assert plan.sample_count == 456
-    assert len(plan.waypoints) == 456
+    assert plan.duration_ms == 43000
+    assert plan.sample_count == 2151
+    assert len(plan.waypoints) == 2151
     assert plan.waypoints[0].positions_rad == plan.anchor_positions_rad
-    assert plan.waypoints[105].positions_rad == (0.0,) * 5
+    assert plan.waypoints[400].positions_rad == (0.0,) * 5
     assert plan.waypoints[-1].positions_rad == plan.target_positions_rad
 
 
@@ -122,4 +122,4 @@ def test_sender_confirmation_and_retry_contract_are_fixed():
     assert "ACTION_SEND_COUNT=1" in source
     assert "AUTOMATIC_RETRY_COUNT=0" in source
     assert "while" not in source
-    assert MODULE.ACTION_RESULT_TIMEOUT_S == 20.0
+    assert MODULE.ACTION_RESULT_TIMEOUT_S == 60.0
