@@ -29,7 +29,7 @@ PLAN = (
     / "2026-08-04"
     / "motion10_buffered_q0_roundtrip_plan_only.json"
 )
-PLAN_SHA = "f5772313d1f3a3f9223e21e31a6fb3dd6a2219974b09734c4145275994cf8c5a"
+PLAN_SHA = "032bf81ef3a18cc8126fb2955388b8d0363405d7584327d56f3bbcf534aa72b5"
 CALIBRATION = PACKAGE_ROOT / "config" / "single_arm_calibration.json"
 CONTRACT = PACKAGE_ROOT / "config" / "buffered_trajectory_contract.json"
 
@@ -87,10 +87,10 @@ def test_loads_exact_q0_roundtrip_and_recomputes_all_samples():
     )
 
     assert plan.sha256 == PLAN_SHA
-    assert plan.duration_ms == 4000
-    assert plan.sample_count == 201
-    assert len(plan.waypoints) == 201
-    assert plan.waypoints[100].positions_rad == (0.0,) * 5
+    assert plan.duration_ms == 4200
+    assert plan.sample_count == 211
+    assert len(plan.waypoints) == 211
+    assert plan.waypoints[105].positions_rad == (0.0,) * 5
     assert plan.waypoints[0].positions_rad == plan.anchor_positions_rad
     assert plan.waypoints[-1].positions_rad == plan.anchor_positions_rad
 

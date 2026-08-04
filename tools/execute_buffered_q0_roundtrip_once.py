@@ -45,12 +45,12 @@ EXPECTED_CALIBRATION = "0x8AD27897"
 CONFIRMATION = "EXECUTE_MOTION10_Q0_ROUNDTRIP_ONCE"
 RESULT_TIMEOUT_S = 15.0
 SAMPLE_PERIOD_MS = 20
-ROUND_TRIP_DURATION_MS = 4_000
+ROUND_TRIP_DURATION_MS = 4_200
 HALF_TRIP_DURATION_MS = ROUND_TRIP_DURATION_MS // 2
 WAYPOINT_TIMES_MS = tuple(
     range(0, ROUND_TRIP_DURATION_MS + SAMPLE_PERIOD_MS, SAMPLE_PERIOD_MS)
 )
-EXPECTED_BATCHES = (9, 7) + (6,) * 30 + (5,)
+EXPECTED_BATCHES = (9, 7) + (6,) * 32 + (3,)
 
 
 def minimum_jerk_unit_progress(unit_time: float) -> float:
@@ -166,7 +166,7 @@ def load_q0_roundtrip_plan(
         not isinstance(waypoint_documents, list)
         or len(waypoint_documents) != len(WAYPOINT_TIMES_MS)
     ):
-        raise ValueError("plan requires the reviewed 201 dense waypoints")
+        raise ValueError("plan requires the reviewed 211 dense waypoints")
     if document.get("analytic_profile") != {
         "kind": "symmetric_quintic_minimum_jerk",
         "polynomial": "10t^3-15t^4+6t^5",
@@ -262,10 +262,10 @@ def load_q0_roundtrip_plan(
         raise ValueError("plan resampling evidence is missing")
     if resampling.get("period_ms") != 20:
         raise ValueError("plan sample period must be 20 ms")
-    if resampling.get("duration_ms") != 4000:
-        raise ValueError("plan duration must be 4000 ms")
-    if resampling.get("sample_count") != 201:
-        raise ValueError("plan sample count must be 201")
+    if resampling.get("duration_ms") != ROUND_TRIP_DURATION_MS:
+        raise ValueError("plan duration must be 4200 ms")
+    if resampling.get("sample_count") != len(WAYPOINT_TIMES_MS):
+        raise ValueError("plan sample count must be 211")
     recorded_samples = resampling.get("samples")
     if (
         not isinstance(recorded_samples, list)
@@ -292,9 +292,9 @@ def load_q0_roundtrip_plan(
         raise ValueError("plan queue admission shape mismatch")
     terminal = queue.get("simulation_terminal")
     if terminal != {
-        "accepted_samples": 201,
-        "applied_samples": 186,
-        "queued_samples": 15,
+        "accepted_samples": 211,
+        "applied_samples": 198,
+        "queued_samples": 13,
         "safe_stop_required": False,
         "state": "input_complete",
         "success_without_firmware_terminal": False,
@@ -303,7 +303,7 @@ def load_q0_roundtrip_plan(
     round_trip = document.get("round_trip")
     if (
         not isinstance(round_trip, dict)
-        or round_trip.get("q0_time_from_start_ms") != 2000
+        or round_trip.get("q0_time_from_start_ms") != HALF_TRIP_DURATION_MS
         or float(round_trip.get("maximum_return_error_rad", math.inf)) != 0.0
     ):
         raise ValueError("plan round-trip evidence is invalid")

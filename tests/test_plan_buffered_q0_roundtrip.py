@@ -22,7 +22,7 @@ SPEC.loader.exec_module(MODULE)
 
 CALIBRATION = PACKAGE_ROOT / "config" / "single_arm_calibration.json"
 CONTRACT = PACKAGE_ROOT / "config" / "buffered_trajectory_contract.json"
-ANCHOR_RAW = (2075, 2255, 1785, 1981, 2070, 2002)
+ANCHOR_RAW = (2068, 2227, 1728, 1831, 2052, 2002)
 ARTIFACT = (
     ROOT
     / "artifacts"
@@ -31,7 +31,7 @@ ARTIFACT = (
     / "motion10_buffered_q0_roundtrip_plan_only.json"
 )
 ARTIFACT_SHA256 = (
-    "f5772313d1f3a3f9223e21e31a6fb3dd6a2219974b09734c4145275994cf8c5a"
+    "032bf81ef3a18cc8126fb2955388b8d0363405d7584327d56f3bbcf534aa72b5"
 )
 
 
@@ -50,18 +50,18 @@ def test_q0_roundtrip_is_non_executable_and_preserves_gripper():
         "maximum_arm_error_raw": 0,
         "gripper_preserved": True,
     }
-    assert len(document["waypoints"]) == 201
-    assert document["waypoints"][100]["time_from_start_ms"] == 2000
-    assert document["waypoints"][100]["q0_progress"] == 1.0
-    assert document["waypoints"][100]["positions_rad"] == [0.0] * 5
+    assert len(document["waypoints"]) == 211
+    assert document["waypoints"][105]["time_from_start_ms"] == 2100
+    assert document["waypoints"][105]["q0_progress"] == 1.0
+    assert document["waypoints"][105]["positions_rad"] == [0.0] * 5
     assert document["analytic_profile"] == {
         "kind": "symmetric_quintic_minimum_jerk",
         "polynomial": "10t^3-15t^4+6t^5",
-        "half_trip_duration_ms": 2000,
+        "half_trip_duration_ms": 2100,
         "waypoint_period_ms": 20,
-        "waypoint_count": 201,
-        "zero_velocity_boundaries_ms": [0, 2000, 4000],
-        "zero_acceleration_boundaries_ms": [0, 2000, 4000],
+        "waypoint_count": 211,
+        "zero_velocity_boundaries_ms": [0, 2100, 4200],
+        "zero_acceleration_boundaries_ms": [0, 2100, 4200],
     }
     assert document["round_trip"]["maximum_return_error_rad"] == 0.0
 
@@ -70,16 +70,16 @@ def test_q0_roundtrip_resampling_and_queue_admission_are_complete():
     document = MODULE.build_plan(CALIBRATION, CONTRACT, ANCHOR_RAW)
 
     assert document["resampling"]["period_ms"] == 20
-    assert document["resampling"]["duration_ms"] == 4000
-    assert document["resampling"]["sample_count"] == 201
-    assert document["resampling"]["maximum_sample_step_rad"] < 0.0076
+    assert document["resampling"]["duration_ms"] == 4200
+    assert document["resampling"]["sample_count"] == 211
+    assert document["resampling"]["maximum_sample_step_rad"] < 0.0098
     batches = document["queue_contract"]["admission_batch_sizes"]
     assert batches[:2] == [9, 7]
     assert max(batches) <= 9
-    assert sum(batches) == 201
+    assert sum(batches) == 211
     terminal = document["queue_contract"]["simulation_terminal"]
     assert terminal["state"] == "input_complete"
-    assert terminal["accepted_samples"] == 201
+    assert terminal["accepted_samples"] == 211
     assert terminal["safe_stop_required"] is False
     assert terminal["success_without_firmware_terminal"] is False
 
@@ -88,13 +88,13 @@ def test_q0_roundtrip_stays_within_reviewed_dynamic_limits():
     document = MODULE.build_plan(CALIBRATION, CONTRACT, ANCHOR_RAW)
 
     dynamics = document["dynamic_limits"]["finite_difference"]
-    assert dynamics["maximum_velocity_rad_s"] < 0.38
-    assert dynamics["maximum_acceleration_rad_s2"] < 0.59
-    assert dynamics["maximum_jerk_rad_s3"] < 2.9
-    assert dynamics["start_segment_velocity_rad_s"] < 0.00021
-    assert dynamics["q0_inbound_velocity_rad_s"] < 0.00021
-    assert dynamics["q0_outbound_velocity_rad_s"] < 0.00021
-    assert dynamics["final_segment_velocity_rad_s"] < 0.00021
+    assert dynamics["maximum_velocity_rad_s"] < 0.5
+    assert dynamics["maximum_acceleration_rad_s2"] < 1.0
+    assert dynamics["maximum_jerk_rad_s3"] < 3.6
+    assert dynamics["start_segment_velocity_rad_s"] < 0.0003
+    assert dynamics["q0_inbound_velocity_rad_s"] < 0.0003
+    assert dynamics["q0_outbound_velocity_rad_s"] < 0.0003
+    assert dynamics["final_segment_velocity_rad_s"] < 0.0003
 
 
 def test_firmware_5ms_raw_output_is_bounded_and_returns_exactly():
@@ -103,7 +103,7 @@ def test_firmware_5ms_raw_output_is_bounded_and_returns_exactly():
 
     assert output["executor_step_period_ms"] == 1
     assert output["servo_sync_write_period_ms"] == 5
-    assert output["output_count"] == 801
+    assert output["output_count"] == 841
     assert output["maximum_arm_step_raw"] <= 2
     assert output["start_raw"] == list(ANCHOR_RAW)
     assert output["q0_raw"] == [2048, 2048, 2048, 2048, 2048, 2002]
