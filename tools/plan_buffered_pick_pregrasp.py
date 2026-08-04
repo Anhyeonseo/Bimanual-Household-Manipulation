@@ -34,10 +34,10 @@ from plan_buffered_q0_roundtrip import (
 
 STATUS = "BUFFERED_PICK_PREGRASP_PLAN_ONLY_PASS"
 PHASE = "motion11_pick_pregrasp"
-FIRMWARE_VERSION = "0x00022100"
+FIRMWARE_VERSION = "0x00022200"
 CAPABILITIES = "0x00000FFF"
 PLAN_TICK_MS = 100_000
-ANCHOR_TO_Q0_DURATION_MS = 8_000
+ANCHOR_TO_Q0_DURATION_MS = 12_000
 Q0_TO_PREGRASP_DURATION_MS = 35_000
 TOTAL_DURATION_MS = ANCHOR_TO_Q0_DURATION_MS + Q0_TO_PREGRASP_DURATION_MS
 FIRMWARE_OUTPUT_PERIOD_MS = 5
@@ -218,6 +218,11 @@ def build_plan(
         raise ValueError("contract must keep motion_authorized=false")
     if contract["physical_execution_candidate"]["deployed"] is not True:
         raise ValueError("buffered physical execution must be commissioned")
+    uart_candidate = contract["servo_uart_receive_candidate"]
+    if uart_candidate["firmware_version"] != FIRMWARE_VERSION:
+        raise ValueError("servo UART candidate firmware version is inconsistent")
+    if uart_candidate["motion_authorized"] is not False:
+        raise ValueError("servo UART candidate must keep motion_authorized=false")
     if len(anchor_raw) != 6:
         raise ValueError("anchor must contain six raw positions")
 
@@ -323,6 +328,11 @@ def build_plan(
         "robot_target_available": False,
         "buffered_frame_encoded": False,
         "firmware_version": FIRMWARE_VERSION,
+        "firmware_deployment_gate": {
+            "candidate_status": uart_candidate["status"],
+            "deployed": uart_candidate["deployed"],
+            "motion_authorized": False,
+        },
         "capabilities": CAPABILITIES,
         "calibration_hash": f"0x{calibration.calibration_hash:08X}",
         "calibration_sha256": sha256_file(calibration_path),

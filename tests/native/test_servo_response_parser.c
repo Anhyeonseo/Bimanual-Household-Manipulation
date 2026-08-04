@@ -130,6 +130,49 @@ static void test_invalid_length_then_expected_frame(void)
     assert(parser.last_reject == SERVO_RESPONSE_REJECT_LENGTH);
 }
 
+static void test_split_bursts_preserve_parser_state(void)
+{
+    ServoResponseParser parser;
+    uint8_t packet[8] = {0U};
+    const uint8_t data[2] = {0xCDU, 0xABU};
+    size_t length = build_reply(packet, 1U, 0U, data, 2U);
+
+    ServoResponseParser_Init(&parser, 1U, 2U);
+    assert(feed(&parser, packet, 3U) == SERVO_RESPONSE_NEED_MORE);
+    assert(feed(&parser, &packet[3], length - 3U) ==
+        SERVO_RESPONSE_FRAME_READY);
+    assert(memcmp(ServoResponseParser_Data(&parser), data, 2U) == 0);
+}
+
+static void test_split_stale_and_corrupt_frames_resynchronize(void)
+{
+    ServoResponseParser parser;
+    uint8_t stream[24] = {0x12U, 0xFFU, 0x01U};
+    const uint8_t data[2] = {0x34U, 0x12U};
+    size_t corrupt_length = build_reply(&stream[3], 1U, 0U, data, 2U);
+    stream[3U + corrupt_length - 1U] ^= 0x01U;
+    size_t valid_offset = 3U + corrupt_length;
+    size_t valid_length = build_reply(
+        &stream[valid_offset],
+        1U,
+        0U,
+        data,
+        2U
+    );
+
+    ServoResponseParser_Init(&parser, 1U, 2U);
+    assert(feed(&parser, stream, 5U) == SERVO_RESPONSE_NEED_MORE);
+    assert(feed(&parser, &stream[5], valid_offset - 5U + 2U) ==
+        SERVO_RESPONSE_NEED_MORE);
+    assert(feed(
+        &parser,
+        &stream[valid_offset + 2U],
+        valid_length - 2U
+    ) == SERVO_RESPONSE_FRAME_READY);
+    assert(parser.last_reject == SERVO_RESPONSE_REJECT_CHECKSUM);
+    assert(memcmp(ServoResponseParser_Data(&parser), data, 2U) == 0);
+}
+
 static void test_target_status_error_is_terminal(void)
 {
     ServoResponseParser parser;
@@ -151,6 +194,8 @@ int main(void)
     test_late_wrong_id_then_expected_frame();
     test_bad_checksum_then_expected_frame();
     test_invalid_length_then_expected_frame();
+    test_split_bursts_preserve_parser_state();
+    test_split_stale_and_corrupt_frames_resynchronize();
     test_target_status_error_is_terminal();
     return 0;
 }

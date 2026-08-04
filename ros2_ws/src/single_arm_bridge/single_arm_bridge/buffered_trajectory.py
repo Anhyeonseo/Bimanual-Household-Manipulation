@@ -160,6 +160,32 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
             "firmware validation and physical routes must remain separated"
         )
 
+    uart_candidate = _require_object(
+        document,
+        "servo_uart_receive_candidate",
+    )
+    if uart_candidate != {
+        "status": "LOCAL_SERVO_UART_BOUNDED_BURST_CANDIDATE",
+        "firmware_version": "0x00022200",
+        "previous_deployed_firmware_version": "0x00022100",
+        "baud": 1_000_000,
+        "rx_fifo_enabled": False,
+        "receive_api": "HAL_UARTEx_ReceiveToIdle",
+        "burst_max_bytes": 64,
+        "transaction_timeout_ms": 50,
+        "parser_state_preserved_across_bursts": True,
+        "resynchronizes_split_stale_corrupt_responses": True,
+        "diagnosed_uart_errors": ["PE", "NE", "FE", "ORE", "RTO"],
+        "recovery_action": "abort_clear_flush_quiet_clear",
+        "internal_read_retry_count": 3,
+        "feedback_fail_closed_count": 3,
+        "deployed": False,
+        "motion_authorized": False,
+    }:
+        raise BufferedTrajectoryContractError(
+            "servo UART receive candidate must remain bounded and undeployed"
+        )
+
     host_adapter = _require_object(document, "host_adapter_candidate")
     if host_adapter != {
         "multi_point_validation_reused": True,

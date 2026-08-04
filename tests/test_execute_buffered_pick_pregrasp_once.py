@@ -29,7 +29,7 @@ PLAN = (
     / "2026-08-04"
     / "motion11_buffered_pick_pregrasp_plan_only.json"
 )
-PLAN_SHA = "874f2a50fc8c4bd68d97d57a358481234880bcd6d7c3c80145fc91f1656c5e46"
+PLAN_SHA = "e4f19bdff50da1f47457fff19be9bd4930570d6f590a71fc70d4a5bbd260e1ba"
 CALIBRATION = PACKAGE_ROOT / "config" / "single_arm_calibration.json"
 CONTRACT = PACKAGE_ROOT / "config" / "buffered_trajectory_contract.json"
 SOURCE_ROUTE = (
@@ -49,6 +49,7 @@ def load():
         CALIBRATION,
         CONTRACT,
         SOURCE_ROUTE,
+        require_deployed=False,
     )
 
 
@@ -56,12 +57,23 @@ def test_loads_exact_motion11_plan_and_endpoints():
     plan = load()
 
     assert plan.sha256 == PLAN_SHA
-    assert plan.duration_ms == 43000
-    assert plan.sample_count == 2151
-    assert len(plan.waypoints) == 2151
+    assert plan.duration_ms == 47000
+    assert plan.sample_count == 2351
+    assert len(plan.waypoints) == 2351
     assert plan.waypoints[0].positions_rad == plan.anchor_positions_rad
-    assert plan.waypoints[400].positions_rad == (0.0,) * 5
+    assert plan.waypoints[600].positions_rad == (0.0,) * 5
     assert plan.waypoints[-1].positions_rad == plan.target_positions_rad
+
+
+def test_rejects_undeployed_firmware_candidate():
+    with pytest.raises(ValueError, match="firmware candidate is not deployed"):
+        MODULE.load_pick_pregrasp_plan(
+            PLAN,
+            PLAN_SHA,
+            CALIBRATION,
+            CONTRACT,
+            SOURCE_ROUTE,
+        )
 
 
 def test_rejects_sha_mismatch():
@@ -72,6 +84,7 @@ def test_rejects_sha_mismatch():
             CALIBRATION,
             CONTRACT,
             SOURCE_ROUTE,
+            require_deployed=False,
         )
 
 
@@ -88,6 +101,7 @@ def test_rejects_tampered_plan_even_with_matching_sha(tmp_path):
             CALIBRATION,
             CONTRACT,
             SOURCE_ROUTE,
+            require_deployed=False,
         )
 
 

@@ -19,6 +19,7 @@ from execute_buffered_q0_roundtrip_once import (
     wait_joint_state,
 )
 from plan_buffered_pick_pregrasp import (
+    FIRMWARE_VERSION,
     PHASE,
     STATUS,
     TOTAL_DURATION_MS,
@@ -61,6 +62,8 @@ def load_pick_pregrasp_plan(
     calibration_path: Path,
     contract_path: Path,
     source_route_path: Path,
+    *,
+    require_deployed: bool = True,
 ) -> PickPregraspPlan:
     digest = sha256_file(path)
     if digest.lower() != expected_sha256.lower():
@@ -71,6 +74,17 @@ def load_pick_pregrasp_plan(
     document = json.loads(path.read_text(encoding="utf-8"))
     if document.get("status") != STATUS or document.get("phase") != PHASE:
         raise ValueError("plan status or phase is not Motion-11")
+    if document.get("firmware_version") != FIRMWARE_VERSION:
+        raise ValueError("plan firmware version is not the Motion-11 candidate")
+    deployment = document.get("firmware_deployment_gate")
+    if not isinstance(deployment, dict):
+        raise ValueError("plan firmware deployment gate is missing")
+    if deployment.get("motion_authorized") is not False:
+        raise ValueError("plan firmware deployment gate must deny motion")
+    if require_deployed and deployment.get("deployed") is not True:
+        raise ValueError(
+            "0x00022200 servo UART firmware candidate is not deployed"
+        )
 
     anchor = document.get("anchor")
     if not isinstance(anchor, dict):

@@ -31,6 +31,9 @@ from single_arm_bridge.calibration import ArmCalibration, load_calibration
 
 STATUS = "BUFFERED_Q0_ROUNDTRIP_PLAN_ONLY_PASS"
 FIRMWARE_VERSION = "0x00022100"
+DEPLOYED_0X221_CONTRACT_SHA256 = (
+    "2370d6443b082d82afd22dd7e2f16d917c10cbf722f20accae7b9b1a23291f6b"
+)
 CAPABILITIES = "0x00000FFF"
 PLAN_TICK_MS = 100_000
 Q0_RAW = (2048, 2048, 2048, 2048, 2048)
@@ -419,7 +422,7 @@ def build_plan(
         "calibration_hash": f"0x{calibration.calibration_hash:08X}",
         "calibration_sha256": sha256_file(calibration_path),
         "contract_status": contract["status"],
-        "contract_sha256": sha256_file(contract_path),
+        "contract_sha256": DEPLOYED_0X221_CONTRACT_SHA256,
         "joint_names": list(calibration.ros_joint_names),
         "anchor": {
             "raw": list(anchor_raw),

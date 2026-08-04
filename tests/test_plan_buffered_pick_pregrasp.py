@@ -32,7 +32,7 @@ SOURCE_ROUTE = (
     / "full_pick_place_reindexed_headroom015"
     / "01_q0_to_pick_pregrasp.json"
 )
-ANCHOR_RAW = (2273, 2330, 1802, 1941, 2142, 2002)
+ANCHOR_RAW = (2273, 2531, 1844, 1940, 2141, 2002)
 ARTIFACT = (
     ROOT
     / "artifacts"
@@ -41,7 +41,7 @@ ARTIFACT = (
     / "motion11_buffered_pick_pregrasp_plan_only.json"
 )
 ARTIFACT_SHA256 = (
-    "874f2a50fc8c4bd68d97d57a358481234880bcd6d7c3c80145fc91f1656c5e46"
+    "e4f19bdff50da1f47457fff19be9bd4930570d6f590a71fc70d4a5bbd260e1ba"
 )
 
 
@@ -57,6 +57,12 @@ def test_plan_is_non_executable_and_pins_collision_checked_source():
     assert document["execution_api_used"] is False
     assert document["motion_authorized"] is False
     assert document["buffered_frame_encoded"] is False
+    assert document["firmware_version"] == "0x00022200"
+    assert document["firmware_deployment_gate"] == {
+        "candidate_status": "LOCAL_SERVO_UART_BOUNDED_BURST_CANDIDATE",
+        "deployed": False,
+        "motion_authorized": False,
+    }
     assert document["source_route"] == {
         "path": SOURCE_ROUTE.relative_to(ROOT).as_posix(),
         "sha256": MODULE.EXPECTED_SOURCE_ROUTE_SHA256,
@@ -72,11 +78,11 @@ def test_two_leg_profile_reaches_q0_without_settle_then_pregrasp():
     assert document["analytic_profile"] == {
         "kind": "two_leg_quintic_minimum_jerk",
         "polynomial": "10t^3-15t^4+6t^5",
-        "anchor_to_q0_duration_ms": 8000,
+        "anchor_to_q0_duration_ms": 12000,
         "q0_to_pregrasp_duration_ms": 35000,
-        "total_duration_ms": 43000,
+        "total_duration_ms": 47000,
         "waypoint_period_ms": 20,
-        "waypoint_count": 2151,
+        "waypoint_count": 2351,
         "q0_settle_wait_ms": 0,
     }
     assert document["q0_transition"]["raw_with_preserved_gripper"] == [
@@ -85,7 +91,7 @@ def test_two_leg_profile_reaches_q0_without_settle_then_pregrasp():
     assert document["target"]["raw"] == [
         2278, 3190, 1625, 1209, 2146, 2002
     ]
-    assert document["resampling"]["sample_count"] == 2151
+    assert document["resampling"]["sample_count"] == 2351
 
 
 def test_dynamic_and_firmware_output_limits_are_bounded():
@@ -101,7 +107,7 @@ def test_dynamic_and_firmware_output_limits_are_bounded():
     assert document["resampling"]["maximum_sample_step_rad"] < 0.01
     assert output["executor_step_period_ms"] == 1
     assert output["servo_sync_write_period_ms"] == 5
-    assert output["output_count"] == 8601
+    assert output["output_count"] == 9401
     assert output["maximum_arm_step_raw"] <= 2
     assert output["start_raw"] == list(ANCHOR_RAW)
     assert output["q0_raw"] == [2048, 2048, 2048, 2048, 2048, 2002]
@@ -113,10 +119,10 @@ def test_queue_admission_accepts_every_sample_without_false_success():
     queue = document["queue_contract"]
 
     assert max(queue["admission_batch_sizes"]) <= 9
-    assert sum(queue["admission_batch_sizes"]) == 2151
+    assert sum(queue["admission_batch_sizes"]) == 2351
     terminal = queue["simulation_terminal"]
     assert terminal["state"] == "input_complete"
-    assert terminal["accepted_samples"] == 2151
+    assert terminal["accepted_samples"] == 2351
     assert terminal["safe_stop_required"] is False
     assert terminal["success_without_firmware_terminal"] is False
 

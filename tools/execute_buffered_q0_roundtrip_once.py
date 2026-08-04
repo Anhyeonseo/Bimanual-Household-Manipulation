@@ -17,6 +17,9 @@ from single_arm_bridge.buffered_action_adapter import (
     prepare_buffered_execution_plan,
 )
 from single_arm_bridge.calibration import load_calibration
+from single_arm_bridge.buffered_trajectory import (
+    load_buffered_trajectory_contract,
+)
 
 from execute_buffered_action_plan_once import (
     ACTION_NAME,
@@ -40,6 +43,9 @@ from execute_buffered_action_plan_once import (
 PLAN_STATUS = "BUFFERED_Q0_ROUNDTRIP_PLAN_ONLY_PASS"
 PLAN_PHASE = "motion10_q0_roundtrip"
 EXPECTED_FIRMWARE = "0x00022100"
+DEPLOYED_0X221_CONTRACT_SHA256 = (
+    "2370d6443b082d82afd22dd7e2f16d917c10cbf722f20accae7b9b1a23291f6b"
+)
 EXPECTED_CAPABILITIES = "0x00000FFF"
 EXPECTED_CALIBRATION = "0x8AD27897"
 CONFIRMATION = "EXECUTE_MOTION10_Q0_ROUNDTRIP_ONCE"
@@ -110,7 +116,14 @@ def load_q0_roundtrip_plan(
         raise ValueError("plan calibration identity mismatch")
     if document.get("calibration_sha256") != sha256_file(calibration_path):
         raise ValueError("plan calibration file sha256 mismatch")
-    if document.get("contract_sha256") != sha256_file(contract_path):
+    contract = load_buffered_trajectory_contract(contract_path)
+    physical = contract["physical_execution_candidate"]
+    if (
+        physical["firmware_version"] != EXPECTED_FIRMWARE
+        or physical["deployed"] is not True
+    ):
+        raise ValueError("deployed Motion-10 contract is no longer valid")
+    if document.get("contract_sha256") != DEPLOYED_0X221_CONTRACT_SHA256:
         raise ValueError("plan buffered contract sha256 mismatch")
 
     calibration = load_calibration(calibration_path)

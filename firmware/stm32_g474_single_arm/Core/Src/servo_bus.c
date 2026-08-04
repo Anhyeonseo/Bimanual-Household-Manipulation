@@ -86,6 +86,40 @@ static void ServoBus_ClearRxState(void)
     );
 }
 
+static uint32_t ServoBus_CurrentUartErrorCode(void)
+{
+    if (servo_uart_handle == NULL)
+    {
+        return HAL_UART_ERROR_NONE;
+    }
+
+    uint32_t errors = servo_uart_handle->ErrorCode;
+    uint32_t isr = servo_uart_handle->Instance->ISR;
+
+    if ((isr & UART_FLAG_PE) != 0U)
+    {
+        errors |= HAL_UART_ERROR_PE;
+    }
+    if ((isr & UART_FLAG_NE) != 0U)
+    {
+        errors |= HAL_UART_ERROR_NE;
+    }
+    if ((isr & UART_FLAG_FE) != 0U)
+    {
+        errors |= HAL_UART_ERROR_FE;
+    }
+    if ((isr & UART_FLAG_ORE) != 0U)
+    {
+        errors |= HAL_UART_ERROR_ORE;
+    }
+    if ((isr & UART_FLAG_RTOF) != 0U)
+    {
+        errors |= HAL_UART_ERROR_RTO;
+    }
+
+    return errors;
+}
+
 static void ServoBus_BeginTransaction(uint8_t servo_id)
 {
     memset(&servo_bus_diagnostics, 0, sizeof(servo_bus_diagnostics));
@@ -439,48 +473,94 @@ HAL_StatusTypeDef Servo_ReadData(
     ServoResponseParser_Init(&parser, servo_id, data_length);
     uint32_t start_tick = HAL_GetTick();
     HAL_StatusTypeDef receive_status = HAL_TIMEOUT;
+    uint16_t received_total = 0U;
+    uint8_t burst[SERVO_BUS_MAX_RX_BYTES] = {0U};
 
-    for (uint16_t received = 0U;
-         received < SERVO_BUS_MAX_RX_BYTES;
-         received++)
+    while (received_total < SERVO_BUS_MAX_RX_BYTES)
     {
         uint32_t elapsed = HAL_GetTick() - start_tick;
         if (elapsed >= SERVO_BUS_READ_TIMEOUT_MS)
         {
+            receive_status = HAL_TIMEOUT;
             break;
         }
 
-        uint8_t byte = 0U;
-        receive_status = HAL_UART_Receive(
+        uint16_t burst_length = 0U;
+        uint16_t burst_capacity =
+            (uint16_t)(SERVO_BUS_MAX_RX_BYTES - received_total);
+        receive_status = HAL_UARTEx_ReceiveToIdle(
             servo_uart_handle,
-            &byte,
-            1U,
+            burst,
+            burst_capacity,
+            &burst_length,
             SERVO_BUS_READ_TIMEOUT_MS - elapsed
         );
+
+        uint32_t uart_errors = ServoBus_CurrentUartErrorCode();
+        if (uart_errors != HAL_UART_ERROR_NONE)
+        {
+            ServoBus_RecordFailure(
+                SERVO_BUS_FAILURE_UART,
+                servo_id,
+                receive_status,
+                0U,
+                parser.discarded_bytes
+            );
+            servo_bus_diagnostics.uart_error_code = uart_errors;
+            break;
+        }
+
+        if (burst_length > burst_capacity)
+        {
+            ServoBus_RecordFailure(
+                SERVO_BUS_FAILURE_LENGTH,
+                servo_id,
+                HAL_ERROR,
+                0U,
+                parser.discarded_bytes
+            );
+            receive_status = HAL_ERROR;
+            break;
+        }
+
+        for (uint16_t index = 0U; index < burst_length; index++)
+        {
+            received_total++;
+            ServoResponseParseResult parse_result =
+                ServoResponseParser_Push(&parser, burst[index]);
+            if (parse_result == SERVO_RESPONSE_FRAME_READY)
+            {
+                memcpy(
+                    data,
+                    ServoResponseParser_Data(&parser),
+                    data_length
+                );
+                servo_bus_diagnostics.discarded_bytes =
+                    parser.discarded_bytes;
+                return HAL_OK;
+            }
+            if (parse_result == SERVO_RESPONSE_STATUS_ERROR)
+            {
+                ServoBus_RecordFailure(
+                    SERVO_BUS_FAILURE_STATUS,
+                    servo_id,
+                    HAL_ERROR,
+                    parser.servo_status,
+                    parser.discarded_bytes
+                );
+                (void)ServoBus_Recover();
+                return HAL_ERROR;
+            }
+        }
+
         if (receive_status != HAL_OK)
         {
-            uint32_t uart_errors = servo_uart_handle->ErrorCode;
-            uint32_t uart_flags = servo_uart_handle->Instance->ISR &
-                (UART_FLAG_PE |
-                 UART_FLAG_FE |
-                 UART_FLAG_NE |
-                 UART_FLAG_ORE |
-                 UART_FLAG_RTOF);
             ServoBusFailureReason failure_reason =
-                SERVO_BUS_FAILURE_RX_TIMEOUT;
-            if ((uart_errors != HAL_UART_ERROR_NONE) ||
-                (uart_flags != 0U))
+                (receive_status == HAL_TIMEOUT)
+                    ? SERVO_BUS_FAILURE_RX_TIMEOUT
+                    : SERVO_BUS_FAILURE_UART;
+            if (parser.last_reject != SERVO_RESPONSE_REJECT_NONE)
             {
-                failure_reason = SERVO_BUS_FAILURE_UART;
-            }
-            else if (parser.last_reject != SERVO_RESPONSE_REJECT_NONE)
-            {
-                /*
-                 * Preserve the parser's concrete rejection cause when a
-                 * corrupt or stale frame is followed by silence. Reporting
-                 * only the final byte timeout would hide the evidence needed
-                 * to distinguish desynchronization from a disconnected bus.
-                 */
                 failure_reason = ServoBus_MapRejectReason(
                     parser.last_reject
                 );
@@ -495,26 +575,10 @@ HAL_StatusTypeDef Servo_ReadData(
             break;
         }
 
-        ServoResponseParseResult parse_result =
-            ServoResponseParser_Push(&parser, byte);
-        if (parse_result == SERVO_RESPONSE_FRAME_READY)
+        if (burst_length == 0U)
         {
-            memcpy(data, ServoResponseParser_Data(&parser), data_length);
-            servo_bus_diagnostics.discarded_bytes =
-                parser.discarded_bytes;
-            return HAL_OK;
-        }
-        if (parse_result == SERVO_RESPONSE_STATUS_ERROR)
-        {
-            ServoBus_RecordFailure(
-                SERVO_BUS_FAILURE_STATUS,
-                servo_id,
-                HAL_ERROR,
-                parser.servo_status,
-                parser.discarded_bytes
-            );
-            (void)ServoBus_Recover();
-            return HAL_ERROR;
+            receive_status = HAL_TIMEOUT;
+            break;
         }
     }
 

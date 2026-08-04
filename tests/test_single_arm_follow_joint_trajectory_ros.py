@@ -149,7 +149,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
             1,
             6,
             False,
-            0x00022100,
+            0x00022200,
             0x8AD27897,
             0x00000FFF,
             0,

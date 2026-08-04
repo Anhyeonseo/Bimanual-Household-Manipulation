@@ -30,7 +30,7 @@ def function_body(source: str, signature: str) -> str:
 
 
 def test_g474_separates_validation_and_execution_lateness_policy() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022100)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022200)" in CONFIG
     assert (
         "HOST_BUFFERED_VALIDATION_MAXIMUM_APPLY_LATENESS_MS "
         "UINT32_C(0)"
