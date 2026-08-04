@@ -18,6 +18,7 @@ from single_arm_bridge.buffered_action_adapter import (
     REFILL_TARGET_SAMPLES,
     SAMPLE_PERIOD_MS,
     STARTUP_PRIME_SAMPLES,
+    STARTUP_PRIME_MINIMUM_ELAPSED_MS,
     BufferedAdapterState,
     BufferedBatchScheduler,
     prepare_buffered_execution_plan,
@@ -238,7 +239,7 @@ def simulate_admission_batches(plan) -> tuple[list[int], dict[str, object]]:
         queued_samples=first.accepted_samples_after_ack,
     )
 
-    second = scheduler.next_batch(current_tick_ms=PLAN_TICK_MS + 55)
+    second = scheduler.next_batch(current_tick_ms=PLAN_TICK_MS + STARTUP_PRIME_MINIMUM_ELAPSED_MS)
     if second is None:
         raise RuntimeError("startup prime second batch was not produced")
     batch_sizes.append(second.sample_count)

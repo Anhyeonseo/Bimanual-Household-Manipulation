@@ -32,6 +32,7 @@ POST_SETTLE_CONSECUTIVE_SNAPSHOTS = 2
 POST_SETTLE_TIMEOUT_S = 2.5
 POST_SETTLE_POLL_INTERVAL_S = 0.1
 STARTUP_FIRST_SAMPLE_LEAD_GATE_MS = 80
+STARTUP_MAXIMUM_HEARTBEAT_GATES = 3
 
 
 def _tick_has_reached(current_tick_ms: int, apply_tick_ms: int, margin_ms: int) -> bool:
@@ -146,7 +147,7 @@ class BufferedActionExecutionCore:
                 prime_heartbeat = None
                 first_sample_lead_ms = None
                 prime_heartbeat_gates = 0
-                for gate_index in range(1, 3):
+                for gate_index in range(1, STARTUP_MAXIMUM_HEARTBEAT_GATES + 1):
                     stage = f"prime_frame_2_heartbeat_{gate_index}"
                     prime_heartbeat = self._transport.heartbeat()
                     prime_heartbeat_gates += 1

@@ -60,7 +60,7 @@ STM32의 기존 1 ms executor와 5 ms servo sync-write를 그대로 재현한 ra
 - 파일:
   `artifacts/motion/2026-08-04/motion10_buffered_q0_roundtrip_plan_only.json`
 - SHA-256:
-  `032bf81ef3a18cc8126fb2955388b8d0363405d7584327d56f3bbcf534aa72b5`
+  `28ec9511a1a94c020138fe6ad908300671bf60a5938a933953d3a4f155ad634d`
 - execution API used: `false`
 - buffered frame encoded: `false`
 - motion authorized: `false`

@@ -115,7 +115,7 @@ def test_driver_encodes_and_exchanges_prime_9_plus_7_once_each() -> None:
     driver = BufferedTransportDriver(scheduler, port)
 
     first = driver.service_once(current_tick_ms=1_000)
-    second = driver.service_once(current_tick_ms=1_055)
+    second = driver.service_once(current_tick_ms=1_060)
 
     assert first is not None and first.sample_count == 9
     assert second is not None and second.sample_count == 7
@@ -258,7 +258,7 @@ def test_driver_refills_at_watermark_without_reusing_prime_frames() -> None:
     )
     driver = BufferedTransportDriver(scheduler, port)
     driver.service_once(current_tick_ms=1_000)
-    driver.service_once(current_tick_ms=1_055)
+    driver.service_once(current_tick_ms=1_060)
     scheduler.record_applied(6)
     refill = driver.service_once(current_tick_ms=1_201)
 

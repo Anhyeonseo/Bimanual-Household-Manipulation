@@ -97,7 +97,7 @@ class SimulatedBufferedTransport:
             and self.heartbeat_error_after_terminal is not None
         ):
             raise self.heartbeat_error_after_terminal
-        self.tick += self.heartbeat_step_ms
+        self.tick = (self.tick + self.heartbeat_step_ms) & UINT32_MAX
         self._update_applied()
         return SimpleNamespace(last_heartbeat_ms=self.tick)
 
@@ -275,7 +275,7 @@ def test_continuous_runtime_refills_and_requires_terminal_and_settle() -> None:
     assert outcome.state.value == "succeeded"
     assert "maximum_apply_lateness_ms=2" in outcome.reason
     assert "first_sample_lead_ms=100" in outcome.reason
-    assert "prime_heartbeat_gates=2" in outcome.reason
+    assert "prime_heartbeat_gates=3" in outcome.reason
     assert "prime_frames=2 accepted=16 applied=0 queued=16" in outcome.reason
     assert len(transport.commands) > 2
     assert transport.commands[0].sample_count == 9
@@ -300,8 +300,68 @@ def test_continuous_runtime_refills_and_requires_terminal_and_settle() -> None:
     assert core.blocked is False
 
 
+@pytest.mark.parametrize(
+    ("elapsed_ms", "expected_first_sample_lead_ms"),
+    ((60, 100), (61, 99), (80, 80)),
+)
+def test_startup_prime_accepts_reviewed_elapsed_window_boundaries(
+    elapsed_ms: int,
+    expected_first_sample_lead_ms: int,
+) -> None:
+    transport = SimulatedBufferedTransport(heartbeat_step_ms=elapsed_ms)
+    core = BufferedActionExecutionCore(transport, hello(), CALIBRATION)
+
+    plan = core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+
+    assert len(transport.commands) == 2
+    assert not (
+        transport.commands[0].flags & int(BufferedSetpointFlags.START)
+    )
+    assert transport.commands[1].flags & int(BufferedSetpointFlags.START)
+    assert transport.accepted == 16
+    assert (
+        plan.samples[0].apply_tick_ms - transport.tick
+    ) & UINT32_MAX == expected_first_sample_lead_ms
+    assert core.blocked is False
+
+
+@pytest.mark.parametrize("elapsed_ms", (59, 81))
+def test_startup_prime_rejects_elapsed_outside_reviewed_window(
+    elapsed_ms: int,
+) -> None:
+    transport = SimulatedBufferedTransport(heartbeat_step_ms=elapsed_ms)
+    core = BufferedActionExecutionCore(transport, hello(), CALIBRATION)
+
+    with pytest.raises(Exception, match="buffered start failed"):
+        core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+
+    assert core.active is False
+    assert core.blocked is True
+    assert transport.safe_stop_calls == 1
+    assert len(transport.commands) == 1
+    assert not (
+        transport.commands[0].flags & int(BufferedSetpointFlags.START)
+    )
+
+
+def test_startup_prime_61ms_elapsed_handles_uint32_wraparound() -> None:
+    transport = SimulatedBufferedTransport(heartbeat_step_ms=61)
+    transport.tick = UINT32_MAX - 30
+    core = BufferedActionExecutionCore(transport, hello(), CALIBRATION)
+
+    plan = core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+
+    assert plan.samples[0].apply_tick_ms == 190
+    assert transport.tick == 91
+    assert (plan.samples[0].apply_tick_ms - transport.tick) & UINT32_MAX == 99
+    assert len(transport.commands) == 2
+    assert transport.commands[1].flags & int(BufferedSetpointFlags.START)
+    assert transport.accepted == 16
+    assert core.blocked is False
+
+
 def test_startup_lead_gate_fails_closed_before_start_frame() -> None:
-    transport = SimulatedBufferedTransport(heartbeat_step_ms=100)
+    transport = SimulatedBufferedTransport(heartbeat_step_ms=120)
     core = BufferedActionExecutionCore(
         transport,
         hello(),

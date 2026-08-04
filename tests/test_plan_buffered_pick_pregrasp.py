@@ -41,7 +41,7 @@ ARTIFACT = (
     / "motion11_buffered_pick_pregrasp_plan_only.json"
 )
 ARTIFACT_SHA256 = (
-    "975102ee7ba1b2ec066b3bc3934c19b53a26a345fc991025491c2f04e9aedcba"
+    "874f2a50fc8c4bd68d97d57a358481234880bcd6d7c3c80145fc91f1656c5e46"
 )
 
 

@@ -89,11 +89,11 @@ def test_reanchor_preserves_positions_and_uses_fresh_tick() -> None:
         current_tick_ms=50_000,
     )
 
-    assert rebased.anchor_tick_ms == 50_120
+    assert rebased.anchor_tick_ms == 50_140
     assert rebased.samples[0].apply_tick_ms == (
         50_000 + INITIAL_FIRST_SAMPLE_LEAD_MS
     )
-    assert rebased.samples[-1].apply_tick_ms == 50_940
+    assert rebased.samples[-1].apply_tick_ms == 50_960
     assert tuple(sample.positions_urad for sample in rebased.samples) == tuple(
         sample.positions_urad for sample in provisional.samples
     )
@@ -111,9 +111,9 @@ def test_reanchor_handles_uint32_wraparound() -> None:
         current_tick_ms=0xFFFFFFC0,
     )
 
-    assert rebased.anchor_tick_ms == 56
-    assert rebased.samples[0].apply_tick_ms == 76
-    assert rebased.samples[-1].apply_tick_ms == 376
+    assert rebased.anchor_tick_ms == 76
+    assert rebased.samples[0].apply_tick_ms == 96
+    assert rebased.samples[-1].apply_tick_ms == 396
 
 
 def ack_pending(
@@ -136,7 +136,7 @@ def prime(value: BufferedBatchScheduler, *, current_tick_ms: int = 1_000):
     first = value.next_batch(current_tick_ms=current_tick_ms)
     assert first is not None
     ack_pending(value, first, applied=0)
-    second = value.next_batch(current_tick_ms=current_tick_ms + 55)
+    second = value.next_batch(current_tick_ms=current_tick_ms + 60)
     assert second is not None
     ack_pending(value, second, applied=0)
     return first, second
@@ -175,17 +175,17 @@ def extended_result(
     )
 
 
-def test_resamples_at_20ms_with_140ms_initial_lead_and_preserves_gripper() -> None:
+def test_resamples_at_20ms_with_160ms_initial_lead_and_preserves_gripper() -> None:
     plan, _ = scheduler()
 
-    assert plan.anchor_tick_ms == 1_120
+    assert plan.anchor_tick_ms == 1_140
     assert len(plan.samples) == 41
     assert plan.samples[0].trajectory_elapsed_ms == 0
-    assert plan.samples[0].apply_tick_ms == 1_140
+    assert plan.samples[0].apply_tick_ms == 1_160
     assert plan.samples[0].positions_urad[:5] == (0,) * 5
     assert plan.samples[0].positions_urad[5] == 60_000
     assert plan.samples[1].trajectory_elapsed_ms == 20
-    assert plan.samples[1].apply_tick_ms == 1_160
+    assert plan.samples[1].apply_tick_ms == 1_180
     assert plan.samples[1].positions_urad[:5] == (2_000,) * 5
     assert plan.samples[-1].trajectory_elapsed_ms == 800
     assert plan.samples[-1].positions_urad[:5] == (80_000,) * 5
@@ -292,7 +292,7 @@ def test_late_refill_aborts_before_a_frame_can_be_sent() -> None:
     value.record_applied(6)
 
     with pytest.raises(BufferedActionAdapterError, match="below 60 ms"):
-        value.next_batch(current_tick_ms=1_405)
+        value.next_batch(current_tick_ms=1_425)
     snapshot = value.snapshot()
     assert snapshot.state is BufferedAdapterState.ABORTED
     assert snapshot.reason == "batch_lead_outside_reviewed_window"
@@ -314,7 +314,7 @@ def test_early_second_prime_waits_until_maximum_horizon() -> None:
     snapshot = value.snapshot()
     assert snapshot.state is BufferedAdapterState.PRIMING
     assert snapshot.pending_batch is False
-    assert value.next_batch(current_tick_ms=1_055) is not None
+    assert value.next_batch(current_tick_ms=1_060) is not None
 
 
 def test_underflow_and_cancel_are_terminal_fail_closed() -> None:
@@ -352,15 +352,15 @@ def test_uint32_tick_wrap_preserves_lead_and_offsets() -> None:
     current = 0xFFFFFFB0
     plan, value = scheduler(current_tick_ms=current)
 
-    assert plan.anchor_tick_ms == 40
-    assert plan.samples[0].apply_tick_ms == 60
+    assert plan.anchor_tick_ms == 60
+    assert plan.samples[0].apply_tick_ms == 80
     first = value.next_batch(current_tick_ms=current)
     assert first is not None
-    assert first.first_apply_tick_ms == 60
+    assert first.first_apply_tick_ms == 80
     assert first.samples[-1].tick_offset_ms == 160
 
 
-def test_140ms_lead_covers_physical_9_plus_7_uart_wire_budget() -> None:
+def test_160ms_lead_covers_physical_9_plus_7_uart_wire_budget() -> None:
     def encoded_command_size(sample_count: int, flags: int) -> int:
         samples = tuple(
             BufferedSetpointSample(index * 20, (0,) * 6)
@@ -405,7 +405,7 @@ def test_140ms_lead_covers_physical_9_plus_7_uart_wire_budget() -> None:
     anchor_lead_ms = INITIAL_FIRST_SAMPLE_LEAD_MS - SAMPLE_PERIOD_MS
 
     assert wire_ms == pytest.approx(87.673611, abs=0.000001)
-    assert anchor_lead_ms - wire_ms >= 32.0
+    assert anchor_lead_ms - wire_ms >= 52.0
     assert INITIAL_FIRST_SAMPLE_LEAD_MS - (
         first_bytes * 10_000.0 / 115_200.0
     ) >= 60.0
@@ -428,7 +428,7 @@ def test_extended_motion_result_ack_maps_priming_then_running() -> None:
             applied=0,
         )
     )
-    second = value.next_batch(current_tick_ms=1_055)
+    second = value.next_batch(current_tick_ms=1_060)
     assert second is not None
     value.acknowledge_motion_result(
         extended_result(

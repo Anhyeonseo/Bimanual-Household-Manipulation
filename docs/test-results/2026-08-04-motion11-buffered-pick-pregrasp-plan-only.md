@@ -90,7 +90,7 @@ heartbeat-gated post-settle을 별도로 통과해야 한다.
 - plan artifact:
   `artifacts/motion/2026-08-04/motion11_buffered_pick_pregrasp_plan_only.json`
 - plan SHA-256:
-  `975102ee7ba1b2ec066b3bc3934c19b53a26a345fc991025491c2f04e9aedcba`
+  `874f2a50fc8c4bd68d97d57a358481234880bcd6d7c3c80145fc91f1656c5e46`
 - generator:
   `tools/plan_buffered_pick_pregrasp.py`
 - generator SHA-256:
@@ -131,21 +131,43 @@ sender는 plan SHA뿐 아니라 artifact 전체를 source route·calibration·bu
 이는 통신·queue 실패가 아니라 계획 속도 대비 물리 추종 부족이다. 첫 시도는
 Motion-11 물리 통과로 세지 않으며 같은 계획을 자동 재시도하지 않았다.
 
+## startup re-anchor 160 ms 보강
+
+startup-reanchor 첫 실기 시도는 경로 실행 전에 두 번째 prime frame의
+heartbeat gate에서 중단됐다. precompute `263.804 ms`는 fresh re-anchor 전에
+완료됐지만, 기존 initial first-sample lead `140 ms`에서 실측 firmware 경과가
+`61 ms`가 되어 남은 lead가 `79 ms`였다. 안전 하한 `80 ms`보다 1 ms
+작았으므로 `sequence=0`, `status=none` 상태에서 START frame을 보내지 않고
+fail-closed latch를 설정했다. 자동 재시도는 수행하지 않았다.
+
+initial first-sample lead를 `160 ms`로 올려 두 번째 7-sample prime frame이
+maximum horizon `400 ms`에 들어오는 firmware 경과 창을 `60–80 ms`로
+확보했다. first-sample 안전 하한 `80 ms`, prime `16 samples / 2 frames`,
+maximum horizon `400 ms`, 자동 재시도 금지는 유지한다. 20 ms 모의
+heartbeat에서는 최대 3회 gate를 허용하며 실측 `61 ms`, 양 끝 `60/80 ms`,
+범위 밖 `59/81 ms`, uint32 tick wraparound를 모두 검증했다.
+
+- 이전 140 ms plan SHA: `975102ee7ba1b2ec066b3bc3934c19b53a26a345fc991025491c2f04e9aedcba`
+- 현재 160 ms plan SHA: `874f2a50fc8c4bd68d97d57a358481234880bcd6d7c3c80145fc91f1656c5e46`
+- 현재 contract SHA: `2370d6443b082d82afd22dd7e2f16d917c10cbf722f20accae7b9b1a23291f6b`
+- 첫/마지막 apply offset: `160 / 43160 ms`
+- anchor·target·총 시간·sample 수·joint waypoint: 변경 없음
+
 ## 로컬 검증
 
-- Motion-11 신규 테스트: `13 passed`
-- 관련 buffered Action 회귀: `116 passed`
-- host/ROS 전체 회귀: `573 passed`
+- Motion-11 startup·plan·sender 관련 회귀: `86 passed`
+- 전체 host/ROS 회귀: `594 passed`
+- `single_arm_bridge` 패키지 테스트: `21 tests, 0 errors, 0 failures`
 - 저장소 루트 무제한 pytest는 로컬에 없는 Isaac Lab의
   `isaaclab_tasks` 때문에 수집되지 않으므로 host/ROS 테스트 디렉터리를
   명시했다.
 
 ## 다음 gate
 
-1. faulted bridge 종료와 12V OFF 상태에서 latch 복구를 1회 수행한다.
-2. READ_ONLY 6축 진단으로 실제 anchor가 계획 허용치 안인지 확인한다.
-3. 현재 위치가 바뀌었으므로 43초 후보를 fresh anchor로 재생성한다.
-4. anchor가 벗어나면 허용치를 늘리지 않고 계획을 새 anchor로 재생성한다.
-5. MOTION_ENABLED 무동작 gate 뒤 Action goal 단 1회만 제한 실행한다.
-6. 성공 terminal, post-settle, 최종 pregrasp와 physical DISABLE까지 통과해야
-   Motion-11을 물리 통과로 승격한다.
+1. 160 ms host 파일과 계약·계획을 Pi에 SHA 검증 후 배포하고 rebuild한다.
+2. 12V OFF·팔 지지 상태에서 latch 복구를 1회 수행한다.
+3. persistent MOTION_ENABLED Bridge로 torque와 fresh anchor를 유지한다.
+4. anchor가 계획 허용치를 벗어나면 허용치를 늘리지 않고 계획을 재생성한다.
+5. 새 plan SHA의 Action goal을 단 1회만 제한 실행한다.
+6. startup timing/accounting, firmware terminal, post-settle과 최종 pregrasp를
+   모두 통과해야 Motion-11을 물리 통과로 승격한다.

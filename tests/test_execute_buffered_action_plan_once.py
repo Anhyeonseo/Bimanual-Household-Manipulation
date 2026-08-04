@@ -10,6 +10,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOT = ROOT / "ros2_ws" / "src" / "single_arm_bridge"
 sys.path.insert(0, str(PACKAGE_ROOT))
+from single_arm_bridge.buffered_action_adapter import (  # noqa: E402
+    INITIAL_FIRST_SAMPLE_LEAD_MS,
+)
 MODULE_PATH = ROOT / "tools" / "execute_buffered_action_plan_once.py"
 SPEC = importlib.util.spec_from_file_location(
     "execute_buffered_action_plan_once",
@@ -80,6 +83,12 @@ def immediate_wait(unused_node, future, unused_timeout):
 def current_contract_plan(tmp_path):
     document = json.loads(PLAN.read_text(encoding="utf-8"))
     document["contract_sha256"] = MODULE.sha256_file(CONTRACT)
+    offset_delta_ms = (
+        INITIAL_FIRST_SAMPLE_LEAD_MS
+        - document["resampling"]["samples"][0]["apply_offset_ms"]
+    )
+    for sample in document["resampling"]["samples"]:
+        sample["apply_offset_ms"] += offset_delta_ms
     path = tmp_path / "current_contract_plan.json"
     path.write_text(json.dumps(document), encoding="utf-8")
     return path, MODULE.sha256_file(path)

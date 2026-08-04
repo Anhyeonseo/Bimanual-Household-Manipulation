@@ -47,8 +47,8 @@ def test_plan_is_exactly_sixteen_samples_and_changes_only_selected_joint() -> No
     assert len(plan.samples) == 16
     assert plan.samples[0].trajectory_elapsed_ms == 0
     assert plan.samples[-1].trajectory_elapsed_ms == 300
-    assert plan.samples[0].apply_tick_ms == 1140
-    assert plan.anchor_tick_ms == 1120
+    assert plan.samples[0].apply_tick_ms == 1160
+    assert plan.anchor_tick_ms == 1140
     assert plan.samples[0].positions_urad == (0,) * 6
     assert plan.samples[-1].positions_urad[:4] == (0,) * 4
     assert plan.samples[-1].positions_urad[4] == 30000
