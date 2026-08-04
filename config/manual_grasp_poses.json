@@ -19,6 +19,12 @@
     "rotate_xyz_deg": [0.0, -0.0, 72.414],
     "scale_m": [0.08, 0.025, 0.025]
   },
+  "table_pose": {
+    "prim_path": "/so101_new_calib/TrainingScene/Table",
+    "translate_m": [0.11715, -0.00018, -0.01859],
+    "rotate_xyz_deg": [0.0, 0.0, 0.0],
+    "scale_m": [0.62974, 0.67526, 0.02]
+  },
   "waypoints": {
     "Q_HOME": [0, 0, 0, 0, 0, -10],
     "Q_PRE_GRASP": [-1.7, 52, -111.99, -0.5, 40, 20.4],
