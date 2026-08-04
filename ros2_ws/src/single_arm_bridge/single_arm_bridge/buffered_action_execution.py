@@ -26,7 +26,7 @@ from .protocol import Hello
 
 POST_SETTLE_TOLERANCE_RAW = 30
 POST_SETTLE_CONSECUTIVE_SNAPSHOTS = 2
-POST_SETTLE_TIMEOUT_S = 1.5
+POST_SETTLE_TIMEOUT_S = 2.5
 POST_SETTLE_POLL_INTERVAL_S = 0.1
 
 
@@ -252,36 +252,156 @@ class BufferedActionExecutionCore:
                 joint.zero_raw
                 + joint.direction * position * 4096.0 / (2.0 * math.pi)
             )
-            for joint, position in zip(self._calibration.joints, final, strict=True)
+            for joint, position in zip(
+                self._calibration.joints,
+                final,
+                strict=True,
+            )
         )
+        started_at = time.monotonic()
         deadline = time.monotonic() + self._post_settle_timeout_s
         consecutive = 0
         maximum = 0
         last_error = 0
-        while time.monotonic() < deadline:
-            diagnostics = self._transport.get_diagnostics()
-            if any(not sample.torque_enabled for sample in diagnostics.joints):
+        observations = 0
+        heartbeat_gates = 0
+        error_trace: list[tuple[int, ...]] = []
+        per_axis_minimum: tuple[int, ...] | None = None
+        final_errors: tuple[int, ...] | None = None
+        best_maximum_error: int | None = None
+
+        def elapsed_ms() -> int:
+            return max(0, round((time.monotonic() - started_at) * 1000.0))
+
+        def format_errors(values: tuple[int, ...] | None) -> str:
+            if values is None:
+                return "none"
+            return "[" + ",".join(str(value) for value in values) + "]"
+
+        def diagnostic_context() -> str:
+            trace = "|".join(
+                f"{index}:{format_errors(values)}"
+                for index, values in enumerate(error_trace, start=1)
+            )
+            return (
+                f"observations={observations} consecutive={consecutive} "
+                f"heartbeat_gates={heartbeat_gates} "
+                f"elapsed_ms={elapsed_ms()} "
+                f"error_trace_raw={trace or 'none'} "
+                "per_axis_minimum_error_raw="
+                f"{format_errors(per_axis_minimum)} "
+                f"final_errors_raw={format_errors(final_errors)} "
+                "best_maximum_error_raw="
+                f"{best_maximum_error if best_maximum_error is not None else 'none'}"
+            )
+
+        def heartbeat_gate(stage: str) -> None:
+            nonlocal heartbeat_gates
+            try:
+                self._transport.heartbeat()
+            except Exception as error:
                 raise ExecutionError(
-                    "torque disabled before post-settle verification"
+                    "post-settle heartbeat gate failed "
+                    f"stage={stage} {diagnostic_context()}: {error}"
+                ) from error
+            heartbeat_gates += 1
+
+        # A successful firmware terminal ends setpoint application, but does
+        # not relax the 500 ms MCU heartbeat watchdog.  Re-establish the host
+        # lease before any potentially long servo-bus position sweep.
+        heartbeat_gate("terminal_received")
+        while time.monotonic() < deadline:
+            stage = f"position_snapshot_{observations + 1}"
+            heartbeat_gate(stage)
+            try:
+                state = self._transport.get_state(include_positions=True)
+            except Exception as error:
+                raise ExecutionError(
+                    "post-settle position feedback failed "
+                    f"stage={stage} {diagnostic_context()}: {error}"
+                ) from error
+            if state.raw_positions is None:
+                raise ExecutionError(
+                    "position-only post-settle feedback is missing "
+                    f"stage={stage} {diagnostic_context()}"
                 )
             errors = tuple(
-                abs(sample.position_raw - target)
-                for sample, target in zip(diagnostics.joints, targets, strict=True)
+                abs(position - target)
+                for position, target in zip(
+                    state.raw_positions,
+                    targets,
+                    strict=True,
+                )
             )
+            observations += 1
+            error_trace.append(errors)
+            final_errors = errors
+            if per_axis_minimum is None:
+                per_axis_minimum = errors
+            else:
+                per_axis_minimum = tuple(
+                    min(previous, current)
+                    for previous, current in zip(
+                        per_axis_minimum,
+                        errors,
+                        strict=True,
+                    )
+                )
             last_error = max(errors)
+            best_maximum_error = (
+                last_error
+                if best_maximum_error is None
+                else min(best_maximum_error, last_error)
+            )
             if last_error <= POST_SETTLE_TOLERANCE_RAW:
                 consecutive += 1
                 maximum = max(maximum, last_error)
                 if consecutive >= POST_SETTLE_CONSECUTIVE_SNAPSHOTS:
-                    return maximum
+                    break
             else:
                 consecutive = 0
                 maximum = 0
             time.sleep(self._post_settle_poll_interval_s)
-        raise ExecutionError(
-            f"maximum error {last_error} did not settle within "
-            f"{POST_SETTLE_TOLERANCE_RAW} raw"
+        else:
+            raise ExecutionError(
+                f"last maximum error {last_error} did not provide "
+                f"{POST_SETTLE_CONSECUTIVE_SNAPSHOTS} consecutive "
+                f"position-only snapshots within "
+                f"{POST_SETTLE_TOLERANCE_RAW} raw; "
+                f"{diagnostic_context()}"
+            )
+
+        heartbeat_gate("full_diagnostics")
+        try:
+            diagnostics = self._transport.get_diagnostics()
+        except Exception as error:
+            raise ExecutionError(
+                "post-settle full diagnostics failed "
+                f"stage=full_diagnostics {diagnostic_context()}: {error}"
+            ) from error
+        if any(not sample.torque_enabled for sample in diagnostics.joints):
+            raise ExecutionError(
+                "torque disabled before final full diagnostics verification; "
+                f"{diagnostic_context()}"
+            )
+        diagnostic_errors = tuple(
+            abs(sample.position_raw - target)
+            for sample, target in zip(
+                diagnostics.joints,
+                targets,
+                strict=True,
+            )
         )
+        diagnostic_error = max(diagnostic_errors)
+        if diagnostic_error > POST_SETTLE_TOLERANCE_RAW:
+            raise ExecutionError(
+                f"final full diagnostics maximum error {diagnostic_error} "
+                f"exceeds {POST_SETTLE_TOLERANCE_RAW} raw; "
+                "diagnostic_errors_raw="
+                f"{format_errors(diagnostic_errors)} "
+                f"{diagnostic_context()}"
+            )
+        return max(maximum, diagnostic_error)
 
     def _abort_active(
         self,

@@ -19,6 +19,7 @@ from single_arm_bridge.buffered_action_adapter import (  # noqa: E402
 )
 from single_arm_bridge.buffered_action_execution import (  # noqa: E402
     BufferedActionExecutionCore,
+    POST_SETTLE_TIMEOUT_S,
     conservative_applied_count,
 )
 from single_arm_bridge.buffered_transport_driver import (  # noqa: E402
@@ -51,7 +52,17 @@ def trajectory(duration_ms: int = 800):
 
 
 class SimulatedBufferedTransport:
-    def __init__(self, *, settle_error_raw: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        settle_error_raw: int = 0,
+        position_errors_raw: tuple[int, ...] | None = None,
+        position_error_vectors_raw: tuple[tuple[int, ...], ...] | None = None,
+        diagnostics_torque_enabled: bool = True,
+        heartbeat_error_after_terminal: Exception | None = None,
+        position_error: Exception | None = None,
+        diagnostics_error: Exception | None = None,
+    ) -> None:
         self.tick = 1_000
         self.sequence = 100
         self.accepted = 0
@@ -64,9 +75,24 @@ class SimulatedBufferedTransport:
         self.commands = []
         self.safe_stop_calls = 0
         self.settle_error_raw = settle_error_raw
+        self.position_errors_raw = position_errors_raw
+        self.position_error_vectors_raw = position_error_vectors_raw
+        self.position_snapshot_calls = 0
+        self.diagnostics_calls = 0
+        self.diagnostics_torque_enabled = diagnostics_torque_enabled
+        self.heartbeat_error_after_terminal = heartbeat_error_after_terminal
+        self.position_error = position_error
+        self.diagnostics_error = diagnostics_error
+        self.events = []
         self.target_raw = tuple(joint.zero_raw for joint in CALIBRATION.joints)
 
     def heartbeat(self):
+        self.events.append("heartbeat")
+        if (
+            self.terminal_sent
+            and self.heartbeat_error_after_terminal is not None
+        ):
+            raise self.heartbeat_error_after_terminal
         self.tick += 20
         self._update_applied()
         return SimpleNamespace(last_heartbeat_ms=self.tick)
@@ -138,17 +164,56 @@ class SimulatedBufferedTransport:
             return [BufferedExchangeResponse(self.last_sequence, result)]
         return []
 
+    def get_state(self, include_positions=True):
+        assert include_positions is True
+        self.events.append("get_state")
+        self.position_snapshot_calls += 1
+        if self.position_error is not None:
+            raise self.position_error
+        error = self.settle_error_raw
+        if self.position_errors_raw:
+            index = min(
+                self.position_snapshot_calls - 1,
+                len(self.position_errors_raw) - 1,
+            )
+            error = self.position_errors_raw[index]
+        if self.position_error_vectors_raw:
+            index = min(
+                self.position_snapshot_calls - 1,
+                len(self.position_error_vectors_raw) - 1,
+            )
+            errors = self.position_error_vectors_raw[index]
+            assert len(errors) == len(self.target_raw)
+            return SimpleNamespace(
+                raw_positions=tuple(
+                    target + axis_error
+                    for target, axis_error in zip(
+                        self.target_raw,
+                        errors,
+                        strict=True,
+                    )
+                )
+            )
+        return SimpleNamespace(
+            raw_positions=tuple(target + error for target in self.target_raw)
+        )
+
     def get_diagnostics(self):
+        self.events.append("get_diagnostics")
+        self.diagnostics_calls += 1
+        if self.diagnostics_error is not None:
+            raise self.diagnostics_error
         joints = tuple(
             SimpleNamespace(
                 position_raw=target + self.settle_error_raw,
-                torque_enabled=True,
+                torque_enabled=self.diagnostics_torque_enabled,
             )
             for target in self.target_raw
         )
         return SimpleNamespace(joints=joints)
 
     def safe_stop(self):
+        self.events.append("safe_stop")
         self.safe_stop_calls += 1
 
     def _update_applied(self):
@@ -207,12 +272,158 @@ def test_continuous_runtime_refills_and_requires_terminal_and_settle() -> None:
     assert "maximum_apply_lateness_ms=2" in outcome.reason
     assert len(transport.commands) > 2
     assert transport.accepted == len(plan.samples)
+    assert transport.position_snapshot_calls == 2
+    assert transport.diagnostics_calls == 1
+    assert transport.events[-7:] == [
+        "heartbeat",
+        "heartbeat",
+        "get_state",
+        "heartbeat",
+        "get_state",
+        "heartbeat",
+        "get_diagnostics",
+    ]
     assert core.active is False
     assert core.blocked is False
 
 
 def test_post_settle_failure_is_fail_closed() -> None:
     transport = SimulatedBufferedTransport(settle_error_raw=31)
+    core = BufferedActionExecutionCore(
+        transport,
+        hello(),
+        CALIBRATION,
+        post_settle_timeout_s=0.01,
+        post_settle_poll_interval_s=0.0,
+    )
+    plan = core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+    transport.target_raw = tuple(
+        round(
+            joint.zero_raw
+            + joint.direction * position * 4096.0 / (2.0 * 3.141592653589793)
+        )
+        for joint, position in zip(
+            CALIBRATION.joints,
+            (*plan.final_arm_positions_rad, plan.preserved_gripper_rad),
+            strict=True,
+        )
+    )
+
+    outcome = None
+    for _ in range(80):
+        outcome = core.poll()
+        if outcome is not None:
+            break
+
+    assert outcome is not None
+    assert outcome.state.value == "aborted"
+    assert "post-settle" in outcome.reason
+    assert transport.safe_stop_calls == 1
+    assert transport.position_snapshot_calls >= 1
+    assert transport.diagnostics_calls == 0
+    assert "heartbeat_gates=" in outcome.reason
+    assert "elapsed_ms=" in outcome.reason
+    assert "error_trace_raw=1:[31,31,31,31,31,31]" in outcome.reason
+    assert "per_axis_minimum_error_raw=[31,31,31,31,31,31]" in outcome.reason
+    assert "final_errors_raw=[31,31,31,31,31,31]" in outcome.reason
+    assert "best_maximum_error_raw=31" in outcome.reason
+    assert core.blocked is True
+
+
+def test_post_settle_default_timeout_is_extended_without_relaxing_error_gate():
+    assert POST_SETTLE_TIMEOUT_S == 2.5
+
+
+def test_post_settle_failure_records_per_axis_trace_minimum_and_final_errors():
+    transport = SimulatedBufferedTransport(
+        position_error_vectors_raw=(
+            (40, 20, 10, 5, 1, 0),
+            (35, 25, 9, 4, 1, 0),
+        ),
+    )
+    core = BufferedActionExecutionCore(
+        transport,
+        hello(),
+        CALIBRATION,
+        post_settle_timeout_s=0.01,
+        post_settle_poll_interval_s=0.0,
+    )
+    plan = core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+    transport.target_raw = tuple(
+        round(
+            joint.zero_raw
+            + joint.direction * position * 4096.0 / (2.0 * 3.141592653589793)
+        )
+        for joint, position in zip(
+            CALIBRATION.joints,
+            (*plan.final_arm_positions_rad, plan.preserved_gripper_rad),
+            strict=True,
+        )
+    )
+
+    outcome = None
+    for _ in range(80):
+        outcome = core.poll()
+        if outcome is not None:
+            break
+
+    assert outcome is not None
+    assert outcome.state.value == "aborted"
+    assert (
+        "error_trace_raw=1:[40,20,10,5,1,0]|2:[35,25,9,4,1,0]"
+        in outcome.reason
+    )
+    assert "per_axis_minimum_error_raw=[35,20,9,4,1,0]" in outcome.reason
+    assert "final_errors_raw=[35,25,9,4,1,0]" in outcome.reason
+    assert "best_maximum_error_raw=35" in outcome.reason
+    assert transport.safe_stop_calls == 1
+    assert core.blocked is True
+
+
+def test_post_settle_recovers_after_one_outlier_without_full_sweep_retries() -> None:
+    transport = SimulatedBufferedTransport(
+        settle_error_raw=19,
+        position_errors_raw=(31, 19, 19),
+    )
+    core = BufferedActionExecutionCore(
+        transport,
+        hello(),
+        CALIBRATION,
+        post_settle_timeout_s=0.01,
+        post_settle_poll_interval_s=0.0,
+    )
+    plan = core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+    transport.target_raw = tuple(
+        round(
+            joint.zero_raw
+            + joint.direction * position * 4096.0 / (2.0 * 3.141592653589793)
+        )
+        for joint, position in zip(
+            CALIBRATION.joints,
+            (*plan.final_arm_positions_rad, plan.preserved_gripper_rad),
+            strict=True,
+        )
+    )
+
+    outcome = None
+    for _ in range(80):
+        outcome = core.poll()
+        if outcome is not None:
+            break
+
+    assert outcome is not None
+    assert outcome.state.value == "succeeded"
+    assert "post_settle_max_error_raw=19" in outcome.reason
+    assert transport.position_snapshot_calls == 3
+    assert transport.diagnostics_calls == 1
+
+
+def test_terminal_heartbeat_gate_failure_is_fail_closed_without_position_read():
+    transport = SimulatedBufferedTransport(
+        heartbeat_error_after_terminal=RuntimeError(
+            "HEARTBEAT rejected: status=0 latched=1"
+        ),
+    )
     core = BufferedActionExecutionCore(
         transport,
         hello(),
@@ -230,9 +441,125 @@ def test_post_settle_failure_is_fail_closed() -> None:
 
     assert outcome is not None
     assert outcome.state.value == "aborted"
-    assert "post-settle" in outcome.reason
+    assert "stage=terminal_received" in outcome.reason
+    assert "observations=0" in outcome.reason
+    assert "heartbeat_gates=0" in outcome.reason
+    assert "latched=1" in outcome.reason
+    assert transport.position_snapshot_calls == 0
+    assert transport.diagnostics_calls == 0
     assert transport.safe_stop_calls == 1
     assert core.blocked is True
+
+
+def test_position_read_failure_reports_stage_and_is_fail_closed():
+    transport = SimulatedBufferedTransport(
+        position_error=RuntimeError(
+            "GET_STATE rejected: status=0 latched=1"
+        ),
+    )
+    core = BufferedActionExecutionCore(
+        transport,
+        hello(),
+        CALIBRATION,
+        post_settle_timeout_s=0.01,
+        post_settle_poll_interval_s=0.0,
+    )
+    core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+
+    outcome = None
+    for _ in range(80):
+        outcome = core.poll()
+        if outcome is not None:
+            break
+
+    assert outcome is not None
+    assert outcome.state.value == "aborted"
+    assert "stage=position_snapshot_1" in outcome.reason
+    assert "observations=0" in outcome.reason
+    assert "heartbeat_gates=2" in outcome.reason
+    assert "latched=1" in outcome.reason
+    assert transport.position_snapshot_calls == 1
+    assert transport.diagnostics_calls == 0
+    assert transport.safe_stop_calls == 1
+    assert core.blocked is True
+
+
+def test_full_diagnostics_transport_failure_reports_heartbeat_aligned_stage():
+    transport = SimulatedBufferedTransport(
+        diagnostics_error=RuntimeError("diagnostics timeout"),
+    )
+    core = BufferedActionExecutionCore(
+        transport,
+        hello(),
+        CALIBRATION,
+        post_settle_timeout_s=0.01,
+        post_settle_poll_interval_s=0.0,
+    )
+    plan = core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+    transport.target_raw = tuple(
+        round(
+            joint.zero_raw
+            + joint.direction * position * 4096.0 / (2.0 * 3.141592653589793)
+        )
+        for joint, position in zip(
+            CALIBRATION.joints,
+            (*plan.final_arm_positions_rad, plan.preserved_gripper_rad),
+            strict=True,
+        )
+    )
+
+    outcome = None
+    for _ in range(80):
+        outcome = core.poll()
+        if outcome is not None:
+            break
+
+    assert outcome is not None
+    assert outcome.state.value == "aborted"
+    assert "stage=full_diagnostics" in outcome.reason
+    assert "observations=2" in outcome.reason
+    assert "heartbeat_gates=4" in outcome.reason
+    assert "diagnostics timeout" in outcome.reason
+    assert transport.position_snapshot_calls == 2
+    assert transport.diagnostics_calls == 1
+    assert transport.safe_stop_calls == 1
+    assert core.blocked is True
+
+
+def test_full_diagnostics_after_position_settle_remains_fail_closed() -> None:
+    transport = SimulatedBufferedTransport(diagnostics_torque_enabled=False)
+    core = BufferedActionExecutionCore(
+        transport,
+        hello(),
+        CALIBRATION,
+        post_settle_timeout_s=0.01,
+        post_settle_poll_interval_s=0.0,
+    )
+    plan = core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+    transport.target_raw = tuple(
+        round(
+            joint.zero_raw
+            + joint.direction * position * 4096.0 / (2.0 * 3.141592653589793)
+        )
+        for joint, position in zip(
+            CALIBRATION.joints,
+            (*plan.final_arm_positions_rad, plan.preserved_gripper_rad),
+            strict=True,
+        )
+    )
+
+    outcome = None
+    for _ in range(80):
+        outcome = core.poll()
+        if outcome is not None:
+            break
+
+    assert outcome is not None
+    assert outcome.state.value == "aborted"
+    assert "final full diagnostics" in outcome.reason
+    assert transport.position_snapshot_calls == 2
+    assert transport.diagnostics_calls == 1
+    assert transport.safe_stop_calls == 1
 
 
 def test_conservative_progress_handles_uint32_wrap() -> None:

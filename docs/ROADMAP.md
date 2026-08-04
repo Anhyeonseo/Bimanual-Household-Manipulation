@@ -305,7 +305,13 @@
   lateness는 `4 ms`, firmware/독립 readback 최대 오차는 모두 `6 raw`, 자동
   재시도는 0회였고 6축 physical DISABLE도 확인했다. buffered Action 경로는
   `PHYSICAL_ACTION_COMMISSIONED`지만 일반 작업 권한 `motion_authorized=false`는
-  유지한다. 다음 gate는 q0 왕복, Pick pregrasp, 연속 Pick/Place 순이다.
+  유지한다. Motion-10은 20 ms 간격의 해석적 quintic minimum-jerk
+  `211`점과 heartbeat-gated 2.5초 post-settle을 적용한 4.2초 q0 왕복을
+  단일 Action으로 실기 통과했다. maximum apply lateness `4 ms`,
+  post-settle `20 raw`, 최종 최대 오차 `0.021476 rad`, 자동 재시도 0회였고
+  bridge 정상 종료와 6축 physical DISABLE도 확인했다. 전 구간 떨림은 크게
+  개선됐으나 상승 구간의 약한 흔들림은 후속 품질 항목으로 남긴다. 다음 gate는
+  같은 dense 경로를 Pick pregrasp와 연속 Pick/Place로 확대하는 것이다.
 - Pick과 Place의 접촉 Z를 분리하고 Place TCP-to-contact 후보 `0.015 m`를
   plan-only·충돌 검사·제한 실기 순서로 보정
 - 대리석 무늬·반사·조명 변화에서도 펜 하나만 검출하도록 색/형상 기반
