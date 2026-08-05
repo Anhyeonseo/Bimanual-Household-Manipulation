@@ -1,0 +1,180 @@
+{
+  "automatic_host_retry_count": 0,
+  "baseline_error_counters": {
+    "discarded_bytes": 0,
+    "dma_error_count": 0,
+    "failure_count": 0,
+    "fe_count": 0,
+    "ne_count": 0,
+    "ore_count": 0,
+    "overflow_count": 0,
+    "pe_count": 0,
+    "receiver_resync_count": 0,
+    "recovery_count": 0,
+    "rto_count": 0,
+    "timeout_count": 0
+  },
+  "calls": {
+    "diagnostics": 2,
+    "heartbeat": 700,
+    "position": 350
+  },
+  "device": "/dev/serial/by-id/usb-STMicroelectronics_STLINK-V3_005100393235511438363730-if02",
+  "diagnostics_snapshots": [
+    {
+      "elapsed_s": 1.2049459169993497,
+      "error_counters": {
+        "discarded_bytes": 0,
+        "dma_error_count": 0,
+        "failure_count": 0,
+        "fe_count": 0,
+        "ne_count": 0,
+        "ore_count": 0,
+        "overflow_count": 0,
+        "pe_count": 0,
+        "receiver_resync_count": 0,
+        "recovery_count": 0,
+        "rto_count": 0,
+        "timeout_count": 0
+      },
+      "goals_raw": [
+        2271,
+        3233,
+        1559,
+        1212,
+        2139,
+        2004
+      ],
+      "lazy_arm_count": 150,
+      "positions_raw": [
+        2271,
+        3233,
+        1559,
+        1212,
+        2139,
+        2004
+      ],
+      "receiver_armed": false,
+      "receiver_resync_count": 0,
+      "temperature_c": [
+        30,
+        30,
+        30,
+        32,
+        31,
+        33
+      ],
+      "torque_enabled": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "voltage_v": [
+        12.3,
+        12.4,
+        12.5,
+        12.3,
+        12.4,
+        12.4
+      ]
+    },
+    {
+      "elapsed_s": 60.308044511000844,
+      "error_counters": {
+        "discarded_bytes": 0,
+        "dma_error_count": 0,
+        "failure_count": 0,
+        "fe_count": 0,
+        "ne_count": 0,
+        "ore_count": 0,
+        "overflow_count": 0,
+        "pe_count": 0,
+        "receiver_resync_count": 0,
+        "recovery_count": 0,
+        "rto_count": 0,
+        "timeout_count": 0
+      },
+      "goals_raw": [
+        2271,
+        3233,
+        1559,
+        1212,
+        2139,
+        2004
+      ],
+      "lazy_arm_count": 1962,
+      "positions_raw": [
+        2271,
+        3233,
+        1559,
+        1212,
+        2139,
+        2004
+      ],
+      "receiver_armed": false,
+      "receiver_resync_count": 0,
+      "temperature_c": [
+        31,
+        30,
+        30,
+        32,
+        31,
+        33
+      ],
+      "torque_enabled": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "voltage_v": [
+        12.3,
+        12.4,
+        12.5,
+        12.3,
+        12.4,
+        12.4
+      ]
+    }
+  ],
+  "duration_observed_s": 70.00180667399945,
+  "duration_requested_s": 70.0,
+  "failure": null,
+  "kind": "servo_uart_circular_dma_read_only_soak",
+  "latency": {
+    "diagnostics": {
+      "average_ms": 214.22701149913337,
+      "count": 2,
+      "maximum_ms": 214.7342279986333,
+      "p95_ms": 214.7342279986333
+    },
+    "heartbeat": {
+      "average_ms": 6.063199897172516,
+      "count": 700,
+      "maximum_ms": 6.16432300012093,
+      "p95_ms": 6.13549000081548
+    },
+    "position": {
+      "average_ms": 84.44916079432005,
+      "count": 350,
+      "maximum_ms": 85.18841200020688,
+      "p95_ms": 85.17483700052253
+    }
+  },
+  "latest_positions_raw": [
+    2271,
+    3233,
+    1559,
+    1212,
+    2139,
+    2004
+  ],
+  "motion_command_count": 0,
+  "passed": true,
+  "schema_version": 1
+}

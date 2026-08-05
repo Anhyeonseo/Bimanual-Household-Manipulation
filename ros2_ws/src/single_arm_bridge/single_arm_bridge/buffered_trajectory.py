@@ -165,10 +165,10 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "servo_uart_receive_candidate",
     )
     if uart_candidate != {
-        "status": "LOCAL_MAIN_LOOP_BLOCKING_BUDGET_CANDIDATE",
-        "firmware_version": "0x00022700",
-        "previous_candidate_firmware_version": "0x00022600",
-        "previous_deployed_firmware_version": "0x00022600",
+        "status": "LOCAL_STATUS_TRANSMIT_BUDGET_DEPLOYED",
+        "firmware_version": "0x00022900",
+        "previous_candidate_firmware_version": "0x00022800",
+        "previous_deployed_firmware_version": "0x00022800",
         "baud": 1_000_000,
         "rx_fifo_enabled": False,
         "receive_api": "HAL_UARTEx_ReceiveToIdle_DMA",
@@ -205,16 +205,24 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "feedback_fail_closed_count": 3,
         "apply_lateness_histogram_buckets": 6,
         "apply_lateness_worst_sample_index_reported": True,
-        "buffered_status_payload_bytes": 60,
+        "host_uart_baud": 115_200,
+        "buffered_status_acknowledgement_payload_bytes": 32,
+        "buffered_status_terminal_payload_bytes": 60,
+        "buffered_status_acknowledgement_transmit_ms": 4.688,
+        "apply_lateness_allowance_ms": 5,
+        "host_frame_transmit_is_blocking": True,
         "buffered_execution_servo_reads": False,
         "motion_safety_polling_during_buffered_execution": False,
         "host_heartbeat_response_budget_ms": 400,
         "mcu_heartbeat_watchdog_ms": 500,
-        "deployed": False,
+        "host_frame_tx_accounting": True,
+        "diagnostics_payload_bytes": 146,
+        "deployed": True,
         "motion_authorized": False,
     }:
         raise BufferedTrajectoryContractError(
-            "main loop blocking budget candidate must remain bounded and undeployed"
+            "status transmit budget route must stay deployed "
+            "and unauthorized for motion"
         )
 
     host_adapter = _require_object(document, "host_adapter_candidate")

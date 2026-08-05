@@ -1,0 +1,87 @@
+{
+  "anchor_maximum_spread_raw": 0,
+  "anchor_raw": [
+    2271,
+    3233,
+    1559,
+    1212,
+    2139,
+    2004
+  ],
+  "apply_lateness_histogram": {
+    "buckets_ms": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      "5+"
+    ],
+    "counts": [
+      1573,
+      96,
+      98,
+      90,
+      44,
+      0
+    ],
+    "estimated_refill_events": 317,
+    "late_fraction": 0.17254,
+    "late_per_refill": 1.035,
+    "late_samples": 328,
+    "sum_equals_applied_samples": true,
+    "worst_sample_index": 94
+  },
+  "bridge_mode": "MOTION_ENABLED",
+  "calibration_hash": "0x8AD27897",
+  "date": "2026-08-06",
+  "firmware_version": "0x00022900",
+  "host_frame_tx_after_run": {
+    "failure_count": 0,
+    "last_status": 0,
+    "maximum_ms": 15,
+    "note": "15 ms 는 PHASE 10 에서 읽은 진단 프레임 자체의 전송시간(유휴 기준선)이다",
+    "timeout_count": 0
+  },
+  "motion_authorized_in_contract": false,
+  "plan": {
+    "duration_autoselected": true,
+    "duration_ms": 38000,
+    "maximum_sample_step_rad": 0.001794,
+    "modeled_peak_error_raw": 58.41,
+    "modeled_terminal_error_raw": 0.0,
+    "sample_count": 1901,
+    "sha256": "c2d300a33a6d90c967c28563173256b59a62da365b8ec1c04a629353875237e1"
+  },
+  "record": "motion12-buffered-q0-return",
+  "servo_bus_after_run": {
+    "dma_error_count": 0,
+    "failure_count": 0,
+    "fe_count": 0,
+    "ore_count": 0,
+    "receiver_resync_count": 0,
+    "recovery_count": 0,
+    "rto_count": 0,
+    "transaction_count": 9330
+  },
+  "startup": {
+    "accepted": 16,
+    "applied_at_prime": 0,
+    "first_sample_lead_ms": 99,
+    "fresh_tick": 920804,
+    "precompute_ms": 156.817,
+    "prime_frames": 2,
+    "prime_heartbeat_gates": 1,
+    "prime_tick": 920865,
+    "queued": 16
+  },
+  "terminal": {
+    "action_send_count": 1,
+    "automatic_retry_count": 0,
+    "maximum_apply_lateness_ms": 4,
+    "post_settle_max_error_raw": 6,
+    "q0_max_error_rad": 0.009204,
+    "sequence": 273,
+    "status": "succeeded"
+  }
+}

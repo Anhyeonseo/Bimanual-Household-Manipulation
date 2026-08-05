@@ -30,6 +30,9 @@ DIAGNOSTICS_BASE = struct.Struct("<BBBBII")
 DIAGNOSTICS_JOINT = struct.Struct("<8B7H2B2H2BH4B")
 DIAGNOSTICS_BUS_HEALTH_LEGACY = struct.Struct("<8B11I6H")
 DIAGNOSTICS_BUS_HEALTH = struct.Struct("<8B11I6H2IBB16s")
+# 0x00022800 부터: host frame 전송 계측. 전송이 잘리면 host stream
+# 정렬이 깨지는데 지금까지 MCU 쪽에 아무 흔적이 없었다.
+DIAGNOSTICS_HOST_TX = struct.Struct("<3HBx")
 
 
 class MessageType(IntEnum):
@@ -138,7 +141,7 @@ class MotionResult:
     peak_queued_samples: int | None = None
     accepted_samples: int | None = None
     applied_samples: int | None = None
-    # 0x00022700 부터: apply lateness 분포와 최악 sample 위치.
+    # 0x00022800 부터: apply lateness 분포와 최악 sample 위치.
     # 최대값 하나로는 드문 spike 와 계통적 지연을 구분할 수 없다.
     apply_lateness_histogram: tuple[int, ...] | None = None
     maximum_apply_lateness_sample_index: int | None = None
@@ -181,6 +184,10 @@ class ServoBusHealth:
     receiver_resync_count: int = 0
     failure_snapshot: bytes = b""
     receiver_armed: bool = False
+    host_tx_failure_count: int | None = None
+    host_tx_timeout_count: int | None = None
+    host_tx_maximum_ms: int | None = None
+    host_tx_last_status: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -508,32 +515,29 @@ def parse_servo_diagnostic(payload: bytes) -> ServoDiagnostic:
     legacy_length = DIAGNOSTICS_BASE.size + DIAGNOSTICS_JOINT.size
     legacy_health_length = legacy_length + DIAGNOSTICS_BUS_HEALTH_LEGACY.size
     extended_length = legacy_length + DIAGNOSTICS_BUS_HEALTH.size
+    host_tx_length = extended_length + DIAGNOSTICS_HOST_TX.size
     if len(payload) not in (
-        legacy_length, legacy_health_length, extended_length
+        legacy_length, legacy_health_length, extended_length, host_tx_length
     ):
         raise ProtocolError("invalid DIAGNOSTICS length")
     base = DIAGNOSTICS_BASE.unpack_from(payload)
     joint = DIAGNOSTICS_JOINT.unpack_from(payload, DIAGNOSTICS_BASE.size)
     bus_health = None
-    if len(payload) in (legacy_health_length, extended_length):
+    if len(payload) in (legacy_health_length, extended_length, host_tx_length):
+        wide = len(payload) in (extended_length, host_tx_length)
         health_format = (
-            DIAGNOSTICS_BUS_HEALTH
-            if len(payload) == extended_length
-            else DIAGNOSTICS_BUS_HEALTH_LEGACY
+            DIAGNOSTICS_BUS_HEALTH if wide else DIAGNOSTICS_BUS_HEALTH_LEGACY
         )
         health = health_format.unpack_from(payload, legacy_length)
-        lazy_arm_count = health[25] if len(payload) == extended_length else 0
-        receiver_resync_count = (
-            health[26] if len(payload) == extended_length else 0
-        )
-        snapshot_length = health[27] if len(payload) == extended_length else 0
-        receiver_armed = (
-            health[28] != 0 if len(payload) == extended_length else health[4] != 0
-        )
-        failure_snapshot = (
-            health[29][:snapshot_length]
-            if len(payload) == extended_length
-            else b""
+        lazy_arm_count = health[25] if wide else 0
+        receiver_resync_count = health[26] if wide else 0
+        snapshot_length = health[27] if wide else 0
+        receiver_armed = (health[28] != 0) if wide else (health[4] != 0)
+        failure_snapshot = health[29][:snapshot_length] if wide else b""
+        host_tx = (
+            DIAGNOSTICS_HOST_TX.unpack_from(payload, extended_length)
+            if len(payload) == host_tx_length
+            else None
         )
         bus_health = ServoBusHealth(
             schema_version=health[0],
@@ -565,6 +569,10 @@ def parse_servo_diagnostic(payload: bytes) -> ServoDiagnostic:
             receiver_resync_count=receiver_resync_count,
             failure_snapshot=failure_snapshot,
             receiver_armed=receiver_armed,
+            host_tx_failure_count=host_tx[0] if host_tx else None,
+            host_tx_timeout_count=host_tx[1] if host_tx else None,
+            host_tx_maximum_ms=host_tx[2] if host_tx else None,
+            host_tx_last_status=host_tx[3] if host_tx else None,
         )
     return ServoDiagnostic(
         status_code=base[0],

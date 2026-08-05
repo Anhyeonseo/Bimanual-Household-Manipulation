@@ -8,12 +8,45 @@
 #define ENABLE_SERVO_CENTERING_COMMAND 0U
 #define ENABLE_BOOT_ID1_AUTOCONFIG 0U
 
-#define HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022700)
+#define HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022900)
 #define HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)
 #define HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)
 #define HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)
 #define HOST_BINARY_HEARTBEAT_TIMEOUT_MS UINT32_C(500)
 #define HOST_BINARY_RX_BURST_MAX_BYTES UINT8_C(64)
+
+/*
+ * LPUART1 host link. Mirrors hlpuart1.Init.BaudRate in main.c, which
+ * tests/test_stm32_status_frame_transmit_budget.py keeps in agreement.
+ *
+ * This is not documentation. Host_SendBinaryFrame transmits by a blocking
+ * call on the same cooperative loop that steps the buffered executor, so the
+ * encoded length of a response divided by this rate is charged directly to
+ * apply lateness. HOST_BINARY_FRAME_TRANSMIT_MS below turns that into a
+ * build-time bound, enforced by an #error in binary_control.c.
+ */
+#define HOST_BINARY_UART_BAUD UINT32_C(115200)
+
+/* 8N1: one start bit and one stop bit per octet. */
+#define HOST_BINARY_UART_BITS_PER_BYTE UINT32_C(10)
+
+/*
+ * COBS frames a 16 byte header, the payload and a 4 byte CRC, adding one code
+ * byte for runs shorter than 254 and one trailing delimiter. Zero bytes cost
+ * nothing extra, so for every status payload the encoded length is exact.
+ */
+#define HOST_BINARY_FRAME_WIRE_BYTES(payload_bytes) \
+    ((payload_bytes) + 16U + 4U + 1U + 1U)
+
+/* Ceiling, because lateness is counted in whole HAL_GetTick milliseconds. */
+#define HOST_BINARY_FRAME_TRANSMIT_MS(payload_bytes)               \
+    (((HOST_BINARY_FRAME_WIRE_BYTES(payload_bytes) *               \
+       HOST_BINARY_UART_BITS_PER_BYTE * 1000U) +                   \
+      (HOST_BINARY_UART_BAUD - 1U)) /                              \
+     HOST_BINARY_UART_BAUD)
+
+/* Terminal buffered status frames carry the apply-lateness distribution. */
+#define HOST_BUFFERED_STATUS_TERMINAL UINT8_C(6)
 
 /*
  * Motion-4 exposes only the no-motion validation route. These bounds retain

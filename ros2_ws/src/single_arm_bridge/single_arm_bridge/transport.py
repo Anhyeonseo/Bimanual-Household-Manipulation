@@ -11,6 +11,7 @@ from typing import Any
 
 from .protocol import (
     ARM_RESPONSE,
+    MAX_PAYLOAD,
     BufferedSetpointFlags,
     BufferedSetpointSample,
     Frame,
@@ -46,6 +47,9 @@ DIAGNOSTIC_CAPABILITY = 0x00000010
 # next send, so the MCU decides when the link is dead.
 HEARTBEAT_RESPONSE_TIMEOUT_S = 0.40
 MCU_HEARTBEAT_WATCHDOG_TIMEOUT_S = 0.50
+# A frame is at most a 16-byte header plus MAX_PAYLOAD plus CRC, and COBS
+# adds about one byte per 254. Two frames of slack is ample.
+RX_RESIDUAL_LIMIT_BYTES = 2 * (MAX_PAYLOAD + 64)
 BUFFERED_VALIDATION_ROUTE_CAPABILITY = 0x00000400
 BUFFERED_EXECUTION_ROUTE_CAPABILITY = 0x00000800
 
@@ -77,6 +81,8 @@ class ResponseTimeoutError(TransportError):
         empty_reads: int,
         undecodable_frames: int,
         observed_frames: tuple[str, ...],
+        partial_read_lengths: tuple[int, ...] = (),
+        rejected_packets: tuple[bytes, ...] = (),
     ) -> None:
         self.message_type = message_type
         self.sequence = sequence
@@ -85,6 +91,8 @@ class ResponseTimeoutError(TransportError):
         self.empty_reads = empty_reads
         self.undecodable_frames = undecodable_frames
         self.observed_frames = observed_frames
+        self.partial_read_lengths = partial_read_lengths
+        self.rejected_packets = rejected_packets
         observed = ",".join(observed_frames) if observed_frames else "none"
         super().__init__(
             f"timeout waiting for {message_type.name} "
@@ -92,7 +100,9 @@ class ResponseTimeoutError(TransportError):
             f"budget_ms={timeout_s * 1000.0:.1f} "
             f"empty_reads={empty_reads} "
             f"undecodable={undecodable_frames} "
-            f"observed={observed}"
+            f"observed={observed} "
+            f"partial_lengths={','.join(str(v) for v in partial_read_lengths) or 'none'} "
+            f"rejected={','.join(p.hex() for p in rejected_packets) or 'none'}"
         )
 
 
@@ -218,6 +228,15 @@ class ActuatorTransport:
     def __init__(self, port: Any, response_timeout_s: float = 0.4) -> None:
         self._port = port
         self._timeout_s = response_timeout_s
+        # read_until returns whatever it has when its timeout expires, so a
+        # frame that straddles that boundary comes back without its delimiter.
+        # Every caller used to discard those bytes, which destroyed the frame
+        # outright: the tail then decoded as garbage and the waiter timed out
+        # even though the data had arrived. Two 2026-08-06 buffered startups
+        # lost a 42-byte STATE_FEEDBACK exactly this way, split 24+18 and
+        # 19+22, while the MCU reported every transmit clean. Carry the
+        # fragment to the next read instead.
+        self._rx_residual = bytearray()
         self._sequence = 1
         self.hello_info: Hello | None = None
         self._motion_results: deque[Any] = deque(maxlen=16)
@@ -260,6 +279,34 @@ class ActuatorTransport:
         self._port.flush()
         return sequence
 
+    def _read_framed_packet(self) -> bytes | None:
+        """
+        Return one delimiter-terminated packet, or None if none is complete yet.
+
+        Fragments are retained across calls so a frame split by the read
+        timeout is reassembled instead of lost.
+        """
+        if b"\x00" in self._rx_residual:
+            index = self._rx_residual.index(b"\x00")
+            packet = bytes(self._rx_residual[: index + 1])
+            del self._rx_residual[: index + 1]
+            return packet
+
+        chunk = self._port.read_until(b"\x00")
+        if not chunk:
+            return None
+        self._rx_residual.extend(chunk)
+        if b"\x00" not in self._rx_residual:
+            # Still incomplete. Bound the buffer so a stream that never
+            # delivers a delimiter cannot grow without limit.
+            if len(self._rx_residual) > RX_RESIDUAL_LIMIT_BYTES:
+                del self._rx_residual[:-RX_RESIDUAL_LIMIT_BYTES]
+            return None
+        index = self._rx_residual.index(b"\x00")
+        packet = bytes(self._rx_residual[: index + 1])
+        del self._rx_residual[: index + 1]
+        return packet
+
     def _receive_matching(
         self,
         sequence: int,
@@ -277,15 +324,24 @@ class ActuatorTransport:
         empty_reads = 0
         undecodable = 0
         observed: list[str] = []
+        # A count alone cannot say whether a rejected packet was a frame split
+        # by the port read timeout, an intact frame with a bad checksum, or
+        # noise. Keep a bounded sample of the actual bytes.
+        partial_lengths: list[int] = []
+        rejected_packets: list[bytes] = []
         while time.monotonic() < deadline:
-            packet = self._port.read_until(b"\x00")
-            if not packet.endswith(b"\x00"):
+            packet = self._read_framed_packet()
+            if packet is None:
                 empty_reads += 1
+                if self._rx_residual and len(partial_lengths) < 4:
+                    partial_lengths.append(len(self._rx_residual))
                 continue
             try:
                 frame = decode_frame(packet)
             except ProtocolError:
                 undecodable += 1
+                if len(rejected_packets) < 2:
+                    rejected_packets.append(packet[:48])
                 continue
             if frame.sequence == sequence and frame.message_type is message_type:
                 return frame
@@ -312,12 +368,19 @@ class ActuatorTransport:
             empty_reads=empty_reads,
             undecodable_frames=undecodable,
             observed_frames=tuple(observed),
+            partial_read_lengths=tuple(partial_lengths),
+            rejected_packets=tuple(rejected_packets),
         )
 
     def _collect_available_motion_results(self) -> None:
-        while int(getattr(self._port, "in_waiting", 0)) > 0:
-            packet = self._port.read_until(b"\x00")
-            if not packet.endswith(b"\x00"):
+        while (
+            int(getattr(self._port, "in_waiting", 0)) > 0
+            or b"\x00" in self._rx_residual
+        ):
+            packet = self._read_framed_packet()
+            if packet is None:
+                # Incomplete frame retained for the next read rather than
+                # dropped; dropping it is what destroyed responses before.
                 break
             try:
                 frame = decode_frame(packet)

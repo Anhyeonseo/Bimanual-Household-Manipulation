@@ -123,7 +123,7 @@ static void test_route_runs_and_encodes_status(void) {
     CHECK(route.executor.diagnostics.state == ACTUATOR_BUFFERED_SUCCEEDED);
     CHECK(actuator_buffered_status_encode(
         status, sizeof(status), &status_length, 6u, 2u, 3u, 4u, 42u, 20u,
-        UINT32_C(0x8AD27897), &route.executor.diagnostics));
+        UINT32_C(0x8AD27897), &route.executor.diagnostics, true));
     CHECK(status_length == ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE &&
           status[16] == ACTUATOR_BUFFERED_SUCCEEDED);
     CHECK(read_u16_le(&status[22]) == 2u);
@@ -201,7 +201,7 @@ static void test_lateness_histogram_and_worst_sample_index(void) {
 
     CHECK(actuator_buffered_status_encode(
         status, sizeof(status), &status_length, 6u, 4u, 3u, 3u, 42u, 38u,
-        UINT32_C(0x8AD27897), d));
+        UINT32_C(0x8AD27897), d, true));
     CHECK(status_length == ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE);
     CHECK(read_u32_le(&status[32]) == 1u);
     CHECK(read_u32_le(&status[36]) == 0u);
@@ -210,6 +210,21 @@ static void test_lateness_histogram_and_worst_sample_index(void) {
     CHECK(read_u32_le(&status[48]) == 0u);
     CHECK(read_u32_le(&status[52]) == 0u);
     CHECK(read_u32_le(&status[56]) == 4u);
+
+    /*
+     * 같은 진단이라도 acknowledgement 형식은 32바이트에서 끝나야 한다.
+     * 이 프레임은 blocking 전송이고 그 시간이 곧 apply lateness 이므로,
+     * histogram 이 실린 60바이트를 refill 응답에 쓰면 5 ms 예산을 넘긴다.
+     */
+    memset(status, 0xEE, sizeof(status));
+    CHECK(actuator_buffered_status_encode(
+        status, sizeof(status), &status_length, 0u, 4u, 3u, 0u, 42u, 38u,
+        UINT32_C(0x8AD27897), d, false));
+    CHECK(status_length == ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE);
+    CHECK(read_u32_le(&status[24]) == d->accepted_samples);
+    CHECK(read_u32_le(&status[28]) == d->applied_samples);
+    /* 32바이트 이후는 인코더가 건드리지 않는다. */
+    CHECK(status[32] == 0xEEu && status[56] == 0xEEu);
 }
 
 static void test_status_encode_rejects_short_capacity(void) {
@@ -217,11 +232,16 @@ static void test_status_encode_rejects_short_capacity(void) {
     uint8_t status[ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE];
     size_t status_length = 0u;
     memset(&diagnostics, 0, sizeof(diagnostics));
-    /* 옛 32바이트 버퍼로는 인코딩을 거부해야 한다. */
+    /* terminal 형식은 32바이트 버퍼로 인코딩할 수 없다. */
     CHECK(!actuator_buffered_status_encode(
         status, ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE, &status_length,
-        6u, 0u, 0u, 0u, 1u, 1u, UINT32_C(0x8AD27897), &diagnostics));
+        6u, 0u, 0u, 0u, 1u, 1u, UINT32_C(0x8AD27897), &diagnostics, true));
     CHECK(status_length == 0u);
+    /* 같은 버퍼로 acknowledgement 형식은 인코딩된다. */
+    CHECK(actuator_buffered_status_encode(
+        status, ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE, &status_length,
+        0u, 0u, 0u, 0u, 1u, 1u, UINT32_C(0x8AD27897), &diagnostics, false));
+    CHECK(status_length == ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE);
 }
 
 static void test_validation_refill_and_cancel_are_terminal(void) {

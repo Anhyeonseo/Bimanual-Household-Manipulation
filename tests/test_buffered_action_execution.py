@@ -236,7 +236,7 @@ def hello():
         protocol_version=1,
         joint_count=6,
         stop_latched=False,
-        firmware_version=0x00022700,
+        firmware_version=0x00022900,
         calibration_hash=CALIBRATION.calibration_hash,
         capabilities=0x00000FFF,
         rejected_frame_count=0,

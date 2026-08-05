@@ -9,6 +9,6 @@ from single_arm_bridge.hardware_identity import (
 
 class DeployedIdentityContractTest(unittest.TestCase):
     def test_deployed_identity_contract(self) -> None:
-        self.assertEqual(EXPECTED_FIRMWARE_VERSION, 0x00022700)
+        self.assertEqual(EXPECTED_FIRMWARE_VERSION, 0x00022900)
         self.assertEqual(EXPECTED_PROTOCOL_VERSION, 1)
         self.assertEqual(EXPECTED_JOINT_COUNT, 6)

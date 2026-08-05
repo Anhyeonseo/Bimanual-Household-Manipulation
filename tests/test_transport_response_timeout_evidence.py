@@ -146,3 +146,99 @@ def test_observed_frame_list_is_bounded():
     with pytest.raises(ResponseTimeoutError) as info:
         transport._receive_matching(9999, MessageType.STATE_FEEDBACK)
     assert len(info.value.observed_frames) <= 8
+
+
+def test_rejected_packet_bytes_are_captured_and_bounded():
+    """
+    거부된 패킷의 실체를 봐야 원인이 갈린다.
+
+    read timeout 에 잘린 부분 frame 인지, 구조는 온전한데 checksum 이 틀린
+    frame 인지, 잡음인지에 따라 대응이 완전히 다르다. 개수만으로는 셋을
+    구분할 수 없다.
+    """
+    garbage = [b"\xde\xad\xbe\xef\x00" for _ in range(5)]
+    transport = make_transport(NoisePort(garbage))
+    with pytest.raises(ResponseTimeoutError) as info:
+        transport._receive_matching(3, MessageType.STATE_FEEDBACK)
+
+    error = info.value
+    assert error.undecodable_frames > 0
+    assert error.rejected_packets
+    assert error.rejected_packets[0].startswith(b"\xde\xad\xbe\xef")
+    assert "deadbeef" in str(error)
+    # 예외 메시지가 무한히 길어지면 안 된다.
+    assert len(error.rejected_packets) <= 2
+    assert all(len(p) <= 48 for p in error.rejected_packets)
+
+
+class TruncatedPort(SilentPort):
+    """구분자 없이 끊긴 부분 패킷을 돌려준다. read timeout 에 잘린 경우."""
+
+    def __init__(self, chunks):
+        super().__init__()
+        self._chunks = list(chunks)
+        self._index = 0
+
+    def read_until(self, terminator):
+        if self._index >= len(self._chunks):
+            return b""
+        chunk = self._chunks[self._index]
+        self._index += 1
+        return chunk
+
+
+def test_partial_read_lengths_report_the_retained_fragment():
+    """
+    잘린 조각은 버리지 않고 다음 read 로 이어붙인다. 보고되는 길이는 그
+    시점까지 누적된 조각 크기다. 조각을 버리던 동작이 프레임을 파괴해
+    2026-08-06 buffered startup 에서 응답을 잃게 만들었다.
+    """
+    transport = make_transport(TruncatedPort([b"\x01\x02\x03", b"\x04\x05"]))
+    with pytest.raises(ResponseTimeoutError) as info:
+        transport._receive_matching(3, MessageType.STATE_FEEDBACK)
+
+    error = info.value
+    # 3 바이트 뒤 2 바이트가 더 붙어 누적 5 가 된다.
+    assert error.partial_read_lengths[:2] == (3, 5)
+    assert "partial_lengths=3,5" in str(error)
+
+
+def test_a_frame_split_across_reads_is_reassembled():
+    """
+    구분자 없이 끊긴 앞부분과 뒤늦게 오는 뒷부분이 하나의 프레임으로
+    복원되어야 한다. 이것이 실기에서 잃어버린 STATE_FEEDBACK 의 구조다.
+    """
+    whole = encode_frame(
+        Frame(
+            message_type=MessageType.STATE_FEEDBACK,
+            sequence=41,
+            sender_time_ms=7,
+            payload=b"",
+        )
+    )
+    head, tail = whole[:11], whole[11:]
+    transport = make_transport(TruncatedPort([head, tail]))
+    frame = transport._receive_matching(41, MessageType.STATE_FEEDBACK)
+
+    assert frame.sequence == 41
+    assert frame.message_type is MessageType.STATE_FEEDBACK
+
+
+def test_residual_buffer_is_bounded_against_a_delimiterless_stream():
+    """구분자가 영원히 오지 않아도 메모리가 무한히 자라면 안 된다."""
+    from single_arm_bridge.transport import RX_RESIDUAL_LIMIT_BYTES
+
+    noise = [b"\xAB" * 512 for _ in range(40)]
+    transport = ActuatorTransport(TruncatedPort(noise), response_timeout_s=0.05)
+    with pytest.raises(ResponseTimeoutError):
+        transport._receive_matching(1, MessageType.STATE_FEEDBACK)
+    assert len(transport._rx_residual) <= RX_RESIDUAL_LIMIT_BYTES
+
+
+def test_pure_silence_reports_no_partial_lengths():
+    transport = make_transport(SilentPort())
+    with pytest.raises(ResponseTimeoutError) as info:
+        transport._receive_matching(3, MessageType.STATE_FEEDBACK)
+    assert info.value.partial_read_lengths == ()
+    assert "partial_lengths=none" in str(info.value)
+    assert "rejected=none" in str(info.value)

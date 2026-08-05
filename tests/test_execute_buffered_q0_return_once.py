@@ -47,10 +47,7 @@ def write_plan(tmp_path, anchor=ANCHOR, duration_ms=None):
 
 
 def load(path, digest):
-    # 0x00022700 후보는 아직 미배포이므로 기본 게이트를 우회해 로딩만 검증한다.
-    return MODULE.load_q0_return_plan(
-        path, digest, CALIBRATION, CONTRACT, require_deployed=False
-    )
+    return MODULE.load_q0_return_plan(path, digest, CALIBRATION, CONTRACT)
 
 
 def test_loads_plan_and_exposes_endpoints(tmp_path):
@@ -120,7 +117,7 @@ def test_confirmation_and_retry_contract_are_fixed():
 
 
 def test_terminal_diagnostics_are_printed_for_the_lateness_profile():
-    """0x00022700 의 lateness 분포를 실행 증거로 남겨야 한다."""
+    """0x00022800 의 lateness 분포를 실행 증거로 남겨야 한다."""
     source = MODULE_PATH.read_text(encoding="utf-8")
     assert "TERMINAL_DIAGNOSTICS=" in source
     assert "terminal_diagnostics" in source

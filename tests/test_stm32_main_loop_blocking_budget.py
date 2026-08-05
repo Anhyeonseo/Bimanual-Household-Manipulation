@@ -13,7 +13,7 @@ host 바이트를 처리하고 `BinaryControl_Service` 를 호출한다. 어느 
 
   1. 0x00022500 이 모든 servo write 에 ServoBus_PrepareTransaction 을 붙여
      6축 DISABLE 봉투가 늘었다. 산술로 발견했다.
-  2. 0x00022700 에서 같은 비용이 buffered 실행 중 motion-safety 폴링에 붙어
+  2. 0x00022800 에서 같은 비용이 buffered 실행 중 motion-safety 폴링에 붙어
      host 를 굶겼다. 실기에서 발견했다. 관측 침묵 365 ms, 한계 500 ms.
 
 두 번째 실패의 구조는 단순하다. 폴링 slot 은 16 ms 인데 poll 1회 최악 비용이

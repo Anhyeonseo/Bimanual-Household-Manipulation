@@ -129,13 +129,13 @@ def test_partial_write_reply_drain_is_removed() -> None:
 
 
 def test_identity_and_failure_payload_advertise_recovery_diagnostics() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022700)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022900)" in CONFIG
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
     assert "response.payload_length = 58U;" in BINARY
     assert "ServoBus_GetDiagnostics()" in BINARY
     assert "bus->uart_error_code" in BINARY
     assert "bus->uart_isr" in BINARY
-    assert "response.payload_length = 138U;" in BINARY
+    assert "response.payload_length = 146U;" in BINARY
     assert "health->dma_error_count" in BINARY
     assert "bus->snapshot" in BINARY
     assert "health->lazy_arm_count" in BINARY

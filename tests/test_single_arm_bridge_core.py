@@ -139,7 +139,7 @@ class FakeSerial:
                 6,
                 0,
                 0,
-                0x00022700,
+                0x00022900,
                 0x8AD27897,
                 0x00000FFF,
                 0,
@@ -459,7 +459,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
     def test_transport_enters_binary_mode_and_reads_positions(self) -> None:
         transport = ActuatorTransport(FakeSerial(), response_timeout_s=0.01)
         hello = transport.enter_binary_mode()
-        self.assertEqual(hello.firmware_version, 0x00022700)
+        self.assertEqual(hello.firmware_version, 0x00022900)
         state = transport.get_state(include_positions=True)
         self.assertEqual(
             state.raw_positions,

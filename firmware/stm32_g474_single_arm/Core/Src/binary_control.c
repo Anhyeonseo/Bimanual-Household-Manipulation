@@ -12,6 +12,22 @@
 #include <stddef.h>
 #include <string.h>
 
+/*
+ * A buffered refill is acknowledged from inside the same cooperative loop that
+ * steps the executor, and Host_SendBinaryFrame holds that loop for the whole
+ * transmit. An apply tick landing inside the transmit is therefore serviced
+ * late by exactly its duration, which is what a 2026-08-06 q0 return hit: the
+ * apply-lateness distribution had grown the acknowledgement from 32 to 60
+ * payload bytes, 4.688 ms to 7.118 ms, and the first sample missed.
+ *
+ * The distribution now rides on terminal frames only. This bound keeps the
+ * acknowledgement path from silently growing back past the allowance.
+ */
+#if HOST_BINARY_FRAME_TRANSMIT_MS(ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE) > \
+    HOST_BUFFERED_EXECUTION_MAXIMUM_APPLY_LATENESS_MS
+#error "Buffered acknowledgement transmit exceeds the apply lateness allowance"
+#endif
+
 typedef struct
 {
     uint8_t active;
@@ -50,6 +66,20 @@ static uint8_t host_binary_mode = 0U;
 static actuator_safety_t host_binary_safety;
 static HostBinaryMotion host_binary_motion;
 static uint8_t host_binary_servos_configured = 0U;
+/*
+ * Host frame transmit accounting.
+ *
+ * Host_SendBinaryFrame issues one blocking HAL_UART_Transmit with a 100 ms
+ * timeout and every call site discarded the result, so a truncated frame left
+ * no trace anywhere. A 2026-08-06 buffered run split one 42-byte
+ * STATE_FEEDBACK across a gap longer than the host's 120 ms read timeout,
+ * which desynchronised the host stream and lost the response. The MCU already
+ * knows when that happens; it was throwing the knowledge away.
+ */
+static uint16_t host_tx_failure_count = 0U;
+static uint16_t host_tx_timeout_count = 0U;
+static uint16_t host_tx_maximum_ms = 0U;
+static uint8_t host_tx_last_status = 0U;
 static uint8_t host_position_read_failure_streak = 0U;
 static uint8_t host_position_read_failed_servo_id = 0U;
 static actuator_buffered_command_route_t host_buffered_validation_route;
@@ -245,12 +275,39 @@ static HAL_StatusTypeDef Host_SendBinaryFrame(
         return HAL_ERROR;
     }
 
-    return HAL_UART_Transmit(
+    uint32_t started = HAL_GetTick();
+    HAL_StatusTypeDef status = HAL_UART_Transmit(
         binary_host_uart,
         encoded,
         (uint16_t)encoded_length,
         100U
     );
+    uint32_t elapsed = (uint32_t)(HAL_GetTick() - started);
+
+    if (elapsed > (uint32_t)host_tx_maximum_ms)
+    {
+        host_tx_maximum_ms = (elapsed > UINT16_MAX) ?
+            UINT16_MAX : (uint16_t)elapsed;
+    }
+    host_tx_last_status = (uint8_t)status;
+    if (status != HAL_OK)
+    {
+        if (host_tx_failure_count < UINT16_MAX)
+        {
+            host_tx_failure_count++;
+        }
+        if ((status == HAL_TIMEOUT) &&
+            (host_tx_timeout_count < UINT16_MAX))
+        {
+            /*
+             * A timeout means the frame was cut mid-transmission: the host
+             * sees a partial packet and the rest arrives as an undecodable
+             * tail. This is the counter that proves it from the MCU side.
+             */
+            host_tx_timeout_count++;
+        }
+    }
+    return status;
 }
 
 static void Host_SendBinaryState(
@@ -426,7 +483,7 @@ static void Host_SendBinaryDiagnostics(
     response.message_type = ACTUATOR_MSG_DIAGNOSTICS;
     response.sequence = request_sequence;
     response.sender_time_ms = HAL_GetTick();
-    response.payload_length = 138U;
+    response.payload_length = 146U;
 
     /*
      * Keep each request bounded to one servo. The host refreshes the heartbeat
@@ -635,6 +692,11 @@ static void Host_SendBinaryDiagnostics(
     Host_WriteU16Le(&response.payload[110], health->dma_error_count);
     Host_WriteU32Le(&response.payload[112], health->lazy_arm_count);
     Host_WriteU32Le(&response.payload[116], health->receiver_resync_count);
+    Host_WriteU16Le(&response.payload[138], host_tx_failure_count);
+    Host_WriteU16Le(&response.payload[140], host_tx_timeout_count);
+    Host_WriteU16Le(&response.payload[142], host_tx_maximum_ms);
+    response.payload[144] = host_tx_last_status;
+    response.payload[145] = 0U;
     response.payload[120] = bus->snapshot_length;
     response.payload[121] = health->dma_started;
     memcpy(
@@ -750,6 +812,16 @@ static void Host_SendBinaryBufferedSetpointStatus(
     response.message_type = ACTUATOR_MSG_SETPOINT_STATUS;
     response.sequence = request_sequence;
     response.sender_time_ms = HAL_GetTick();
+    /*
+     * The apply-lateness distribution rides on terminal frames only.
+     * Host_SendBinaryFrame blocks the cooperative loop for the whole transmit,
+     * and that loop is what steps the executor, so every byte of an
+     * acknowledgement is charged to apply lateness. Carrying the distribution
+     * on refill acknowledgements pushed one transmit from 4.688 ms to
+     * 7.118 ms at 115200 baud and broke the 5 ms allowance on the first
+     * sample of a 2026-08-06 q0 return. Terminal frames are sent after
+     * execution has already stopped, so no apply tick can be waiting on them.
+     */
     if (!actuator_buffered_status_encode(
             response.payload,
             sizeof(response.payload),
@@ -761,7 +833,8 @@ static void Host_SendBinaryBufferedSetpointStatus(
             request_sequence,
             first_apply_tick,
             Host_CalibrationHash(),
-            diagnostics
+            diagnostics,
+            (status_code == HOST_BUFFERED_STATUS_TERMINAL)
         ))
     {
         Host_SendBinarySetpointStatus(
@@ -1366,7 +1439,7 @@ static void Host_FinalizeBufferedExecution(uint8_t detail)
     Host_SendBinaryBufferedSetpointStatus(
         &host_buffered_execution_route,
         sequence,
-        6U,
+        HOST_BUFFERED_STATUS_TERMINAL,
         0U,
         apply_tick,
         detail
