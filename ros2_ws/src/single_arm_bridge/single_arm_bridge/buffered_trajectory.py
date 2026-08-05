@@ -165,7 +165,7 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "servo_uart_receive_candidate",
     )
     if uart_candidate != {
-        "status": "LOCAL_SERVO_UART_POWER_DOMAIN_LIFECYCLE_CANDIDATE",
+        "status": "LOCAL_SERVO_UART_POWER_DOMAIN_LIFECYCLE_DEPLOYED",
         "firmware_version": "0x00022500",
         "previous_candidate_firmware_version": "0x00022400",
         "previous_deployed_firmware_version": "0x00022100",
@@ -203,11 +203,11 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "extended_health_schema_version": 2,
         "internal_read_retry_count": 3,
         "feedback_fail_closed_count": 3,
-        "deployed": False,
+        "deployed": True,
         "motion_authorized": False,
     }:
         raise BufferedTrajectoryContractError(
-            "servo UART power-domain lifecycle candidate must remain bounded and undeployed"
+            "servo UART power-domain lifecycle route must stay deployed and unauthorized for motion"
         )
 
     host_adapter = _require_object(document, "host_adapter_candidate")

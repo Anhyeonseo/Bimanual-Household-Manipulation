@@ -29,7 +29,7 @@ PLAN = (
     / "2026-08-04"
     / "motion11_buffered_pick_pregrasp_plan_only.json"
 )
-PLAN_SHA = "892d16a871204e1ecf327f450fda903afd98ed8be74ccc2f948abda609eff04b"
+PLAN_SHA = "630a2873057699f6f93cd98d86c13b52c1d97edbb83c2345041e20ef1e7ce8c7"
 CALIBRATION = PACKAGE_ROOT / "config" / "single_arm_calibration.json"
 CONTRACT = PACKAGE_ROOT / "config" / "buffered_trajectory_contract.json"
 SOURCE_ROUTE = (
@@ -65,13 +65,43 @@ def test_loads_exact_motion11_plan_and_endpoints():
     assert plan.waypoints[-1].positions_rad == plan.target_positions_rad
 
 
-def test_rejects_undeployed_firmware_candidate():
-    with pytest.raises(ValueError, match="firmware candidate is not deployed"):
+def test_accepts_the_deployed_firmware_candidate(tmp_path):
+    """0x00022500 물리 검증 후 계약이 deployed 이므로 기본 게이트를 통과한다."""
+    plan = MODULE.load_pick_pregrasp_plan(
+        PLAN,
+        PLAN_SHA,
+        CALIBRATION,
+        CONTRACT,
+        SOURCE_ROUTE,
+    )
+    assert plan.sha256 == PLAN_SHA
+
+
+def test_rejects_undeployed_firmware_candidate(tmp_path):
+    """
+    계약이 undeployed 로 되돌아가면 실행기는 fail-closed 여야 한다.
+
+    0x00022500 물리 검증 뒤 계약 validator 의 exact-match dict 자체가
+    `deployed: True` 를 요구하므로, undeployed 계약은 실행기의
+    require_deployed 게이트에 도달하기 전에 validator 에서 먼저 거부된다.
+    두 층 모두 fail-closed 이며 여기서는 실제로 발동하는 바깥층을 검증한다.
+    require_deployed=True 경로는
+    test_accepts_the_deployed_firmware_candidate 가 덮는다.
+    """
+    contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    contract["servo_uart_receive_candidate"]["deployed"] = False
+    contract["servo_uart_receive_candidate"]["status"] = (
+        "LOCAL_SERVO_UART_POWER_DOMAIN_LIFECYCLE_CANDIDATE"
+    )
+    undeployed = tmp_path / "buffered_trajectory_contract.json"
+    undeployed.write_text(json.dumps(contract), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must stay deployed"):
         MODULE.load_pick_pregrasp_plan(
             PLAN,
             PLAN_SHA,
             CALIBRATION,
-            CONTRACT,
+            undeployed,
             SOURCE_ROUTE,
         )
 

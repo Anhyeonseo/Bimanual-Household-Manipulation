@@ -229,11 +229,11 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
     }
 
 
-def test_servo_uart_candidate_is_bounded_undeployed_and_fail_closed() -> None:
+def test_servo_uart_route_is_deployed_bounded_and_unauthorized_for_motion() -> None:
     contract = load_buffered_trajectory_contract(CONTRACT_PATH)
 
     assert contract["servo_uart_receive_candidate"] == {
-        "status": "LOCAL_SERVO_UART_POWER_DOMAIN_LIFECYCLE_CANDIDATE",
+        "status": "LOCAL_SERVO_UART_POWER_DOMAIN_LIFECYCLE_DEPLOYED",
         "firmware_version": "0x00022500",
         "previous_candidate_firmware_version": "0x00022400",
         "previous_deployed_firmware_version": "0x00022100",
@@ -271,7 +271,7 @@ def test_servo_uart_candidate_is_bounded_undeployed_and_fail_closed() -> None:
         "extended_health_schema_version": 2,
         "internal_read_retry_count": 3,
         "feedback_fail_closed_count": 3,
-        "deployed": False,
+        "deployed": True,
         "motion_authorized": False,
     }
 

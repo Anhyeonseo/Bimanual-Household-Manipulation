@@ -23,6 +23,7 @@
 | MCU-002 | 단계 2 | heartbeat 단절 | 정의된 시간 안에 안전 정지 | 통과 | [바이너리 제어 경로 결과](test-results/2026-07-20-stm32-binary-control-plane.md) |
 | MCU-003 | 단계 2 | 제어 loop | overrun/underflow 0 | 미실행 | 여러 sample queue 구현 후 시험 |
 | MCU-004 | 단계 2 | 단일 팔 6축 동시 적용 | 같은 명령에서 함께 시작 | 통과 | [바이너리 제어 경로 결과](test-results/2026-07-20-stm32-binary-control-plane.md) |
+| MCU-005 | 단계 2 | 서보 UART 전원 도메인 수명주기 | MCU 유지 상태의 12V OFF→ON 엣지에서 recovery ≤1과 `fe = recovery = resync`, 300초 READ_ONLY soak에서 오류 counter 12개 delta 0 | 통과 | [0x00022500 물리 검증](test-results/2026-08-06-stm32-0x00022500-servo-uart-power-domain-lifecycle.md): 엣지 직후 첫 read 성공, `failure_count=0`, `EDGE_VERDICT=BOUNDED`. 300초 soak `PASSED=1`, snapshot 5개 전부 receiver disarmed, `lazy_arm_count == transaction_count` 실측 확인. `motion_authorized=false` 유지 |
 | CAM-001 | 단계 3 | 카메라 3대 capture | 장치별 목표 FPS 기록 | 통과 | [카메라 대역폭·제어 격리 결과](test-results/2026-07-21-camera-bandwidth-control-isolation.md) |
 | CAM-002 | 단계 3 | 재연결 | 자동 복구 시간 기록 | 통과 | [카메라 manager·hot-plug 결과](test-results/2026-07-21-camera-manager-hotplug.md) |
 | CAM-003 | 단계 3 | 제어 격리 | 카메라 부하 중 heartbeat 위반 0 | 통과 | [카메라 decode·DDS 제어 격리 결과](test-results/2026-07-21-camera-decode-control-load.md) |

@@ -77,25 +77,34 @@ FE/ORE가 발생했다.
       host timeout 변경 불필요
 - [x] 전체 host/ROS 회귀 `607 passed`
 
-### 물리 (미실행)
+### 물리 (2026-08-06 통과)
 
-- [ ] 0x225 HEX Pi 전송과 Pi측 SHA-256 재확인
-- [ ] 현재 `0x00022100` flash 전체 backup
-- [ ] OpenOCD program / verify / reset
-- [ ] identity gate `0x00022500 / 0x00000FFF / 0x8AD27897`
-- [ ] **cold-start 검사** — MCU 동작 중 12 V 서보 도메인 전원 순환 후
-      `recovery_count ∈ {0,1}`, `fe_count == recovery_count ==
-      receiver_resync_count`
-- [ ] 300 s READ_ONLY soak `PASSED=1`, 12개 counter delta 0
-- [ ] soak artifact를 `docs/test-results/evidence/`로 보존
-- [ ] 계약과 validator에서 `deployed: true` 동시 전환
-- [ ] `VERIFICATION_MATRIX` `MCU-005` 행 추가
+- [x] HEX Pi 배포와 flash — 2026-08-05 세션에서 완료. backup
+      `stm32_before_0x00022500_20260805-044258.bin` 보존됨. 이번 세션은
+      재플래시 없이 검증만 수행
+- [x] 커밋된 소스의 clean cross-build가 배포된 HEX와 byte-identical
+- [x] identity gate `0x00022500 / 0x00000FFF / 0x8AD27897`, protocol 1, joints 6
+- [x] MCU reset 후 cold start — counter 13개 전부 0, `schema_version = 2`
+- [x] **전원 도메인 엣지** — MCU 유지한 채 12 V OFF→ON.
+      `recovery = fe = resync = 1`, `failure_count = 0`, 첫 read 성공.
+      `EDGE_VERDICT=BOUNDED`
+- [x] 300 s READ_ONLY soak `PASSED=1`, 12개 counter delta 0,
+      snapshot 5개 전부 `receiver_armed = False`
+- [x] `lazy_arm_count == transaction_count` 불변식 실측 확인
+- [x] artifact 3개를 `docs/test-results/evidence/`로 보존
+- [x] 계약과 validator에서 `deployed: true` 동시 전환
+      (`motion_authorized=false` 유지)
+- [x] Motion-11 계획 재생성 — 새 plan SHA
+      `630a2873057699f6f93cd98d86c13b52c1d97edbb83c2345041e20ef1e7ce8c7`
+- [x] 전체 회귀 `608 passed`
+- [x] `VERIFICATION_MATRIX` `MCU-005` 행 추가
 
 `artifacts/`는 gitignore 대상이므로 보존이 필요한 증거는
 `docs/test-results/evidence/`로 복사한다.
 
 세부 결과는
-[빌드·회귀 결과](../test-results/2026-08-05-stm32-0x00022500-servo-uart-lifecycle-build.md)에
-기록했고, 물리 결과는 별도 문서로 남긴다. 선행 servo UART 복구 후보는
+[빌드·회귀 결과](../test-results/2026-08-05-stm32-0x00022500-servo-uart-lifecycle-build.md)와
+[물리 검증 결과](../test-results/2026-08-06-stm32-0x00022500-servo-uart-power-domain-lifecycle.md)에
+기록한다. 선행 servo UART 복구 후보는
 [0x00021800 결과](../test-results/2026-07-31-stm32-0x00021800-servo-uart-recovery-candidate.md)에
 있다.
