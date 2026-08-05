@@ -20,6 +20,21 @@ Stage 7 의 supervised 실행은 "gripper close and verified object hold" 를
 `--expect report` 로 먼저 관측하는 것을 기본으로 하고, 관측된 뒤에야
 `contact` 나 `reached` 로 게이트를 건다.
 
+**2026-08-06 실측으로 판정 기준이 바뀌었다.**
+
+물체를 문 close 는 `ACTION_STATUS=4`, `REACHED_GOAL=True`, 잔여 `20 raw` 로
+정상 종료했다. abort 도 latch 도 없었다 — leg 사이에 gripper 를 넣어도 다음
+leg 가 막히지 않는다는 뜻이다.
+
+그런데 `REACHED_GOAL` 은 파지 증거가 아니다. `_finish_goal` 은 실행이
+SUCCEEDED 이면 실제 위치와 무관하게 `prepared.target_position` 을 넣고
+`reached_goal=True` 를 답한다. 명령이 끝났다는 뜻이지 gripper 가 거기 갔다는
+뜻이 아니다.
+
+진짜 판별자는 잔여 간격이다. 물체를 문 상태에서 raw 1983(명령 1963 대비 20
+부족), 물체를 치우자 1965 로 마저 닫혔다. 그래서 `--expect contact` 는
+`reached_goal` 이 아니라 `RESIDUAL_GAP_RAW` 로 판정한다.
+
 `stalled` 는 현재 adapter 가 항상 False 로 둔다. 판정에 쓰지 않고 보고만 한다.
 """
 
@@ -49,6 +64,11 @@ FIRMWARE_SETTLE_TOLERANCE_RAW = 30
 
 # gripper 만 움직여야 한다. 팔 축이 이만큼 넘게 움직였으면 비명령 동작이다.
 ARM_MOTION_LIMIT_RAD = 0.02
+
+# 물체를 물었다고 보기 위한 최소 잔여 간격. 서보 정상 정착 오차와 구별해야
+# 하므로 대조군(물체 없는 close)이 측정되기 전까지는 보수적으로 둔다.
+# 2026-08-06 실측: 물체 있음 20 raw, 물체 치운 뒤 2 raw.
+MINIMUM_CONTACT_GAP_RAW = 8
 
 
 def parse_args() -> argparse.Namespace:
@@ -188,12 +208,15 @@ def main() -> int:
                 raise SystemExit("gripper did not reach the commanded position")
             print("VERDICT=REACHED")
         elif arguments.expect == "contact":
-            if result.reached_goal or residual_raw == 0:
+            # reached_goal 로 판정하지 않는다. SUCCEEDED 이면 실제 위치와
+            # 무관하게 True 가 되므로 파지 여부를 말해주지 못한다.
+            if residual_raw < MINIMUM_CONTACT_GAP_RAW:
                 print("VERDICT=FAIL_NO_CONTACT")
                 raise SystemExit(
-                    "gripper reached its command; nothing is held"
+                    f"residual gap {residual_raw} raw is below "
+                    f"{MINIMUM_CONTACT_GAP_RAW}; nothing is held"
                 )
-            print("VERDICT=CONTACT")
+            print(f"VERDICT=CONTACT  (잔여 {residual_raw} raw)")
         else:
             print("VERDICT=REPORTED (게이트 없음; 관측이 목적이다)")
 

@@ -42,7 +42,7 @@ def format_apply_lateness_profile(result: Any) -> str:
     A single maximum cannot separate a rare spike from systemic drift.
     Motion-11 reached the top of its 0..5 ms allowance with only that number,
     which is why 0x00022800 reports per-bucket counts and the applied-sample
-    index where the maximum was last raised. From 0x00022900 the block
+    index where the maximum was last raised. From 0x00022A00 the block
     rides on terminal frames only: every status frame is transmitted by a
     blocking call on the loop that steps the executor, so carrying it on
     refill acknowledgements charged its own length to the lateness it was

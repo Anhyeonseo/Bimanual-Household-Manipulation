@@ -60,7 +60,12 @@ class SingleArmActionValidationTests(unittest.TestCase):
         )
 
     def test_calibration_exposes_verified_project_limits(self) -> None:
-        self.assertEqual(self.arm_limits["left_base_joint"][0], 0.0)
+        # 2026-08-06: q0(raw 2048)가 BASE 하한이자 WRIST_FLEX 상한이라
+        # 복귀할 때마다 계약을 벗어났다. 양쪽에 60 raw 여유를 넣었다.
+        self.assertAlmostEqual(
+            self.arm_limits["left_base_joint"][0],
+            -60 * 2.0 * math.pi / 4096.0,
+        )
         self.assertAlmostEqual(
             self.arm_limits["left_base_joint"][1],
             562 * 2.0 * math.pi / 4096.0,
@@ -72,7 +77,7 @@ class SingleArmActionValidationTests(unittest.TestCase):
         )
 
     def test_feedback_recovery_envelope_matches_firmware_margin(self) -> None:
-        recoverable_raw = (2070, 1983, 2041, 2071, 2080, 1965)
+        recoverable_raw = (2070, 1983, 2041, 2131, 2080, 1965)
         recoverable = tuple(
             self.calibration.raw_feedback_to_radians(recoverable_raw)
         )

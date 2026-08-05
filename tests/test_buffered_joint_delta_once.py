@@ -277,7 +277,7 @@ def test_terminal_diagnostic_includes_hold_cause_and_accounting() -> None:
             detail=4,
             request_sequence=41,
             apply_tick_ms=1234,
-            calibration_hash=0x8AD27897,
+            calibration_hash=0xB317C672,
             executor_state=2,
             terminal_reason=4,
             safe_stop_required=True,

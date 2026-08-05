@@ -18,7 +18,7 @@ from single_arm_bridge.serial_port import open_exclusive_serial
 from single_arm_bridge.transport import ActuatorTransport
 
 
-EXPECTED_CALIBRATION_HASH = 0x8AD27897
+EXPECTED_CALIBRATION_HASH = 0xB317C672
 ERROR_COUNTERS = (
     "failure_count",
     "recovery_count",

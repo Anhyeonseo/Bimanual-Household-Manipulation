@@ -46,8 +46,16 @@ def write_plan(tmp_path, anchor=ANCHOR, duration_ms=None):
     return path, MODULE.sha256_file(path)
 
 
-def load(path, digest):
-    return MODULE.load_q0_return_plan(path, digest, CALIBRATION, CONTRACT)
+def load(path, digest, *, require_deployed=False):
+    """0x00022A00 후보가 플래시 전이라 계약이 undeployed 다.
+
+    배포 게이트는 test_rejects_undeployed_firmware_candidate 가 따로
+    지키므로, 계획 내용을 보는 시험은 우회한다.
+    """
+    return MODULE.load_q0_return_plan(
+        path, digest, CALIBRATION, CONTRACT,
+        require_deployed=require_deployed,
+    )
 
 
 def test_loads_plan_and_exposes_endpoints(tmp_path):

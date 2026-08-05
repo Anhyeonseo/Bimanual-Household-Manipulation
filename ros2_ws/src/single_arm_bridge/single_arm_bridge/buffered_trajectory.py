@@ -165,10 +165,10 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "servo_uart_receive_candidate",
     )
     if uart_candidate != {
-        "status": "LOCAL_STATUS_TRANSMIT_BUDGET_DEPLOYED",
-        "firmware_version": "0x00022900",
-        "previous_candidate_firmware_version": "0x00022800",
-        "previous_deployed_firmware_version": "0x00022800",
+        "status": "LOCAL_JOINT_LIMIT_MARGIN_DEPLOYED",
+        "firmware_version": "0x00022A00",
+        "previous_candidate_firmware_version": "0x00022900",
+        "previous_deployed_firmware_version": "0x00022900",
         "baud": 1_000_000,
         "rx_fifo_enabled": False,
         "receive_api": "HAL_UARTEx_ReceiveToIdle_DMA",
@@ -221,7 +221,7 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "motion_authorized": False,
     }:
         raise BufferedTrajectoryContractError(
-            "status transmit budget route must stay deployed "
+            "joint limit margin route must stay deployed "
             "and unauthorized for motion"
         )
 
@@ -233,7 +233,7 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
     if pick_place != {
         "status": "LOCAL_CONTINUOUS_PICK_PLACE_PLAN_ONLY",
         "route_manifest_sha256": (
-            "a5ed8d0335e534ef49eff056dd4b3e6415598a613183c9bebca43f12c7d8c405"
+            "7c0d44a96dbd4ff214bf9858f1adff183f5fdc9079256ab4534c58d3a73e6d5c"
         ),
         "route_phase_count": 7,
         "route_arm_segment_count": 36,
@@ -382,7 +382,7 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
     if evidence != {
         "status": "PASS",
         "plan_sha256": (
-            "d5378b6c0eb5eb4069e79e609ee12efb14750d228b61b009d29555fb573f47f8"
+            "d29086a5ad699ac9229113ee730d815429323a661bdf3b257222e9a9b1eadb0d"
         ),
         "sender_sha256": (
             "d66f26f7b3907fda1988895a01e657bafa902ea901396a2c38f8524f16e93671"
@@ -391,7 +391,7 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
             "80f14845bab532de3217fcee7a9c4c2b0b5cf4241b65023844d6ba7d615de087"
         ),
         "firmware_version": "0x00022100",
-        "calibration_hash": "0x8AD27897",
+        "calibration_hash": "0xB317C672",
         "duration_ms": 1200,
         "sample_count": 61,
         "action_send_count": 1,

@@ -65,7 +65,7 @@ PHASE = "motion13_continuous_pick_place"
 PLAN_TICK_MS = 100_000
 
 MANIFEST_SHA256 = (
-    "a5ed8d0335e534ef49eff056dd4b3e6415598a613183c9bebca43f12c7d8c405"
+    "7c0d44a96dbd4ff214bf9858f1adff183f5fdc9079256ab4534c58d3a73e6d5c"
 )
 MANIFEST_STATUS = "FULL_PICK_PLACE_PLAN_ONLY_PASS"
 EXPECTED_PHASE_NAMES = (
@@ -325,10 +325,12 @@ def build_plan(
     if contract["physical_execution_candidate"]["deployed"] is not True:
         raise ValueError("buffered physical execution must be commissioned")
     uart_candidate = contract["servo_uart_receive_candidate"]
-    if uart_candidate["deployed"] is not True:
-        raise ValueError("servo UART candidate must stay deployed")
     if uart_candidate["motion_authorized"] is not False:
         raise ValueError("servo UART candidate must keep motion_authorized=false")
+    # 배포 여부는 계획 시점에 강제하지 않는다. 계획은 게이트를 기록하고
+    # 실행기가 거부한다(`load_pick_place_leg_plan` 의 require_deployed).
+    # 그래야 펌웨어 후보를 검증하는 동안에도 계획을 만들 수 있다.
+    # 기존 계획기들(plan_buffered_q0_return 등)과 같은 분담이다.
     if len(anchor_raw) != 6:
         raise ValueError("anchor must contain six raw positions")
 

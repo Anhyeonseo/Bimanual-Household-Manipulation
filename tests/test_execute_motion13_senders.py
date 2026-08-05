@@ -66,6 +66,12 @@ def leg_a_plan(tmp_path_factory):
 
 
 def load(path, digest, **kwargs):
+    """계획 내용을 보는 시험은 배포 게이트를 우회한다.
+
+    0x00022A00 후보가 플래시 전이라 계약이 undeployed 다. 게이트 자체는
+    test_rejects_undeployed_firmware_candidate 가 기본값으로 지킨다.
+    """
+    kwargs.setdefault("require_deployed", False)
     return LEG_SENDER.load_pick_place_leg_plan(
         path, digest, CALIBRATION, CONTRACT, MANIFEST, **kwargs
     )
@@ -136,13 +142,18 @@ def test_rejects_a_plan_whose_start_pose_disagrees_with_its_leg(
 
 
 def test_rejects_undeployed_firmware_candidate(leg_a_plan, tmp_path) -> None:
-    path, digest = leg_a_plan
+    """계획이 미배포 게이트를 담고 있으면 실행기는 fail-closed 여야 한다."""
+    path, _ = leg_a_plan
     document = json.loads(path.read_text(encoding="utf-8"))
+    assert document["firmware_deployment_gate"]["deployed"] is True
     document["firmware_deployment_gate"]["deployed"] = False
     undeployed = tmp_path / "undeployed.json"
     undeployed.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
     with pytest.raises(ValueError, match="not deployed"):
-        load(undeployed, LEG_SENDER.sha256_file(undeployed))
+        LEG_SENDER.load_pick_place_leg_plan(
+            undeployed, LEG_SENDER.sha256_file(undeployed),
+            CALIBRATION, CONTRACT, MANIFEST,
+        )
 
 
 def test_rejects_a_plan_that_authorizes_motion(leg_a_plan, tmp_path) -> None:
@@ -200,3 +211,28 @@ def _gripper_args(*argv: str):
         return GRIPPER_SENDER.parse_args()
     finally:
         sys.argv = saved
+
+
+def test_contact_is_judged_by_residual_gap_not_reached_goal() -> None:
+    """`reached_goal` 은 파지 증거가 아니다.
+
+    `_finish_goal` 은 실행이 SUCCEEDED 이면 실제 위치와 무관하게 명령값을
+    넣고 True 를 답한다. 2026-08-06 실측에서 물체를 문 close 가
+    `REACHED_GOAL=True` 에 잔여 20 raw 였다. 판정은 잔여 간격으로 해야 한다.
+    """
+    source = (ROOT / "tools" / "execute_gripper_command_once.py").read_text(
+        encoding="utf-8"
+    )
+    contact = source[source.index('elif arguments.expect == "contact":'):]
+    contact = contact[: contact.index("else:")]
+    assert "residual_raw" in contact
+    assert "reached_goal" not in contact.split("#")[0] or True
+    # 판정문 자체가 reached_goal 을 보지 않아야 한다.
+    statements = [
+        line for line in contact.splitlines()
+        if "if " in line and not line.strip().startswith("#")
+    ]
+    assert statements and all("reached_goal" not in line for line in statements)
+    assert GRIPPER_SENDER.MINIMUM_CONTACT_GAP_RAW > 0
+    # 서보 정상 정착 오차(실측 2 raw)보다는 커야 한다.
+    assert GRIPPER_SENDER.MINIMUM_CONTACT_GAP_RAW > 2

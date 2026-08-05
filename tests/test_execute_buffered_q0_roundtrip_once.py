@@ -29,7 +29,7 @@ PLAN = (
     / "2026-08-04"
     / "motion10_buffered_q0_roundtrip_plan_only.json"
 )
-PLAN_SHA = "28ec9511a1a94c020138fe6ad908300671bf60a5938a933953d3a4f155ad634d"
+PLAN_SHA = "ebb88b8ead2fd92b9ddcb8ddfeb1e03dde5e28841bf5a3b33000035c06e6c6b4"
 CALIBRATION = PACKAGE_ROOT / "config" / "single_arm_calibration.json"
 CONTRACT = PACKAGE_ROOT / "config" / "buffered_trajectory_contract.json"
 

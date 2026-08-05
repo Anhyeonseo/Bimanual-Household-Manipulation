@@ -82,7 +82,7 @@ class FakeSerial:
                         4,
                         77,
                         1200,
-                        0x8AD27897,
+                        0xB317C672,
                     ),
                 )
             )
@@ -103,7 +103,7 @@ class FakeSerial:
                         0,
                         78,
                         1200,
-                        0x8AD27897,
+                        0xB317C672,
                         3,
                         0,
                         0,
@@ -139,8 +139,8 @@ class FakeSerial:
                 6,
                 0,
                 0,
-                0x00022900,
-                0x8AD27897,
+                0x00022A00,
+                0xB317C672,
                 0x00000FFF,
                 0,
             )
@@ -155,7 +155,7 @@ class FakeSerial:
                 1,
                 3,
                 self.heartbeat_request_count,
-                0x8AD27897,
+                0xB317C672,
                 1200,
             )
             response_type = MessageType.STATE_FEEDBACK
@@ -173,7 +173,7 @@ class FakeSerial:
                 joint_index,
                 6,
                 1,
-                0x8AD27897,
+                0xB317C672,
                 1200 + joint_index,
                 joint_index + 1,
                 0,
@@ -224,7 +224,7 @@ class FakeSerial:
                                 4,
                                 77,
                                 1200,
-                                0x8AD27897,
+                                0xB317C672,
                             ),
                         )
                     )
@@ -241,7 +241,7 @@ class FakeSerial:
                 1,
                 3,
                 0,
-                0x8AD27897,
+                0xB317C672,
                 1200,
                 2048,
                 2050,
@@ -259,7 +259,7 @@ class FakeSerial:
                     1,
                     3,
                     0,
-                    0x8AD27897,
+                    0xB317C672,
                     1200,
                     self._position_failure_servo_id,
                     self._position_failure_streak,
@@ -277,7 +277,7 @@ class FakeSerial:
                 1,
                 1,
                 0,
-                0x8AD27897,
+                0xB317C672,
                 1200,
             )
             response_type = MessageType.STATE_FEEDBACK
@@ -292,7 +292,7 @@ class FakeSerial:
                     0,
                     request.sequence,
                     apply_tick,
-                    0x8AD27897,
+                    0xB317C672,
                     0,
                     0,
                     0,
@@ -318,7 +318,7 @@ class FakeSerial:
                     0,
                     request.sequence,
                     apply_tick,
-                    0x8AD27897,
+                    0xB317C672,
                     executor_state,
                     0,
                     0,
@@ -337,7 +337,7 @@ class FakeSerial:
                     0,
                     request.sequence,
                     apply_tick,
-                    0x8AD27897,
+                    0xB317C672,
                 )
             response_type = MessageType.SETPOINT_STATUS
         elif request.message_type is MessageType.SAFE_STOP:
@@ -351,7 +351,7 @@ class FakeSerial:
                 1,
                 4,
                 0,
-                0x8AD27897,
+                0xB317C672,
                 1200,
             )
             response_type = MessageType.STATE_FEEDBACK
@@ -364,7 +364,7 @@ class FakeSerial:
                 1,
                 4,
                 0,
-                0x8AD27897,
+                0xB317C672,
                 1200,
             )
             response_type = MessageType.STATE_FEEDBACK
@@ -450,7 +450,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
 
     def test_calibration_hash_and_feedback_conversion(self) -> None:
         calibration = load_calibration(CALIBRATION_PATH)
-        self.assertEqual(calibration.calibration_hash, 0x8AD27897)
+        self.assertEqual(calibration.calibration_hash, 0xB317C672)
         radians = calibration.raw_feedback_to_radians(
             (2048, 2048, 2048, 2048, 2048, 2048)
         )
@@ -459,7 +459,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
     def test_transport_enters_binary_mode_and_reads_positions(self) -> None:
         transport = ActuatorTransport(FakeSerial(), response_timeout_s=0.01)
         hello = transport.enter_binary_mode()
-        self.assertEqual(hello.firmware_version, 0x00022900)
+        self.assertEqual(hello.firmware_version, 0x00022A00)
         state = transport.get_state(include_positions=True)
         self.assertEqual(
             state.raw_positions,
@@ -501,7 +501,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
         snapshot = transport.get_diagnostics()
 
         self.assertEqual(snapshot.joint_count, 6)
-        self.assertEqual(snapshot.calibration_hash, 0x8AD27897)
+        self.assertEqual(snapshot.calibration_hash, 0xB317C672)
         self.assertEqual(len(snapshot.joints), 6)
         shoulder = snapshot.joints[1]
         self.assertEqual(shoulder.servo_id, 2)
@@ -689,7 +689,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
         self.assertEqual(accepted.safety_state, 3)
         self.assertGreater(accepted.request_sequence, 0)
         self.assertEqual(accepted.apply_tick_ms, 1500)
-        self.assertEqual(accepted.calibration_hash, 0x8AD27897)
+        self.assertEqual(accepted.calibration_hash, 0xB317C672)
 
     def test_safe_stop_ack_survives_interleaved_terminal_result(self) -> None:
         transport = ActuatorTransport(

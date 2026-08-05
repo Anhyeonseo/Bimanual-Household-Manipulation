@@ -206,7 +206,7 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
     assert contract["motion9_physical_evidence"] == {
         "status": "PASS",
         "plan_sha256": (
-            "d5378b6c0eb5eb4069e79e609ee12efb14750d228b61b009d29555fb573f47f8"
+            "d29086a5ad699ac9229113ee730d815429323a661bdf3b257222e9a9b1eadb0d"
         ),
         "sender_sha256": (
             "d66f26f7b3907fda1988895a01e657bafa902ea901396a2c38f8524f16e93671"
@@ -215,7 +215,7 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
             "80f14845bab532de3217fcee7a9c4c2b0b5cf4241b65023844d6ba7d615de087"
         ),
         "firmware_version": "0x00022100",
-        "calibration_hash": "0x8AD27897",
+        "calibration_hash": "0xB317C672",
         "duration_ms": 1200,
         "sample_count": 61,
         "action_send_count": 1,
@@ -229,14 +229,14 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
     }
 
 
-def test_status_transmit_budget_route_is_deployed_and_unauthorized() -> None:
+def test_joint_limit_margin_route_is_deployed_and_unauthorized() -> None:
     contract = load_buffered_trajectory_contract(CONTRACT_PATH)
 
     assert contract["servo_uart_receive_candidate"] == {
-        "status": "LOCAL_STATUS_TRANSMIT_BUDGET_DEPLOYED",
-        "firmware_version": "0x00022900",
-        "previous_candidate_firmware_version": "0x00022800",
-        "previous_deployed_firmware_version": "0x00022800",
+        "status": "LOCAL_JOINT_LIMIT_MARGIN_DEPLOYED",
+        "firmware_version": "0x00022A00",
+        "previous_candidate_firmware_version": "0x00022900",
+        "previous_deployed_firmware_version": "0x00022900",
         "baud": 1_000_000,
         "rx_fifo_enabled": False,
         "receive_api": "HAL_UARTEx_ReceiveToIdle_DMA",
@@ -433,7 +433,7 @@ def test_g474_identity_advertises_separate_validation_and_execution_routes() -> 
         / "binary_control.c"
     ).read_text(encoding="utf-8")
 
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022900)" in config
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022A00)" in config
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in config
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in config
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in config

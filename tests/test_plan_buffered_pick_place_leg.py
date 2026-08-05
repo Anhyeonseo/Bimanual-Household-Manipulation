@@ -198,9 +198,25 @@ def test_unknown_leg_is_refused() -> None:
         build("D", LEG_ANCHORS["A"])
 
 
-def test_undeployed_contract_is_refused(tmp_path: Path) -> None:
+def test_planning_records_the_deployment_gate_without_enforcing_it() -> None:
+    """배포 강제는 실행기의 일이다.
+
+    계획 시점에 강제하면 펌웨어 후보를 검증하는 동안 계획조차 만들 수 없다.
+    실행 거부는 test_execute_motion13_senders 가 지킨다.
+    """
     contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
-    contract["servo_uart_receive_candidate"]["deployed"] = False
+    declared = contract["servo_uart_receive_candidate"]
+    document = build("A")
+    assert document["firmware_deployment_gate"] == {
+        "candidate_status": declared["status"],
+        "deployed": declared["deployed"],
+        "motion_authorized": declared["motion_authorized"],
+    }
+
+
+def test_motion_authorized_contract_is_refused(tmp_path: Path) -> None:
+    contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    contract["servo_uart_receive_candidate"]["motion_authorized"] = True
     path = tmp_path / "contract.json"
     path.write_text(json.dumps(contract), encoding="utf-8")
     with pytest.raises(ValueError):

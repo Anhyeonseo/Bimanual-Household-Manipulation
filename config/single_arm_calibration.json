@@ -6,11 +6,124 @@
   "home_definition": "verified folded physical home; every actuator reports raw 2048",
   "positive_direction_definition": "the previously verified M direction",
   "joints": [
-    {"id": 1, "name": "BASE",       "zero_raw": 2048, "minimum_raw": 2048, "maximum_raw": 2610, "positive_raw_direction":  1, "p_gain": 16},
-    {"id": 2, "name": "SHOULDER",   "zero_raw": 2048, "minimum_raw": 1988, "maximum_raw": 3766, "positive_raw_direction":  1, "p_gain": 32},
-    {"id": 3, "name": "ELBOW",      "zero_raw": 2048, "minimum_raw": 627, "maximum_raw": 2258, "positive_raw_direction": -1, "p_gain": 28},
-    {"id": 4, "name": "WRIST_FLEX", "zero_raw": 2048, "minimum_raw": 1194, "maximum_raw": 2048, "positive_raw_direction": -1, "p_gain": 16},
-    {"id": 5, "name": "WRIST_ROLL", "zero_raw": 2048, "minimum_raw": 1874, "maximum_raw": 2219, "positive_raw_direction":  1, "p_gain": 16},
-    {"id": 6, "name": "GRIPPER",    "zero_raw": 2048, "minimum_raw": 1866, "maximum_raw": 2048, "positive_raw_direction": -1, "p_gain": 16}
+    {
+      "id": 1,
+      "name": "BASE",
+      "zero_raw": 2048,
+      "minimum_raw": 1988,
+      "maximum_raw": 2610,
+      "positive_raw_direction": 1,
+      "p_gain": 16
+    },
+    {
+      "id": 2,
+      "name": "SHOULDER",
+      "zero_raw": 2048,
+      "minimum_raw": 1988,
+      "maximum_raw": 3766,
+      "positive_raw_direction": 1,
+      "p_gain": 32
+    },
+    {
+      "id": 3,
+      "name": "ELBOW",
+      "zero_raw": 2048,
+      "minimum_raw": 627,
+      "maximum_raw": 2258,
+      "positive_raw_direction": -1,
+      "p_gain": 28
+    },
+    {
+      "id": 4,
+      "name": "WRIST_FLEX",
+      "zero_raw": 2048,
+      "minimum_raw": 1194,
+      "maximum_raw": 2108,
+      "positive_raw_direction": -1,
+      "p_gain": 16
+    },
+    {
+      "id": 5,
+      "name": "WRIST_ROLL",
+      "zero_raw": 2048,
+      "minimum_raw": 1874,
+      "maximum_raw": 2219,
+      "positive_raw_direction": 1,
+      "p_gain": 16
+    },
+    {
+      "id": 6,
+      "name": "GRIPPER",
+      "zero_raw": 2048,
+      "minimum_raw": 1866,
+      "maximum_raw": 2048,
+      "positive_raw_direction": -1,
+      "p_gain": 16
+    }
+  ],
+  "superseded_calibrations": [
+    {
+      "calibration_hash": "0x8AD27897",
+      "superseded_on": "2026-08-06",
+      "reason": "q0(raw 2048)가 BASE 하한이자 WRIST_FLEX 상한이라 복귀할 때마다 계약 범위를 벗어났다. 양쪽에 60 raw 여유를 넣었다. 사용자가 물리적 여유를 확인하고 승인했으며 URDF 허용 범위 안이다.",
+      "raw_to_radian_mapping_changed": false,
+      "limits_widened_only": true,
+      "joints": [
+        {
+          "id": 1,
+          "name": "BASE",
+          "zero_raw": 2048,
+          "minimum_raw": 2048,
+          "maximum_raw": 2610,
+          "positive_raw_direction": 1,
+          "p_gain": 16
+        },
+        {
+          "id": 2,
+          "name": "SHOULDER",
+          "zero_raw": 2048,
+          "minimum_raw": 1988,
+          "maximum_raw": 3766,
+          "positive_raw_direction": 1,
+          "p_gain": 32
+        },
+        {
+          "id": 3,
+          "name": "ELBOW",
+          "zero_raw": 2048,
+          "minimum_raw": 627,
+          "maximum_raw": 2258,
+          "positive_raw_direction": -1,
+          "p_gain": 28
+        },
+        {
+          "id": 4,
+          "name": "WRIST_FLEX",
+          "zero_raw": 2048,
+          "minimum_raw": 1194,
+          "maximum_raw": 2048,
+          "positive_raw_direction": -1,
+          "p_gain": 16
+        },
+        {
+          "id": 5,
+          "name": "WRIST_ROLL",
+          "zero_raw": 2048,
+          "minimum_raw": 1874,
+          "maximum_raw": 2219,
+          "positive_raw_direction": 1,
+          "p_gain": 16
+        },
+        {
+          "id": 6,
+          "name": "GRIPPER",
+          "zero_raw": 2048,
+          "minimum_raw": 1866,
+          "maximum_raw": 2048,
+          "positive_raw_direction": -1,
+          "p_gain": 16
+        }
+      ]
+    }
   ]
 }

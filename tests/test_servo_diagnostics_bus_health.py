@@ -8,7 +8,7 @@ from single_arm_bridge.transport import ServoDiagnosticReadError
 
 
 def diagnostic_payload(*, status: int = 0, read_status: int = 0) -> bytes:
-    base = DIAGNOSTICS_BASE.pack(status, 0, 6, 1, 0x8AD27897, 123)
+    base = DIAGNOSTICS_BASE.pack(status, 0, 6, 1, 0xB317C672, 123)
     joint_values = [1, read_status, 0, 16, 32, 0, 123, 31] + [0] * 18
     joint = DIAGNOSTICS_JOINT.pack(*joint_values)
     health = DIAGNOSTICS_BUS_HEALTH.pack(

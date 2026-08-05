@@ -63,7 +63,7 @@ if ROS_AVAILABLE:
                         self.auto_detail,
                         sequence,
                         1200,
-                        0x8AD27897,
+                        0xB317C672,
                     )
                 )
             return MotionResult(
@@ -73,7 +73,7 @@ if ROS_AVAILABLE:
                 0,
                 sequence,
                 1200,
-                0x8AD27897,
+                0xB317C672,
             )
 
         def drain_motion_results(self):
@@ -149,8 +149,8 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
             1,
             6,
             False,
-            0x00022900,
-            0x8AD27897,
+            0x00022A00,
+            0xB317C672,
             0x00000FFF,
             0,
         )
@@ -335,7 +335,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         self.positions = None
         self.assertFalse(self.send_goal(self.goal()).accepted)
 
-        self.positions = (-0.1, 0.0, 0.0, 0.0, 0.0, 0.1)
+        self.positions = (-0.17, 0.0, 0.0, 0.0, 0.0, 0.1)
         self.assertFalse(self.send_goal(self.goal()).accepted)
 
         self.positions = (0.0, 0.0, 0.0, 0.0, 0.0, 0.1)
@@ -354,7 +354,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
     def test_boundary_feedback_only_allows_bounded_inward_recovery(self) -> None:
         self.positions = tuple(
             self.calibration.raw_feedback_to_radians(
-                (2070, 2043, 2041, 2071, 2080, 1965)
+                (2070, 2043, 2041, 2131, 2080, 1965)
             )
         )
 
@@ -365,7 +365,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         )
         self.assertFalse(
             self.send_goal(
-                self.goal(positions=[0.05] * 5, duration_ms=1000)
+                self.goal(positions=[-0.04] * 5, duration_ms=1000)
             ).accepted
         )
         self.assertFalse(
@@ -378,14 +378,14 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
         self.transport.auto_status = 6
         self.transport.auto_detail = 20
         goal_handle = self.send_goal(
-            self.goal(positions=[0.05] * 5, duration_ms=2000)
+            self.goal(positions=[-0.04] * 5, duration_ms=2000)
         )
         self.assertTrue(goal_handle.accepted)
         response = self.wait_future(goal_handle.get_result_async())
         self.assertEqual(response.status, GoalStatus.STATUS_SUCCEEDED)
         self.assertEqual(len(self.transport.send_calls), 1)
         positions_urad, duration_ms = self.transport.send_calls[0]
-        self.assertEqual(positions_urad[:5], (50_000,) * 5)
+        self.assertEqual(positions_urad[:5], (-40_000,) * 5)
         self.assertEqual(
             positions_urad[5],
             round(self.positions[5] * 1_000_000),
@@ -459,7 +459,7 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
     def test_feedback_beyond_firmware_recovery_envelope_is_rejected(self) -> None:
         self.positions = tuple(
             self.calibration.raw_feedback_to_radians(
-                (2070, 2048 - 41, 2041, 2071, 2080, 1965)
+                (2070, 1988 - 41, 2041, 2131, 2080, 1965)
             )
         )
         self.assertFalse(

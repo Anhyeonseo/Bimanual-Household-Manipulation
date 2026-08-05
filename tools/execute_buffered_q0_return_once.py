@@ -7,7 +7,7 @@ Motion-11 은 팔을 Pick pregrasp 에 남긴다. 이 sender 는
 내린다. 계획 artifact 전체를 같은 생성기로 다시 계산해 정확히 일치할 때만
 허용하며, 계획 SHA 만 믿지 않는다.
 
-0x00022900 부터 firmware 는 apply lateness 분포를 terminal 프레임에만
+0x00022A00 부터 firmware 는 apply lateness 분포를 terminal 프레임에만
 싣는다. 0x00022800 은 refill 응답에도 실어 blocking 전송을 4.688 ms 에서
 7.118 ms 로 늘렸고, 그것이 5 ms 예산을 넘겨 첫 sample 에서 죽었다.
 이 실행은 그 분포의 첫 실측이기도 하다.
