@@ -37,10 +37,15 @@ START_TOLERANCES_RAD = (0.050, 0.055, 0.050, 0.050, 0.050)
 POST_RETURN_TOLERANCES_RAD = START_TOLERANCES_RAD
 ACTION_STATUS_SUCCEEDED = 4
 FOLLOW_JOINT_TRAJECTORY_SUCCESSFUL = 0
+# buffered_action_execution.ExecutionOutcome 은 성공 terminal 뒤에
+# "; {startup}" 로 startup 진단을 덧붙인다. 접미사를 선택적으로 허용하되
+# 값은 증거로 보존한다. 형식 일치는
+# tests/test_buffered_terminal_format_contract.py 가 양쪽 소스를 파싱해 강제한다.
 TERMINAL_PATTERN = re.compile(
     r"^buffered trajectory completed; "
     r"maximum_apply_lateness_ms=(\d+) "
-    r"post_settle_max_error_raw=(\d+)$"
+    r"post_settle_max_error_raw=(\d+)"
+    r"(?:; (?P<startup>.*))?$"
 )
 
 
@@ -68,6 +73,7 @@ class TerminalEvidence:
     maximum_apply_lateness_ms: int
     post_settle_max_error_raw: int
     error_string: str
+    startup_diagnostics: str | None = None
 
 
 def sha256_file(path: Path) -> str:
@@ -440,6 +446,7 @@ def validate_action_terminal(
         maximum_apply_lateness_ms=maximum_lateness,
         post_settle_max_error_raw=settle_error,
         error_string=result.error_string,
+        startup_diagnostics=match.group("startup"),
     )
 
 
