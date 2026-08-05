@@ -233,23 +233,48 @@ def test_servo_uart_candidate_is_bounded_undeployed_and_fail_closed() -> None:
     contract = load_buffered_trajectory_contract(CONTRACT_PATH)
 
     assert contract["servo_uart_receive_candidate"] == {
-        "status": "LOCAL_SERVO_UART_BOUNDED_BURST_CANDIDATE",
-        "firmware_version": "0x00022200",
+        "status": "LOCAL_SERVO_UART_POWER_DOMAIN_LIFECYCLE_CANDIDATE",
+        "firmware_version": "0x00022500",
+        "previous_candidate_firmware_version": "0x00022400",
         "previous_deployed_firmware_version": "0x00022100",
         "baud": 1_000_000,
         "rx_fifo_enabled": False,
-        "receive_api": "HAL_UARTEx_ReceiveToIdle",
-        "burst_max_bytes": 64,
+        "receive_api": "HAL_UARTEx_ReceiveToIdle_DMA",
+        "dma_mode": "circular",
+        "dma_ring_capacity_bytes": 256,
+        "armed_before_first_request": False,
+        "rx_dma_lifecycle": "transaction_scoped_lazy_arm",
+        "disarm_after_transaction": True,
+        "rearm_on_idle_or_transfer_complete": False,
+        "rx_idle_bias": "internal_pull_up",
+        "idle_high_stable_ms": 2,
+        "idle_high_timeout_ms": 20,
+        "receiver_hard_resync": "usart_re_disable_enable",
+        "hal_error_irq_abort_disabled": True,
+        "uart_error_capture": "polled_flags_with_callback_fallback",
+        "dma_active_gate": [
+            "software_started",
+            "uart_dmar",
+            "dma_channel_enabled",
+            "rx_state_busy",
+        ],
+        "pre_transaction_quarantine": True,
+        "transaction_window_max_bytes": 64,
         "transaction_timeout_ms": 50,
         "parser_state_preserved_across_bursts": True,
         "resynchronizes_split_stale_corrupt_responses": True,
-        "diagnosed_uart_errors": ["PE", "NE", "FE", "ORE", "RTO"],
-        "recovery_action": "abort_clear_flush_quiet_clear",
+        "soft_error_policy": "PE_NE_checksum_resynchronize",
+        "hard_error_policy": "FE_ORE_RTO_DMA_fail_closed_receiver_resync",
+        "diagnosed_uart_errors": ["PE", "NE", "FE", "ORE", "RTO", "DMA"],
+        "recovery_action": "preserve_snapshot_abort_toggle_re_leave_unarmed",
+        "failure_snapshot_bytes": 16,
+        "extended_health_schema_version": 2,
         "internal_read_retry_count": 3,
         "feedback_fail_closed_count": 3,
         "deployed": False,
         "motion_authorized": False,
     }
+
 
 
 def test_machine_contract_cannot_enable_motion(tmp_path: Path) -> None:
@@ -341,7 +366,7 @@ def test_g474_identity_advertises_separate_validation_and_execution_routes() -> 
         / "binary_control.c"
     ).read_text(encoding="utf-8")
 
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022200)" in config
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022500)" in config
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in config
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in config
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in config

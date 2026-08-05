@@ -1,4 +1,5 @@
 #include "host_uart_rx.h"
+#include "servo_bus.h"
 
 #include <stddef.h>
 
@@ -135,6 +136,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
+    ServoBus_HandleUartError(huart);
     if ((huart != host_rx_uart) || (host_rx_started == 0U))
     {
         return;

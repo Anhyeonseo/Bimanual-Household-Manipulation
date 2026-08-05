@@ -114,6 +114,10 @@ class Stm32PhysicalDisableContractTest(unittest.TestCase):
             r"SERVO_BUS_READ_TIMEOUT_MS\s+UINT32_C\((\d+)\)",
             SERVO_SOURCE,
         )
+        read_tx_timeout_match = re.search(
+            r"SERVO_BUS_READ_TX_TIMEOUT_MS\s+UINT32_C\((\d+)\)",
+            SERVO_SOURCE,
+        )
         recovery_quiet_match = re.search(
             r"SERVO_BUS_RECOVERY_QUIET_MS\s+UINT32_C\((\d+)\)",
             SERVO_SOURCE,
@@ -122,30 +126,56 @@ class Stm32PhysicalDisableContractTest(unittest.TestCase):
             r"SERVO_BUS_WRITE_REPLY_SETTLE_MS\s+UINT32_C\((\d+)\)",
             SERVO_SOURCE,
         )
+        idle_high_timeout_match = re.search(
+            r"SERVO_BUS_IDLE_HIGH_TIMEOUT_MS\s+UINT32_C\((\d+)\)",
+            SERVO_SOURCE,
+        )
+        preflight_idle_timeout_match = re.search(
+            r"SERVO_BUS_PREFLIGHT_IDLE_TIMEOUT_MS\s+UINT32_C\((\d+)\)",
+            SERVO_SOURCE,
+        )
 
         self.assertEqual(write_timeouts_ms, [100])
-        self.assertEqual(read_timeouts_ms, [100])
+        self.assertEqual(read_timeouts_ms, [0])
         self.assertIsNotNone(delay_match)
         self.assertIsNotNone(timeout_match)
         self.assertIsNotNone(read_timeout_match)
+        self.assertIsNotNone(read_tx_timeout_match)
         self.assertIsNotNone(recovery_quiet_match)
         self.assertIsNotNone(write_settle_match)
+        self.assertIsNotNone(idle_high_timeout_match)
+        self.assertIsNotNone(preflight_idle_timeout_match)
+
+        # The transaction-scoped RX DMA lifecycle makes every servo write and
+        # every readback pay ServoBus_PrepareTransaction before it transmits:
+        # ServoBus_ArmReceiver waits up to SERVO_BUS_IDLE_HIGH_TIMEOUT_MS for a
+        # stable idle-high line, then the preflight loop waits up to
+        # SERVO_BUS_PREFLIGHT_IDLE_TIMEOUT_MS for UART_FLAG_BUSY to clear.
+        # Servo_DisableTorqueAll performs six writes and six readbacks, so the
+        # envelope grows by twelve preparations.
+        transaction_preparation_ms = (
+            int(idle_high_timeout_match.group(1))
+            + int(preflight_idle_timeout_match.group(1))
+        )
 
         firmware_worst_case_ms = (
             6 * (
-                sum(write_timeouts_ms)
+                transaction_preparation_ms
+                + sum(write_timeouts_ms)
                 + int(write_settle_match.group(1))
             )
             + int(delay_match.group(1))
             + 6 * (
-                sum(read_timeouts_ms)
+                transaction_preparation_ms
+                + int(read_tx_timeout_match.group(1))
                 + int(read_timeout_match.group(1))
                 + int(recovery_quiet_match.group(1))
             )
         )
         host_timeout_ms = float(timeout_match.group(1)) * 1000.0
 
-        self.assertEqual(firmware_worst_case_ms, 1529)
+        self.assertEqual(transaction_preparation_ms, 22)
+        self.assertEqual(firmware_worst_case_ms, 1223)
         self.assertGreaterEqual(
             host_timeout_ms,
             firmware_worst_case_ms + 500,
@@ -153,7 +183,7 @@ class Stm32PhysicalDisableContractTest(unittest.TestCase):
 
     def test_safety_change_bumps_firmware_identity(self):
         self.assertIn(
-            "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022200)",
+            "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022500)",
             CONFIG_HEADER,
         )
 

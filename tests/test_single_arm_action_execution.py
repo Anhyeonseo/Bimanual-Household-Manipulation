@@ -87,7 +87,7 @@ class SingleArmActionExecutionTests(unittest.TestCase):
     @staticmethod
     def hello(
         calibration_hash=0x8AD27897,
-        firmware_version=0x00022200,
+        firmware_version=0x00022500,
         protocol_version=1,
         joint_count=6,
         capabilities=0x00000FFF,

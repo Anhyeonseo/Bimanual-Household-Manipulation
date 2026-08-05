@@ -62,7 +62,51 @@ SERVO_BUS_FAILURE_NAMES = {
     7: "servo_status",
     8: "checksum",
     9: "recovery",
+    10: "rx_overflow",
+    11: "dma",
 }
+
+
+class ServoDiagnosticReadError(TransportError):
+    """A long-form servo diagnostic read failed with UART/DMA evidence."""
+
+    def __init__(self, joint_index: int, sample: Any) -> None:
+        self.joint_index = joint_index
+        self.sample = sample
+        health = sample.bus_health
+        if health is None:
+            detail = "bus_health=legacy_unavailable"
+        else:
+            reason = SERVO_BUS_FAILURE_NAMES.get(
+                health.failure_reason,
+                f"unknown_{health.failure_reason}",
+            )
+            detail = (
+                f"reason={reason} hal={health.hal_status} "
+                f"servo_status=0x{health.servo_status:02X} "
+                f"uart_error=0x{health.uart_error_code:08X} "
+                f"uart_isr=0x{health.uart_isr:08X} "
+                f"dma_error=0x{health.dma_error_code:08X} "
+                f"received={health.received_bytes} "
+                f"producer={health.producer_index} "
+                f"transactions={health.transaction_count} "
+                f"failures={health.failure_count} "
+                f"recoveries={health.recovery_count} "
+                f"timeouts={health.timeout_count} "
+                f"overflows={health.overflow_count} "
+                f"pe/ne/fe/ore/rto/dma="
+                f"{health.pe_count}/{health.ne_count}/{health.fe_count}/"
+                f"{health.ore_count}/{health.rto_count}/{health.dma_error_count}"
+                f" lazy_arms={health.lazy_arm_count} "
+                f"receiver_resyncs={health.receiver_resync_count} "
+                f"receiver_armed={int(health.receiver_armed)} "
+                f"snapshot={health.failure_snapshot.hex()}"
+            )
+        super().__init__(
+            "diagnostic read failed: "
+            f"joint_index={joint_index} status={sample.status_code} "
+            f"read_status=0x{sample.read_status:02X} {detail}"
+        )
 
 
 class PositionReadError(TransportError):
@@ -81,6 +125,8 @@ class PositionReadError(TransportError):
         discarded_bytes: int = 0,
         uart_error_code: int = 0,
         uart_isr: int = 0,
+        snapshot: bytes = b"",
+        receiver_armed: bool = False,
     ) -> None:
         self.servo_id = servo_id
         self.streak = streak
@@ -93,6 +139,8 @@ class PositionReadError(TransportError):
         self.discarded_bytes = discarded_bytes
         self.uart_error_code = uart_error_code
         self.uart_isr = uart_isr
+        self.snapshot = bytes(snapshot)
+        self.receiver_armed = receiver_armed
         super().__init__(
             "GET_STATE position read failed: "
             f"servo_id={servo_id} "
@@ -102,7 +150,9 @@ class PositionReadError(TransportError):
             f"hal={hal_status} servo_status=0x{servo_status:02X} "
             f"recoveries={recovery_count} discarded={discarded_bytes} "
             f"uart_error=0x{uart_error_code:08X} "
-            f"uart_isr=0x{uart_isr:08X}"
+            f"uart_isr=0x{uart_isr:08X} "
+            f"receiver_armed={int(receiver_armed)} "
+            f"snapshot={bytes(snapshot).hex()}"
         )
 
 
@@ -323,6 +373,8 @@ class ActuatorTransport:
                 discarded_bytes=state.position_read_discarded_bytes,
                 uart_error_code=state.position_read_uart_error_code,
                 uart_isr=state.position_read_uart_isr,
+                snapshot=state.position_read_snapshot,
+                receiver_armed=state.position_read_receiver_armed,
             )
         if state.stop_latched:
             raise StopLatchedError(
@@ -359,12 +411,7 @@ class ActuatorTransport:
                 ).payload
             )
             if sample.status_code != 0 or sample.read_status != 0:
-                raise TransportError(
-                    "diagnostic read failed: "
-                    f"joint_index={joint_index} "
-                    f"status={sample.status_code} "
-                    f"read_status=0x{sample.read_status:02X}"
-                )
+                raise ServoDiagnosticReadError(joint_index, sample)
             if (
                 sample.joint_index != joint_index
                 or sample.joint_count != hello.joint_count

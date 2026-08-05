@@ -58,6 +58,8 @@
 
 /* USER CODE BEGIN EV */
 extern UART_HandleTypeDef hlpuart1;
+extern UART_HandleTypeDef huart1;
+extern DMA_HandleTypeDef hdma_usart1_rx;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -203,6 +205,16 @@ void SysTick_Handler(void)
 void LPUART1_IRQHandler(void)
 {
   HAL_UART_IRQHandler(&hlpuart1);
+}
+
+void DMA1_Channel1_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_usart1_rx);
+}
+
+void USART1_IRQHandler(void)
+{
+  HAL_UART_IRQHandler(&huart1);
 }
 
 /* USER CODE END 1 */

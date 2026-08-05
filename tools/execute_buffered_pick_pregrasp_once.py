@@ -83,7 +83,8 @@ def load_pick_pregrasp_plan(
         raise ValueError("plan firmware deployment gate must deny motion")
     if require_deployed and deployment.get("deployed") is not True:
         raise ValueError(
-            "0x00022200 servo UART firmware candidate is not deployed"
+            "firmware candidate is not deployed: "
+            "0x00022500 servo UART circular DMA"
         )
 
     anchor = document.get("anchor")

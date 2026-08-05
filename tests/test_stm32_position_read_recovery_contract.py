@@ -41,7 +41,7 @@ def function_body(source: str, signature: str) -> str:
 
 
 def test_identity_requires_position_read_failure_diagnostics() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022200)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022500)" in CONFIG
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
     assert "POSITION_READ_FAILURE_DIAGNOSTICS_CAPABILITY = 0x00000100" in IDENTITY
     assert "SERVO_BUS_RECOVERY_DIAGNOSTICS_CAPABILITY = 0x00000200" in IDENTITY
@@ -139,6 +139,18 @@ def test_position_read_failure_wire_payload_reports_axis_and_streak() -> None:
     assert extended.position_read_uart_error_code == 0x00000004
     assert extended.position_read_uart_isr == 0x00A000E0
 
+    snapshot_extended = parse_state(
+        base
+        + struct.pack(
+            "<BBBBBBHH2xIIBB16s",
+            1, 2, 3, 4, 3, 0, 18, 4,
+            0, 0x006010C0, 4, 0,
+            bytes.fromhex("ffff0104") + bytes(12),
+        )
+    )
+    assert snapshot_extended.position_read_snapshot == bytes.fromhex("ffff0104")
+    assert not snapshot_extended.position_read_receiver_armed
+
     with pytest.raises(ProtocolError):
         parse_state(base + b"\x03\x02")
 
@@ -171,6 +183,13 @@ def test_transport_error_surfaces_bus_failure_cause() -> None:
     assert "recoveries=12 discarded=7" in message
     assert "uart_error=0x00000004" in message
     assert "uart_isr=0x000000E0" in message
+
+    snapshot_error = PositionReadError(
+        servo_id=1, streak=1, limit=3, stop_latched=False,
+        reason=4, snapshot=bytes.fromhex("ffff0104"), receiver_armed=False,
+    )
+    assert "snapshot=ffff0104" in str(snapshot_error)
+    assert "receiver_armed=0" in str(snapshot_error)
 
 
 def test_host_keeps_heartbeat_and_feedback_failure_streaks_separate() -> None:

@@ -43,6 +43,7 @@
 
 UART_HandleTypeDef hlpuart1;
 UART_HandleTypeDef huart1;
+DMA_HandleTypeDef hdma_usart1_rx;
 
 /* USER CODE BEGIN PV */
 
@@ -51,6 +52,7 @@ UART_HandleTypeDef huart1;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_LPUART1_UART_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
@@ -90,6 +92,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_LPUART1_UART_Init();
   MX_USART1_UART_Init();
 
@@ -107,6 +110,20 @@ int main(void)
     SingleArmApp_Process();
     /* USER CODE END 3 */
   }
+}
+
+/**
+  * Enable the DMA controller before USART1. ServoBus intentionally leaves the
+  * RX channel unarmed at boot and lazy-arms it at the first transaction after
+  * the external 12 V domain has reached a stable idle-high state.
+  */
+static void MX_DMA_Init(void)
+{
+  __HAL_RCC_DMAMUX1_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 2U, 0U);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
 }
 
 void SystemClock_Config(void)
@@ -302,5 +319,4 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-
 

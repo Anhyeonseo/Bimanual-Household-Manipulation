@@ -291,7 +291,7 @@ static void Host_SendBinaryPositionReadFailure(
     response.message_type = ACTUATOR_MSG_STATE_FEEDBACK;
     response.sequence = request_sequence;
     response.sender_time_ms = HAL_GetTick();
-    response.payload_length = 40U;
+    response.payload_length = 58U;
     response.payload[0] = (host_stop_latched != 0U) ? 1U : 0U;
     response.payload[1] = 2U;
     response.payload[2] = servo_joint_count;
@@ -309,7 +309,10 @@ static void Host_SendBinaryPositionReadFailure(
     response.payload[23] = (uint8_t)bus->reason;
     response.payload[24] = bus->hal_status;
     response.payload[25] = bus->servo_status;
-    Host_WriteU16Le(&response.payload[26], bus->recovery_count);
+    Host_WriteU16Le(
+        &response.payload[26],
+        (uint16_t)bus->recovery_count
+    );
     Host_WriteU16Le(&response.payload[28], bus->discarded_bytes);
     response.payload[30] = 0U;
     response.payload[31] = 0U;
@@ -320,6 +323,13 @@ static void Host_SendBinaryPositionReadFailure(
     Host_WriteU32Le(
         &response.payload[36],
         bus->uart_isr
+    );
+    response.payload[40] = bus->snapshot_length;
+    response.payload[41] = ServoBus_GetHealth()->dma_started;
+    memcpy(
+        &response.payload[42],
+        bus->snapshot,
+        SERVO_BUS_FAILURE_SNAPSHOT_MAX_BYTES
     );
 
     (void)Host_SendBinaryFrame(&response);
@@ -408,13 +418,15 @@ static void Host_SendBinaryDiagnostics(
     uint8_t temperature_c = 0U;
     uint16_t current_raw = 0U;
     uint8_t read_status = 0U;
+    uint8_t failure_captured = 0U;
+    ServoBusDiagnostics first_failure = {0};
     const ServoJointConfig *joint = &servo_joints[joint_index];
 
     memset(&response, 0, sizeof(response));
     response.message_type = ACTUATOR_MSG_DIAGNOSTICS;
     response.sequence = request_sequence;
     response.sender_time_ms = HAL_GetTick();
-    response.payload_length = 48U;
+    response.payload_length = 138U;
 
     /*
      * Keep each request bounded to one servo. The host refreshes the heartbeat
@@ -436,6 +448,8 @@ static void Host_SendBinaryDiagnostics(
             ) != HAL_OK)
         {
             read_status |= UINT8_C(0x01);
+            first_failure = *ServoBus_GetDiagnostics();
+            failure_captured = 1U;
         }
 
         if (Servo_ReadData(
@@ -446,6 +460,11 @@ static void Host_SendBinaryDiagnostics(
             ) != HAL_OK)
         {
             read_status |= UINT8_C(0x02);
+            if (failure_captured == 0U)
+            {
+                first_failure = *ServoBus_GetDiagnostics();
+                failure_captured = 1U;
+            }
         }
 
         if (Servo_ReadTelemetry(
@@ -459,6 +478,11 @@ static void Host_SendBinaryDiagnostics(
             ) != HAL_OK)
         {
             read_status |= UINT8_C(0x04);
+            if (failure_captured == 0U)
+            {
+                first_failure = *ServoBus_GetDiagnostics();
+                failure_captured = 1U;
+            }
         }
 
         /*
@@ -475,6 +499,11 @@ static void Host_SendBinaryDiagnostics(
             ) != HAL_OK)
         {
             read_status |= UINT8_C(0x08);
+            if (failure_captured == 0U)
+            {
+                first_failure = *ServoBus_GetDiagnostics();
+                failure_captured = 1U;
+            }
         }
 
         /*
@@ -496,6 +525,11 @@ static void Host_SendBinaryDiagnostics(
              ) != HAL_OK))
         {
             read_status |= UINT8_C(0x10);
+            if (failure_captured == 0U)
+            {
+                first_failure = *ServoBus_GetDiagnostics();
+                failure_captured = 1U;
+            }
         }
     }
 
@@ -567,6 +601,47 @@ static void Host_SendBinaryDiagnostics(
     response.payload[45] = protection[21];
     response.payload[46] = protection[22];
     response.payload[47] = protection[23];
+
+    const ServoBusDiagnostics *bus = (failure_captured != 0U)
+        ? &first_failure
+        : ServoBus_GetDiagnostics();
+    const ServoBusHealth *health = ServoBus_GetHealth();
+    response.payload[48] = 2U;
+    response.payload[49] = (uint8_t)bus->reason;
+    response.payload[50] = bus->hal_status;
+    response.payload[51] = bus->servo_status;
+    response.payload[52] = health->dma_started;
+    response.payload[53] = health->last_rx_event;
+    response.payload[54] = (bus->received_bytes > UINT8_MAX)
+        ? UINT8_MAX
+        : (uint8_t)bus->received_bytes;
+    response.payload[55] = (uint8_t)health->producer_index;
+    Host_WriteU32Le(&response.payload[56], bus->uart_error_code);
+    Host_WriteU32Le(&response.payload[60], bus->uart_isr);
+    Host_WriteU32Le(&response.payload[64], bus->dma_error_code);
+    Host_WriteU32Le(&response.payload[68], health->transaction_count);
+    Host_WriteU32Le(&response.payload[72], health->success_count);
+    Host_WriteU32Le(&response.payload[76], health->failure_count);
+    Host_WriteU32Le(&response.payload[80], health->recovery_count);
+    Host_WriteU32Le(&response.payload[84], health->discarded_bytes);
+    Host_WriteU32Le(&response.payload[88], health->timeout_count);
+    Host_WriteU32Le(&response.payload[92], health->overflow_count);
+    Host_WriteU32Le(&response.payload[96], health->rx_event_count);
+    Host_WriteU16Le(&response.payload[100], health->pe_count);
+    Host_WriteU16Le(&response.payload[102], health->ne_count);
+    Host_WriteU16Le(&response.payload[104], health->fe_count);
+    Host_WriteU16Le(&response.payload[106], health->ore_count);
+    Host_WriteU16Le(&response.payload[108], health->rto_count);
+    Host_WriteU16Le(&response.payload[110], health->dma_error_count);
+    Host_WriteU32Le(&response.payload[112], health->lazy_arm_count);
+    Host_WriteU32Le(&response.payload[116], health->receiver_resync_count);
+    response.payload[120] = bus->snapshot_length;
+    response.payload[121] = health->dma_started;
+    memcpy(
+        &response.payload[122],
+        bus->snapshot,
+        SERVO_BUS_FAILURE_SNAPSHOT_MAX_BYTES
+    );
 
     (void)Host_SendBinaryFrame(&response);
 }
