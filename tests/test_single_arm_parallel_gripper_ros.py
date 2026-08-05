@@ -109,7 +109,7 @@ class ParallelGripperRosIntegrationTests(unittest.TestCase):
             1,
             6,
             False,
-            0x00022500,
+            0x00022600,
             0x8AD27897,
             0x00000FFF,
             0,

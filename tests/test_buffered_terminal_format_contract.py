@@ -48,17 +48,22 @@ def test_bridge_success_terminal_literal_is_unchanged() -> None:
     assert '"buffered trajectory completed; "' in EXECUTION_SOURCE
     assert 'f"maximum_apply_lateness_ms={result.detail} "' in EXECUTION_SOURCE
     assert (
-        'f"post_settle_max_error_raw={settle_error}; {startup}"'
+        'f"post_settle_max_error_raw={settle_error}; {startup}; {lateness}"'
         in EXECUTION_SOURCE
     )
 
 
-def build_bridge_terminal(lateness: int, settle: int, startup: str) -> str:
+def build_bridge_terminal(
+    lateness: int,
+    settle: int,
+    startup: str,
+    profile: str = "lateness_buckets=2340,0,0,0,0,0 lateness_worst_sample=none",
+) -> str:
     """bridge 가 실제로 만드는 문자열을 그대로 재구성한다."""
     return (
         "buffered trajectory completed; "
         f"maximum_apply_lateness_ms={lateness} "
-        f"post_settle_max_error_raw={settle}; {startup}"
+        f"post_settle_max_error_raw={settle}; {startup}; {profile}"
     )
 
 
@@ -67,12 +72,13 @@ def test_sender_pattern_accepts_the_real_bridge_terminal() -> None:
         "startup=prime_depth=16 first_lead_ms=160 "
         "firmware_elapsed_ms=61 heartbeat_gates=2"
     )
-    text = build_bridge_terminal(4, 18, startup)
+    profile = "lateness_buckets=2330,8,1,0,0,1 lateness_worst_sample=1841"
+    text = build_bridge_terminal(4, 18, startup, profile)
     match = MODULE.TERMINAL_PATTERN.fullmatch(text)
     assert match is not None, "sender 패턴이 실제 bridge terminal 을 못 읽는다"
     assert int(match.group(1)) == 4
     assert int(match.group(2)) == 18
-    assert match.group("startup") == startup
+    assert match.group("diagnostics") == f"{startup}; {profile}"
 
 
 def test_sender_pattern_still_accepts_the_legacy_terminal() -> None:
@@ -85,7 +91,7 @@ def test_sender_pattern_still_accepts_the_legacy_terminal() -> None:
     assert match is not None
     assert int(match.group(1)) == 1
     assert int(match.group(2)) == 30
-    assert match.group("startup") is None
+    assert match.group("diagnostics") is None
 
 
 def test_startup_unavailable_fallback_parses() -> None:
@@ -94,7 +100,7 @@ def test_startup_unavailable_fallback_parses() -> None:
         build_bridge_terminal(0, 0, "startup=unavailable")
     )
     assert match is not None
-    assert match.group("startup") == "startup=unavailable"
+    assert match.group("diagnostics").startswith("startup=unavailable")
 
 
 def test_validate_action_terminal_preserves_startup_evidence() -> None:
@@ -111,7 +117,9 @@ def test_validate_action_terminal_preserves_startup_evidence() -> None:
     )
     assert evidence.maximum_apply_lateness_ms == 4
     assert evidence.post_settle_max_error_raw == 18
-    assert evidence.startup_diagnostics == startup
+    assert evidence.terminal_diagnostics is not None
+    assert evidence.terminal_diagnostics.startswith(startup)
+    assert "lateness_buckets=" in evidence.terminal_diagnostics
 
 
 def test_bounds_still_reject_out_of_range_values() -> None:

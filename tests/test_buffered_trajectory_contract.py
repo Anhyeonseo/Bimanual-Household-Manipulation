@@ -229,14 +229,14 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
     }
 
 
-def test_servo_uart_route_is_deployed_bounded_and_unauthorized_for_motion() -> None:
+def test_apply_lateness_profile_candidate_is_bounded_and_undeployed() -> None:
     contract = load_buffered_trajectory_contract(CONTRACT_PATH)
 
     assert contract["servo_uart_receive_candidate"] == {
-        "status": "LOCAL_SERVO_UART_POWER_DOMAIN_LIFECYCLE_DEPLOYED",
-        "firmware_version": "0x00022500",
-        "previous_candidate_firmware_version": "0x00022400",
-        "previous_deployed_firmware_version": "0x00022100",
+        "status": "LOCAL_APPLY_LATENESS_PROFILE_CANDIDATE",
+        "firmware_version": "0x00022600",
+        "previous_candidate_firmware_version": "0x00022500",
+        "previous_deployed_firmware_version": "0x00022500",
         "baud": 1_000_000,
         "rx_fifo_enabled": False,
         "receive_api": "HAL_UARTEx_ReceiveToIdle_DMA",
@@ -271,7 +271,10 @@ def test_servo_uart_route_is_deployed_bounded_and_unauthorized_for_motion() -> N
         "extended_health_schema_version": 2,
         "internal_read_retry_count": 3,
         "feedback_fail_closed_count": 3,
-        "deployed": True,
+        "apply_lateness_histogram_buckets": 6,
+        "apply_lateness_worst_sample_index_reported": True,
+        "buffered_status_payload_bytes": 60,
+        "deployed": False,
         "motion_authorized": False,
     }
 
@@ -366,7 +369,7 @@ def test_g474_identity_advertises_separate_validation_and_execution_routes() -> 
         / "binary_control.c"
     ).read_text(encoding="utf-8")
 
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022500)" in config
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022600)" in config
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in config
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in config
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in config

@@ -214,13 +214,27 @@ actuator_buffered_result_t actuator_buffered_executor_step(
         executor->anchor = next;
         executor->diagnostics.last_applied_tick = current_tick;
         executor->diagnostics.last_apply_lateness_ticks = apply_lateness;
+        if (executor->diagnostics.applied_samples < UINT32_MAX) {
+            executor->diagnostics.applied_samples++;
+        }
         if (apply_lateness >
             executor->diagnostics.maximum_apply_lateness_ticks) {
             executor->diagnostics.maximum_apply_lateness_ticks =
                 apply_lateness;
+            /* Counted after the increment so the index is 1-based and matches
+             * the applied sample the operator sees in the plan. */
+            executor->diagnostics.maximum_apply_lateness_sample_index =
+                executor->diagnostics.applied_samples;
         }
-        if (executor->diagnostics.applied_samples < UINT32_MAX) {
-            executor->diagnostics.applied_samples++;
+        {
+            size_t bucket = (size_t)apply_lateness;
+            if (bucket >= ACTUATOR_BUFFERED_LATENESS_BUCKETS) {
+                bucket = ACTUATOR_BUFFERED_LATENESS_BUCKETS - 1u;
+            }
+            if (executor->diagnostics.apply_lateness_histogram[bucket] <
+                UINT32_MAX) {
+                executor->diagnostics.apply_lateness_histogram[bucket]++;
+            }
         }
         update_queue_depth(executor);
         if (executor->queue.count == 0u) {

@@ -240,10 +240,10 @@ bool actuator_buffered_status_encode(
     uint16_t queued;
     uint16_t peak;
     if (output == NULL || output_length == NULL || diagnostics == NULL ||
-        output_capacity < ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE) {
+        output_capacity < ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE) {
         return false;
     }
-    memset(output, 0, ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE);
+    memset(output, 0, ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE);
     output[0] = status_code;
     output[1] = sample_count;
     output[2] = safety_state;
@@ -263,6 +263,15 @@ bool actuator_buffered_status_encode(
     write_u16_le(&output[22], peak);
     write_u32_le(&output[24], diagnostics->accepted_samples);
     write_u32_le(&output[28], diagnostics->applied_samples);
-    *output_length = ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE;
+    for (size_t bucket = 0u;
+         bucket < ACTUATOR_BUFFERED_LATENESS_BUCKETS;
+         bucket++) {
+        write_u32_le(
+            &output[32u + (bucket * 4u)],
+            diagnostics->apply_lateness_histogram[bucket]);
+    }
+    write_u32_le(
+        &output[56], diagnostics->maximum_apply_lateness_sample_index);
+    *output_length = ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE;
     return true;
 }

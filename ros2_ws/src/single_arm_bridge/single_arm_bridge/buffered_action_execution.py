@@ -35,6 +35,27 @@ STARTUP_FIRST_SAMPLE_LEAD_GATE_MS = 80
 STARTUP_MAXIMUM_HEARTBEAT_GATES = 3
 
 
+def format_apply_lateness_profile(result: Any) -> str:
+    """
+    Render the firmware's apply-lateness distribution for the terminal string.
+
+    A single maximum cannot separate a rare spike from systemic drift.
+    Motion-11 reached the top of its 0..5 ms allowance with only that number,
+    which is why 0x00022600 reports per-bucket counts and the applied-sample
+    index where the maximum was last raised.
+
+    Firmware older than 0x00022600 omits the block, so this degrades to a
+    marker rather than failing.
+    """
+    histogram = getattr(result, "apply_lateness_histogram", None)
+    if not histogram:
+        return "lateness_profile=unavailable"
+    buckets = ",".join(str(int(count)) for count in histogram)
+    worst = getattr(result, "maximum_apply_lateness_sample_index", None)
+    worst_text = "none" if not worst else str(int(worst))
+    return f"lateness_buckets={buckets} lateness_worst_sample={worst_text}"
+
+
 def _tick_has_reached(current_tick_ms: int, apply_tick_ms: int, margin_ms: int) -> bool:
     elapsed = (current_tick_ms - apply_tick_ms) & UINT32_MAX
     return margin_ms <= elapsed <= UINT32_HALF_RANGE
@@ -332,6 +353,7 @@ class BufferedActionExecutionCore:
                 detail=result.detail,
             )
         startup = self._startup_diagnostics or "startup=unavailable"
+        lateness = format_apply_lateness_profile(result)
         self._clear_active()
         return ExecutionOutcome(
             TerminalState.SUCCEEDED,
@@ -340,7 +362,7 @@ class BufferedActionExecutionCore:
             result.detail,
             "buffered trajectory completed; "
             f"maximum_apply_lateness_ms={result.detail} "
-            f"post_settle_max_error_raw={settle_error}; {startup}",
+            f"post_settle_max_error_raw={settle_error}; {startup}; {lateness}",
         )
 
     def _verify_post_settle(self, plan: BufferedExecutionPlan) -> int:

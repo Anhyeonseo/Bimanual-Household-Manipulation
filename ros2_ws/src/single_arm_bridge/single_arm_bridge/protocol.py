@@ -21,6 +21,8 @@ STATE_POSITION_READ_FAILURE_V2 = struct.Struct("<BBBBBBHH2xIIBB16s")
 ARM_RESPONSE = struct.Struct("<BB2xI")
 SETPOINT_STATUS = struct.Struct("<BBBBIII")
 SETPOINT_STATUS_EXTENDED = struct.Struct("<BBBBHHII")
+# 6개 lateness bucket + 최대가 갱신된 applied sample index (1-based, 0=미갱신)
+SETPOINT_STATUS_LATENESS = struct.Struct("<7I")
 BUFFERED_SETPOINT_HEADER = struct.Struct("<IBBH")
 BUFFERED_SETPOINT_SAMPLE = struct.Struct("<I12i")
 BUFFERED_SETPOINT_MAX_SAMPLES = 9
@@ -136,6 +138,10 @@ class MotionResult:
     peak_queued_samples: int | None = None
     accepted_samples: int | None = None
     applied_samples: int | None = None
+    # 0x00022600 부터: apply lateness 분포와 최악 sample 위치.
+    # 최대값 하나로는 드문 spike 와 계통적 지연을 구분할 수 없다.
+    apply_lateness_histogram: tuple[int, ...] | None = None
+    maximum_apply_lateness_sample_index: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -474,18 +480,27 @@ def validate_buffered_setpoint_flags(flags: int) -> BufferedSetpointFlags:
 
 def parse_setpoint_status(payload: bytes) -> MotionResult:
     extended_size = SETPOINT_STATUS.size + SETPOINT_STATUS_EXTENDED.size
-    if len(payload) not in (SETPOINT_STATUS.size, extended_size):
+    lateness_size = extended_size + SETPOINT_STATUS_LATENESS.size
+    if len(payload) not in (SETPOINT_STATUS.size, extended_size, lateness_size):
         raise ProtocolError("invalid SETPOINT_STATUS length")
     base = SETPOINT_STATUS.unpack_from(payload)
     if len(payload) == SETPOINT_STATUS.size:
         return MotionResult(*base)
     extended = SETPOINT_STATUS_EXTENDED.unpack_from(payload, SETPOINT_STATUS.size)
+    histogram: tuple[int, ...] | None = None
+    worst_index: int | None = None
+    if len(payload) == lateness_size:
+        lateness = SETPOINT_STATUS_LATENESS.unpack_from(payload, extended_size)
+        histogram = tuple(lateness[:6])
+        worst_index = lateness[6]
     return MotionResult(
         *base,
         executor_state=extended[0], terminal_reason=extended[1],
         safe_stop_required=extended[2] != 0, queue_result=extended[3],
         queued_samples=extended[4], peak_queued_samples=extended[5],
         accepted_samples=extended[6], applied_samples=extended[7],
+        apply_lateness_histogram=histogram,
+        maximum_apply_lateness_sample_index=worst_index,
     )
 
 

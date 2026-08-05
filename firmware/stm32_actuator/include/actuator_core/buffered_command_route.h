@@ -12,6 +12,13 @@
 #define ACTUATOR_BUFFERED_WIRE_SAMPLE_SIZE 52u
 #define ACTUATOR_BUFFERED_STATUS_BASE_SIZE 16u
 #define ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE 32u
+/*
+ * Extended status plus the apply-lateness distribution: six saturating bucket
+ * counts followed by the applied-sample index at which the maximum was last
+ * raised. Hosts accept 16, 32 and 60 byte payloads so older firmware still
+ * decodes.
+ */
+#define ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE 60u
 
 #define ACTUATOR_BUFFERED_FLAG_VALIDATION_ONLY UINT16_C(0x0001)
 #define ACTUATOR_BUFFERED_FLAG_CANDIDATE UINT16_C(0x0002)
