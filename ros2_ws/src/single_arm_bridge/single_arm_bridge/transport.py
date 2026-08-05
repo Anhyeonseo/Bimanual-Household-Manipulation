@@ -51,6 +51,44 @@ class StopLatchedError(TransportError):
     """The MCU reports a physical safety stop that requires explicit recovery."""
 
 
+class ResponseTimeoutError(TransportError):
+    """
+    A response did not arrive in time, with evidence of what the wait saw.
+
+    A bare timeout cannot separate two very different faults: the host burning
+    its budget consuming other traffic, or the MCU answering late on a quiet
+    link. The 2026-08-06 buffered startup abort needed that distinction and the
+    old message could not provide it, so the counts are carried here.
+    """
+
+    def __init__(
+        self,
+        message_type: Any,
+        sequence: int,
+        timeout_s: float,
+        elapsed_s: float,
+        empty_reads: int,
+        undecodable_frames: int,
+        observed_frames: tuple[str, ...],
+    ) -> None:
+        self.message_type = message_type
+        self.sequence = sequence
+        self.timeout_s = timeout_s
+        self.elapsed_s = elapsed_s
+        self.empty_reads = empty_reads
+        self.undecodable_frames = undecodable_frames
+        self.observed_frames = observed_frames
+        observed = ",".join(observed_frames) if observed_frames else "none"
+        super().__init__(
+            f"timeout waiting for {message_type.name} "
+            f"seq={sequence} elapsed_ms={elapsed_s * 1000.0:.1f} "
+            f"budget_ms={timeout_s * 1000.0:.1f} "
+            f"empty_reads={empty_reads} "
+            f"undecodable={undecodable_frames} "
+            f"observed={observed}"
+        )
+
+
 SERVO_BUS_FAILURE_NAMES = {
     0: "none",
     1: "tx",
@@ -223,17 +261,29 @@ class ActuatorTransport:
         defer_state_after_motion_result: bool = False,
     ) -> Frame:
         response_timeout = self._timeout_s if timeout_s is None else timeout_s
-        deadline = time.monotonic() + response_timeout
+        started = time.monotonic()
+        deadline = started + response_timeout
+        # A timeout alone cannot distinguish a host that burned its budget
+        # consuming other traffic from an MCU that simply answered late. The
+        # 2026-08-06 buffered startup abort needed exactly that distinction,
+        # so record what the wait actually observed.
+        empty_reads = 0
+        undecodable = 0
+        observed: list[str] = []
         while time.monotonic() < deadline:
             packet = self._port.read_until(b"\x00")
             if not packet.endswith(b"\x00"):
+                empty_reads += 1
                 continue
             try:
                 frame = decode_frame(packet)
             except ProtocolError:
+                undecodable += 1
                 continue
             if frame.sequence == sequence and frame.message_type is message_type:
                 return frame
+            if len(observed) < 8:
+                observed.append(f"{frame.message_type.name}#{frame.sequence}")
             if frame.message_type is MessageType.SETPOINT_STATUS:
                 result = self._record_unsolicited_motion_result(frame)
                 if result.status_code != 0:
@@ -247,7 +297,15 @@ class ActuatorTransport:
                         raise StateResponseDeferred(
                             "terminal motion result superseded state response"
                         )
-        raise TransportError(f"timeout waiting for {message_type.name}")
+        raise ResponseTimeoutError(
+            message_type=message_type,
+            sequence=sequence,
+            timeout_s=response_timeout,
+            elapsed_s=time.monotonic() - started,
+            empty_reads=empty_reads,
+            undecodable_frames=undecodable,
+            observed_frames=tuple(observed),
+        )
 
     def _collect_available_motion_results(self) -> None:
         while int(getattr(self._port, "in_waiting", 0)) > 0:

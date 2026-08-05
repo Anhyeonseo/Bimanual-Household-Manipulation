@@ -229,11 +229,11 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
     }
 
 
-def test_apply_lateness_profile_candidate_is_bounded_and_undeployed() -> None:
+def test_apply_lateness_profile_route_is_deployed_and_unauthorized() -> None:
     contract = load_buffered_trajectory_contract(CONTRACT_PATH)
 
     assert contract["servo_uart_receive_candidate"] == {
-        "status": "LOCAL_APPLY_LATENESS_PROFILE_CANDIDATE",
+        "status": "LOCAL_APPLY_LATENESS_PROFILE_DEPLOYED",
         "firmware_version": "0x00022600",
         "previous_candidate_firmware_version": "0x00022500",
         "previous_deployed_firmware_version": "0x00022500",
@@ -274,7 +274,7 @@ def test_apply_lateness_profile_candidate_is_bounded_and_undeployed() -> None:
         "apply_lateness_histogram_buckets": 6,
         "apply_lateness_worst_sample_index_reported": True,
         "buffered_status_payload_bytes": 60,
-        "deployed": False,
+        "deployed": True,
         "motion_authorized": False,
     }
 

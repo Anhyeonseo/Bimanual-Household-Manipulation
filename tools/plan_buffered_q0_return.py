@@ -264,6 +264,15 @@ def build_plan(
             "sample_count": len(plan.samples),
             "duration_ms": selected_duration_ms,
             "maximum_sample_step_rad": maximum_sample_step,
+            "samples": [
+                {
+                    "index": sample.sample_index,
+                    "elapsed_ms": sample.trajectory_elapsed_ms,
+                    "apply_offset_ms": sample.apply_tick_ms - PLAN_TICK_MS,
+                    "positions_urad": list(sample.positions_urad),
+                }
+                for sample in plan.samples
+            ],
         },
         "dynamic_limits": {
             "velocity_rad_s": {name: 0.5 for name in arm_names},

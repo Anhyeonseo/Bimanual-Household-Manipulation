@@ -165,7 +165,7 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "servo_uart_receive_candidate",
     )
     if uart_candidate != {
-        "status": "LOCAL_APPLY_LATENESS_PROFILE_CANDIDATE",
+        "status": "LOCAL_APPLY_LATENESS_PROFILE_DEPLOYED",
         "firmware_version": "0x00022600",
         "previous_candidate_firmware_version": "0x00022500",
         "previous_deployed_firmware_version": "0x00022500",
@@ -206,11 +206,11 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "apply_lateness_histogram_buckets": 6,
         "apply_lateness_worst_sample_index_reported": True,
         "buffered_status_payload_bytes": 60,
-        "deployed": False,
+        "deployed": True,
         "motion_authorized": False,
     }:
         raise BufferedTrajectoryContractError(
-            "apply lateness profile candidate must remain bounded and undeployed"
+            "apply lateness profile route must stay deployed and unauthorized for motion"
         )
 
     host_adapter = _require_object(document, "host_adapter_candidate")

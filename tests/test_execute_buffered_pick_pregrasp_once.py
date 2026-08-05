@@ -29,7 +29,7 @@ PLAN = (
     / "2026-08-04"
     / "motion11_buffered_pick_pregrasp_plan_only.json"
 )
-PLAN_SHA = "6b9effeb6bb569bb6fee8b6b6aacf804365b743188f05b14d868d1dac0068be2"
+PLAN_SHA = "b763107b62639b6588245e138ebb623e5c19c45a0911b8cad553359edc287c96"
 CALIBRATION = PACKAGE_ROOT / "config" / "single_arm_calibration.json"
 CONTRACT = PACKAGE_ROOT / "config" / "buffered_trajectory_contract.json"
 SOURCE_ROUTE = (
@@ -66,18 +66,14 @@ def test_loads_exact_motion11_plan_and_endpoints():
 
 
 def test_rejects_undeployed_firmware_candidate(tmp_path):
-    """
-    0x00022600 apply-lateness 계측 후보는 아직 플래시되지 않았으므로
-    실행기의 기본 게이트가 거부해야 한다. 계측을 얹었다고 해서
-    검증되지 않은 firmware 로 Motion-11 을 실행할 수는 없다.
-    """
-    with pytest.raises(ValueError, match="firmware candidate is not deployed"):
+    """계약이 undeployed 로 되돌아가면 실행기는 fail-closed 여야 한다."""
+    contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    contract["servo_uart_receive_candidate"]["deployed"] = False
+    undeployed = tmp_path / "buffered_trajectory_contract.json"
+    undeployed.write_text(json.dumps(contract), encoding="utf-8")
+    with pytest.raises(ValueError, match="must stay deployed"):
         MODULE.load_pick_pregrasp_plan(
-            PLAN,
-            PLAN_SHA,
-            CALIBRATION,
-            CONTRACT,
-            SOURCE_ROUTE,
+            PLAN, PLAN_SHA, CALIBRATION, undeployed, SOURCE_ROUTE,
         )
 
 

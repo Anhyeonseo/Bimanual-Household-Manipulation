@@ -199,7 +199,7 @@
     "physical_motion_requires_explicit_approval": true
   },
   "servo_uart_receive_candidate": {
-    "status": "LOCAL_APPLY_LATENESS_PROFILE_CANDIDATE",
+    "status": "LOCAL_APPLY_LATENESS_PROFILE_DEPLOYED",
     "firmware_version": "0x00022600",
     "previous_candidate_firmware_version": "0x00022500",
     "previous_deployed_firmware_version": "0x00022500",
@@ -244,7 +244,7 @@
     "extended_health_schema_version": 2,
     "internal_read_retry_count": 3,
     "feedback_fail_closed_count": 3,
-    "deployed": false,
+    "deployed": true,
     "motion_authorized": false,
     "apply_lateness_histogram_buckets": 6,
     "apply_lateness_worst_sample_index_reported": true,

@@ -41,7 +41,7 @@ ARTIFACT = (
     / "motion11_buffered_pick_pregrasp_plan_only.json"
 )
 ARTIFACT_SHA256 = (
-    "6b9effeb6bb569bb6fee8b6b6aacf804365b743188f05b14d868d1dac0068be2"
+    "b763107b62639b6588245e138ebb623e5c19c45a0911b8cad553359edc287c96"
 )
 
 
@@ -59,8 +59,8 @@ def test_plan_is_non_executable_and_pins_collision_checked_source():
     assert document["buffered_frame_encoded"] is False
     assert document["firmware_version"] == "0x00022600"
     assert document["firmware_deployment_gate"] == {
-        "candidate_status": "LOCAL_APPLY_LATENESS_PROFILE_CANDIDATE",
-        "deployed": False,
+        "candidate_status": "LOCAL_APPLY_LATENESS_PROFILE_DEPLOYED",
+        "deployed": True,
         "motion_authorized": False,
     }
     assert document["source_route"] == {
