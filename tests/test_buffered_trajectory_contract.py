@@ -701,3 +701,139 @@ def test_connection_loss_aborts_without_automatic_resume() -> None:
     assert snapshot.reason == "connection_loss"
     with pytest.raises(BufferedQueueError, match="only start once"):
         queue.start()
+
+
+def test_fresh_segment_leg_route_refuses_endpoint_only_plans() -> None:
+    """갓 계획한 경로를 실행하는 모드는 안전 논리가 다르다.
+
+    `ros_moveit_plan_grasp.py` 는 궤적 점을 저장하지 않는다. 그 출력만으로
+    실행하면 MoveIt 이 검사하지 않은 경로를 직선으로 이어 달리게 된다.
+    경계된 segment 체인을 요구하는 것이 이 모드의 전부다.
+    """
+    route = load_buffered_trajectory_contract(CONTRACT_PATH)[
+        "fresh_segment_leg_candidate"
+    ]
+    assert route["deployed"] is False
+    assert route["motion_authorized"] is False
+    assert route["route_source"] == "planned_in_this_session"
+    assert route["accepts_endpoint_only_plans"] is False
+    assert route["requires_bounded_segment_chain"] is True
+    assert route["requires_straight_joint_space_chain"] is True
+    assert route["requires_moveit_success_per_segment"] is True
+    # 계획과 실행 사이에 경로 파일이 바뀌면 거부되어야 한다.
+    assert route["segment_sha_rechecked_at_execution"] is True
+    assert route["plan_recomputed_at_execution"] is True
+    assert route["gripper_moves_inside_a_leg"] is False
+
+
+def test_fresh_segment_leg_cannot_accept_endpoint_only_plans(
+    tmp_path: Path,
+) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    contract["fresh_segment_leg_candidate"]["accepts_endpoint_only_plans"] = True
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    with pytest.raises(
+        BufferedTrajectoryContractError, match="endpoint-only"
+    ):
+        load_buffered_trajectory_contract(path)
+
+
+def test_pick_and_place_tcp_offsets_are_separated_and_honest() -> None:
+    """한쪽 측정이 다른 쪽을 검증한 것처럼 보이면 안 된다.
+
+    2026-08-06 A4: Pick 은 gripper 잔여 간격으로 실측했다(0.025 에서 3 raw
+    = 놓침, 0.017 에서 20 raw = 파지). Place 는 Stage 7 이 -5 mm 보정 2회를
+    필요로 했다는 정황만 있고 측정된 적이 없다.
+    """
+    offsets = load_buffered_trajectory_contract(CONTRACT_PATH)[
+        "tcp_contact_offsets"
+    ]
+    assert offsets["pick_and_place_offsets_separated"] is True
+    assert offsets["pick_offset_measured"] is True
+    assert offsets["place_offset_measured"] is False
+    assert offsets["deployed"] is False
+    assert offsets["motion_authorized"] is False
+
+    # 측정된 Pick 값은 공칭보다 낮아야 한다. 공칭으로는 놓쳤다.
+    assert offsets["pick_grasp_offset_m"] < offsets["nominal_grasp_offset_m"]
+    # Place 는 아직 공칭 그대로임을 드러낸다.
+    assert offsets["place_grasp_offset_m"] == offsets["nominal_grasp_offset_m"]
+
+    held = [e for e in offsets["sweep"] if e["held"] is True]
+    missed = [e for e in offsets["sweep"] if e["held"] is False]
+    assert held and missed
+    # 잡힌 높이가 놓친 높이보다 낮아야 한다.
+    assert max(e["grasp_offset_m"] for e in held) < min(
+        e["grasp_offset_m"] for e in missed
+    )
+    # 임계가 대조군과 실측 파지 사이에 있어야 한다.
+    assert offsets["control_close_residual_raw"] < offsets[
+        "contact_threshold_raw"
+    ] <= min(e["residual_gap_raw"] for e in held)
+
+
+def test_contract_refuses_a_place_offset_claimed_as_measured(
+    tmp_path: Path,
+) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    contract["tcp_contact_offsets"]["place_offset_measured"] = True
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    with pytest.raises(
+        BufferedTrajectoryContractError, match="not measured yet"
+    ):
+        load_buffered_trajectory_contract(path)
+
+
+def test_top_shadow_grasp_route_replaces_the_publisher_lock_with_its_own() -> None:
+    """인식 결과를 파지 좌표로 쓰는 것은 잠금을 넘는 행위다.
+
+    `ShadowObjectTarget` 은 "Never consume this as a motion goal" 로 시작한다.
+    넘으려면 대신할 게이트가 있어야 하고, 그것이 무엇인지가 계약에 있어야 한다.
+    """
+    route = load_buffered_trajectory_contract(CONTRACT_PATH)[
+        "top_shadow_grasp_candidate"
+    ]
+    assert route["deployed"] is False
+    assert route["motion_authorized"] is False
+    assert route["message_forbids_direct_motion_use"] is True
+    assert route["publisher_must_not_claim_authority"] is True
+    assert route["collision_checked_per_run"] is True
+    assert route["operator_approves_each_descent"] is True
+    # 흔들림 한계는 인식 정확도보다 작아야 게이트 구실을 한다.
+    assert route["maximum_position_spread_m"] < route[
+        "measured_perception_error_position_m"
+    ]
+    assert route["maximum_yaw_spread_rad"] < route[
+        "measured_perception_error_yaw_rad"
+    ]
+    # 파지 높이는 A4 실측값을 참조해야 한다. 여기에 다시 적으면 갈라진다.
+    assert route["grasp_offset_m_source"] == (
+        "tcp_contact_offsets.pick_grasp_offset_m"
+    )
+
+
+def test_contract_refuses_shadow_spread_as_wide_as_the_perception_error(
+    tmp_path: Path,
+) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    shadow = contract["top_shadow_grasp_candidate"]
+    shadow["maximum_position_spread_m"] = shadow[
+        "measured_perception_error_position_m"
+    ]
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    with pytest.raises(
+        BufferedTrajectoryContractError, match="inside the measured perception"
+    ):
+        load_buffered_trajectory_contract(path)
+
+
+def test_contact_boundary_is_recorded_as_unmapped() -> None:
+    """0.017 은 대상 펜에서 확인됐지만 경계는 재지 않았다."""
+    offsets = load_buffered_trajectory_contract(CONTRACT_PATH)[
+        "tcp_contact_offsets"
+    ]
+    assert offsets["contact_boundary_mapped"] is False
+    assert "물체 크기가 바뀌면" in offsets["boundary_note"]

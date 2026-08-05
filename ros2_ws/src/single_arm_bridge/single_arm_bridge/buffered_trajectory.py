@@ -297,6 +297,102 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
             "the gripper actions"
         )
 
+    # A4 / A4.5. Motion-13 은 SHA 로 고정된 manifest 만 실행할 수 있다.
+    # 갓 계획한 경로를 실행하는 모드는 안전 논리가 다르므로 따로 못 박는다.
+    # 특히 endpoint 만 있는 계획을 받지 않는다 — `ros_moveit_plan_grasp.py` 는
+    # 궤적 점을 저장하지 않아 MoveIt 이 검사한 경로를 재생할 수 없다.
+    fresh_leg = _require_object(document, "fresh_segment_leg_candidate")
+    if fresh_leg != {
+        "status": "LOCAL_FRESH_SEGMENT_LEG_PLAN_ONLY",
+        "purpose": "A4 grasp offset 재계측과 A4.5 Top 인식 기반 파지",
+        "route_source": "planned_in_this_session",
+        "accepts_endpoint_only_plans": False,
+        "requires_bounded_segment_chain": True,
+        "requires_straight_joint_space_chain": True,
+        "requires_moveit_success_per_segment": True,
+        "segment_sha_pinned_by_operator": True,
+        "segment_sha_rechecked_at_execution": True,
+        "plan_recomputed_at_execution": True,
+        "anchor_deviation_limit_raw": 40,
+        "gripper_moves_inside_a_leg": False,
+        "maximum_batch_samples": 9,
+        "deployed": False,
+        "motion_authorized": False,
+    }:
+        raise BufferedTrajectoryContractError(
+            "fresh segment leg route must stay plan-only and refuse "
+            "endpoint-only plans"
+        )
+
+    # A4. Pick 과 Place 의 TCP-to-contact offset 은 서로 다른 값이며 각각
+    # 따로 측정되어야 한다. Pick 은 2026-08-06 에 gripper 잔여 간격으로
+    # 쟀고(공칭 0.025 에서 잔여 3 raw = 놓침, 0.017 에서 20 raw = 파지),
+    # Place 는 아직 공칭값이다. 하나로 묶어두면 한쪽 측정이 다른 쪽을
+    # 검증한 것처럼 보인다.
+    offsets = _require_object(document, "tcp_contact_offsets")
+    if offsets["pick_and_place_offsets_separated"] is not True:
+        raise BufferedTrajectoryContractError(
+            "pick and place TCP offsets must stay separated"
+        )
+    if offsets["pick_offset_measured"] is not True:
+        raise BufferedTrajectoryContractError(
+            "pick TCP offset must record its measurement"
+        )
+    if offsets["place_offset_measured"] is not False:
+        raise BufferedTrajectoryContractError(
+            "place TCP offset is not measured yet; it must say so"
+        )
+    if offsets["motion_authorized"] is not False:
+        raise BufferedTrajectoryContractError(
+            "TCP offset block must keep motion_authorized=false"
+        )
+    if not (
+        offsets["control_close_residual_raw"]
+        < offsets["contact_threshold_raw"]
+        <= min(
+            entry["residual_gap_raw"]
+            for entry in offsets["sweep"]
+            if entry["held"] is True
+        )
+    ):
+        raise BufferedTrajectoryContractError(
+            "contact threshold must separate the control gap from every "
+            "measured grasp"
+        )
+
+    # A4.5. `ShadowObjectTarget` 은 "Never consume this as a motion goal" 로
+    # 시작하고 발행자는 언제나 robot_target_available=false 를 낸다. 그 잠금을
+    # 넘어 파지 좌표로 쓰려면 대신할 게이트가 있어야 하고, 그 게이트가 무엇을
+    # 거부하는지가 곧 인식 기반 파지의 안전 논리다.
+    shadow = _require_object(document, "top_shadow_grasp_candidate")
+    if shadow["publisher_must_not_claim_authority"] is not True:
+        raise BufferedTrajectoryContractError(
+            "the perception publisher must never claim motion authority"
+        )
+    if shadow["motion_authorized"] is not False:
+        raise BufferedTrajectoryContractError(
+            "top shadow grasp route must keep motion_authorized=false"
+        )
+    if shadow["operator_approves_each_descent"] is not True:
+        raise BufferedTrajectoryContractError(
+            "each perception-driven descent needs separate approval"
+        )
+    if shadow["collision_checked_per_run"] is not True:
+        raise BufferedTrajectoryContractError(
+            "a perception-derived pose must be collision checked in the loop"
+        )
+    # 표본 흔들림 한계가 인식 정확도만큼 크면 게이트가 아무것도 걸러내지 못한다.
+    if not (
+        shadow["maximum_position_spread_m"]
+        < shadow["measured_perception_error_position_m"]
+        and shadow["maximum_yaw_spread_rad"]
+        < shadow["measured_perception_error_yaw_rad"]
+    ):
+        raise BufferedTrajectoryContractError(
+            "shadow spread limits must stay inside the measured perception "
+            "error"
+        )
+
     host_adapter = _require_object(document, "host_adapter_candidate")
     if host_adapter != {
         "multi_point_validation_reused": True,

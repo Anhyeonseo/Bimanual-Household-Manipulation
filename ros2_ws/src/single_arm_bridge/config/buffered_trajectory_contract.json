@@ -330,5 +330,88 @@
       "contact_close_latches": false,
       "arm_motion_during_contact_close_rad": 0.006136
     }
+  },
+  "fresh_segment_leg_candidate": {
+    "status": "LOCAL_FRESH_SEGMENT_LEG_PLAN_ONLY",
+    "purpose": "A4 grasp offset 재계측과 A4.5 Top 인식 기반 파지",
+    "route_source": "planned_in_this_session",
+    "accepts_endpoint_only_plans": false,
+    "requires_bounded_segment_chain": true,
+    "requires_straight_joint_space_chain": true,
+    "requires_moveit_success_per_segment": true,
+    "segment_sha_pinned_by_operator": true,
+    "segment_sha_rechecked_at_execution": true,
+    "plan_recomputed_at_execution": true,
+    "anchor_deviation_limit_raw": 40,
+    "gripper_moves_inside_a_leg": false,
+    "maximum_batch_samples": 9,
+    "deployed": false,
+    "motion_authorized": false
+  },
+  "tcp_contact_offsets": {
+    "status": "LOCAL_PICK_OFFSET_MEASURED_PLACE_PENDING",
+    "measured_on": "2026-08-06",
+    "object_reference_z_m": 0.0063,
+    "nominal_grasp_offset_m": 0.025,
+    "pick_grasp_offset_m": 0.017,
+    "pick_offset_measured": true,
+    "place_grasp_offset_m": 0.025,
+    "place_offset_measured": false,
+    "pregrasp_offset_m": 0.1,
+    "measurement_method": "gripper residual gap at swept grasp heights",
+    "sweep": [
+      {
+        "grasp_offset_m": 0.025,
+        "grasp_tcp_z_m": 0.0313,
+        "residual_gap_raw": 3,
+        "held": false
+      },
+      {
+        "grasp_offset_m": 0.021,
+        "grasp_tcp_z_m": 0.0273,
+        "residual_gap_raw": null,
+        "held": null,
+        "note": "IK 해가 WRIST_FLEX 를 한계에 정확히 놓아 표현 오차로 거부됨"
+      },
+      {
+        "grasp_offset_m": 0.017,
+        "grasp_tcp_z_m": 0.0233,
+        "residual_gap_raw": 20,
+        "held": true
+      }
+    ],
+    "control_close_residual_raw": 5,
+    "contact_threshold_raw": 14,
+    "pick_and_place_offsets_separated": true,
+    "deployed": false,
+    "motion_authorized": false,
+    "contact_boundary_mapped": false,
+    "boundary_note": "0.017 과 0.025 사이의 접촉 경계는 재지 않았다. 0.021 회차가 IK 표현 오차로 건너뛰어졌고, 1차 목표가 정해진 크기의 펜이며 운영자가 0.017 파지를 눈으로 확인해 경계 지도보다 A4.5 를 먼저 하기로 했다. 물체 크기가 바뀌면 다시 재야 한다."
+  },
+  "top_shadow_grasp_candidate": {
+    "status": "LOCAL_TOP_SHADOW_GRASP_PLAN_ONLY",
+    "shadow_topic": "/perception/top/object_shadow_left_base",
+    "message_forbids_direct_motion_use": true,
+    "publisher_must_not_claim_authority": true,
+    "required_publisher_gates": [
+      "shadow_pose_available",
+      "transform_validated",
+      "inside_workspace",
+      "fresh",
+      "source_footprint_inside",
+      "source_image_fully_visible"
+    ],
+    "minimum_samples": 15,
+    "maximum_position_spread_m": 0.004,
+    "maximum_yaw_spread_rad": 0.03490658503988659,
+    "maximum_frame_age_s": 0.5,
+    "minimum_confidence": 0.5,
+    "measured_perception_error_position_m": 0.01,
+    "measured_perception_error_yaw_rad": 0.08726646259971647,
+    "grasp_offset_m_source": "tcp_contact_offsets.pick_grasp_offset_m",
+    "collision_checked_per_run": true,
+    "operator_approves_each_descent": true,
+    "deployed": false,
+    "motion_authorized": false
   }
 }
