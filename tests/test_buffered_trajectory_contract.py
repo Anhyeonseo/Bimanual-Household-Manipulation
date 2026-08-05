@@ -229,14 +229,14 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
     }
 
 
-def test_apply_lateness_profile_route_is_deployed_and_unauthorized() -> None:
+def test_main_loop_blocking_budget_candidate_is_bounded_and_undeployed() -> None:
     contract = load_buffered_trajectory_contract(CONTRACT_PATH)
 
     assert contract["servo_uart_receive_candidate"] == {
-        "status": "LOCAL_APPLY_LATENESS_PROFILE_DEPLOYED",
-        "firmware_version": "0x00022600",
-        "previous_candidate_firmware_version": "0x00022500",
-        "previous_deployed_firmware_version": "0x00022500",
+        "status": "LOCAL_MAIN_LOOP_BLOCKING_BUDGET_CANDIDATE",
+        "firmware_version": "0x00022700",
+        "previous_candidate_firmware_version": "0x00022600",
+        "previous_deployed_firmware_version": "0x00022600",
         "baud": 1_000_000,
         "rx_fifo_enabled": False,
         "receive_api": "HAL_UARTEx_ReceiveToIdle_DMA",
@@ -274,7 +274,11 @@ def test_apply_lateness_profile_route_is_deployed_and_unauthorized() -> None:
         "apply_lateness_histogram_buckets": 6,
         "apply_lateness_worst_sample_index_reported": True,
         "buffered_status_payload_bytes": 60,
-        "deployed": True,
+        "buffered_execution_servo_reads": False,
+        "motion_safety_polling_during_buffered_execution": False,
+        "host_heartbeat_response_budget_ms": 400,
+        "mcu_heartbeat_watchdog_ms": 500,
+        "deployed": False,
         "motion_authorized": False,
     }
 
@@ -369,7 +373,7 @@ def test_g474_identity_advertises_separate_validation_and_execution_routes() -> 
         / "binary_control.c"
     ).read_text(encoding="utf-8")
 
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022600)" in config
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022700)" in config
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in config
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in config
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in config

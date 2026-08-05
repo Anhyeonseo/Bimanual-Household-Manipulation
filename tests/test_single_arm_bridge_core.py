@@ -139,7 +139,7 @@ class FakeSerial:
                 6,
                 0,
                 0,
-                0x00022600,
+                0x00022700,
                 0x8AD27897,
                 0x00000FFF,
                 0,
@@ -459,7 +459,7 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
     def test_transport_enters_binary_mode_and_reads_positions(self) -> None:
         transport = ActuatorTransport(FakeSerial(), response_timeout_s=0.01)
         hello = transport.enter_binary_mode()
-        self.assertEqual(hello.firmware_version, 0x00022600)
+        self.assertEqual(hello.firmware_version, 0x00022700)
         state = transport.get_state(include_positions=True)
         self.assertEqual(
             state.raw_positions,
@@ -616,7 +616,10 @@ class SingleArmBridgeCoreTests(unittest.TestCase):
         self.assertEqual(serial.heartbeat_request_count, 1)
         self.assertFalse(state.stop_latched)
         self.assertEqual(state.status_code, 0)
-        self.assertEqual(HEARTBEAT_RESPONSE_TIMEOUT_S, 0.25)
+        # host 예산은 MCU 의 500 ms watchdog 아래여야 하되, 그보다 먼저
+        # 포기해서는 안 된다. 근거는
+        # tests/test_stm32_main_loop_blocking_budget.py 에 있다.
+        self.assertEqual(HEARTBEAT_RESPONSE_TIMEOUT_S, 0.40)
 
     def test_disable_requires_firmware_acknowledgement(self) -> None:
         serial = FakeSerial()

@@ -165,10 +165,10 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "servo_uart_receive_candidate",
     )
     if uart_candidate != {
-        "status": "LOCAL_APPLY_LATENESS_PROFILE_DEPLOYED",
-        "firmware_version": "0x00022600",
-        "previous_candidate_firmware_version": "0x00022500",
-        "previous_deployed_firmware_version": "0x00022500",
+        "status": "LOCAL_MAIN_LOOP_BLOCKING_BUDGET_CANDIDATE",
+        "firmware_version": "0x00022700",
+        "previous_candidate_firmware_version": "0x00022600",
+        "previous_deployed_firmware_version": "0x00022600",
         "baud": 1_000_000,
         "rx_fifo_enabled": False,
         "receive_api": "HAL_UARTEx_ReceiveToIdle_DMA",
@@ -206,11 +206,15 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
         "apply_lateness_histogram_buckets": 6,
         "apply_lateness_worst_sample_index_reported": True,
         "buffered_status_payload_bytes": 60,
-        "deployed": True,
+        "buffered_execution_servo_reads": False,
+        "motion_safety_polling_during_buffered_execution": False,
+        "host_heartbeat_response_budget_ms": 400,
+        "mcu_heartbeat_watchdog_ms": 500,
+        "deployed": False,
         "motion_authorized": False,
     }:
         raise BufferedTrajectoryContractError(
-            "apply lateness profile route must stay deployed and unauthorized for motion"
+            "main loop blocking budget candidate must remain bounded and undeployed"
         )
 
     host_adapter = _require_object(document, "host_adapter_candidate")

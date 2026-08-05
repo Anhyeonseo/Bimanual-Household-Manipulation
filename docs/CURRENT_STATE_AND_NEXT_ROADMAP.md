@@ -155,6 +155,40 @@ runtime·provenance 계약을 먼저 fail-closed로 고정한다. 실제 모델�
 
 ### D. 양팔 통합
 
+0. **[진입 전 필수] STM32 main loop를 비동기 구조로 전환한다.**
+
+   현재 firmware는 협조적 단일 루프다. `SingleArmApp_Process` 한 바퀴가 host
+   바이트를 처리하고 `BinaryControl_Service`를 호출하며, 어느 한 호출이 길게
+   블로킹하면 host UART 처리가 멈춘다. heartbeat는 *수신*이 아니라 *처리*
+   시점에 기록되므로(`binary_control.c`의 `host_binary_last_heartbeat_ms`)
+   굶김은 응답 지연으로 끝나지 않고 **MCU가 자기 500 ms watchdog을 먹지
+   못해 스스로 latch**하는 데까지 간다. 시연 중이면 팔이 그 자세로 멈춘다.
+
+   이 불변식은 명시된 적이 없어 두 번 조용히 깨졌다. `0x00022500`이 모든
+   servo write에 `PrepareTransaction`을 붙여 DISABLE 봉투를 늘렸고(산술로
+   발견), `0x00022600`에서 같은 비용이 buffered 실행 중 motion-safety
+   폴링에 붙어 host를 굶겼다(실기에서 발견, 관측 침묵 `365 ms` / 한계
+   `500 ms`).
+
+   `0x00022700`은 buffered 실행 경로에서 servo read를 제거해 그 경합을
+   없앴고, `tests/test_stm32_main_loop_blocking_budget.py`가 예산을 소스
+   상수에서 계산해 강제한다. 단일 팔 기준선에는 이것으로 충분하다.
+
+   **양팔에서는 충분하지 않다.** 서보 버스 2개, executor 2개, host 트래픽
+   2배, 수건 접기는 Pick/Place보다 길고 연속적이다. 현재 여유 `135 ms`가
+   그때 남아 있을 근거가 없다.
+
+   전환 내용:
+   - 서보 버스 I/O를 비동기 상태머신으로 (블로킹 대기 제거)
+   - executor tick을 하드웨어 타이머 ISR로 (main loop가 굶길 수 없게)
+
+   대역폭은 제약이 아니다. 1 Mbaud에서 sync write `0.26 ms`,
+   telemetry 왕복 `0.23 ms`로 5 ms slot에 충분히 들어간다. 문제는 blocking
+   구조이며, 전환하면 실행 중 load/current 모니터링도 되살릴 수 있다.
+
+   근거 기록:
+   [0x00022600 계측과 startup 중단 분석](test-results/2026-08-06-stm32-0x00022600-apply-lateness-instrumentation.md)
+
 1. 좌우 namespace, joint order, controller와 camera identity를 분리한다.
 2. 한 팔 fault 시 양팔 coordinated stop을 먼저 검증한다.
 3. 개별 작업 영역에서 병렬 실행과 시작 시각 차이를 측정한다.

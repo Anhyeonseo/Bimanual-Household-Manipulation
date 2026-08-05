@@ -41,10 +41,10 @@ def format_apply_lateness_profile(result: Any) -> str:
 
     A single maximum cannot separate a rare spike from systemic drift.
     Motion-11 reached the top of its 0..5 ms allowance with only that number,
-    which is why 0x00022600 reports per-bucket counts and the applied-sample
+    which is why 0x00022700 reports per-bucket counts and the applied-sample
     index where the maximum was last raised.
 
-    Firmware older than 0x00022600 omits the block, so this degrades to a
+    Firmware older than 0x00022700 omits the block, so this degrades to a
     marker rather than failing.
     """
     histogram = getattr(result, "apply_lateness_histogram", None)

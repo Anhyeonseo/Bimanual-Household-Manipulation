@@ -138,7 +138,7 @@ class MotionResult:
     peak_queued_samples: int | None = None
     accepted_samples: int | None = None
     applied_samples: int | None = None
-    # 0x00022600 부터: apply lateness 분포와 최악 sample 위치.
+    # 0x00022700 부터: apply lateness 분포와 최악 sample 위치.
     # 최대값 하나로는 드문 spike 와 계통적 지연을 구분할 수 없다.
     apply_lateness_histogram: tuple[int, ...] | None = None
     maximum_apply_lateness_sample_index: int | None = None

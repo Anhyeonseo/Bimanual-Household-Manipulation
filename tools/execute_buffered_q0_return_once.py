@@ -7,7 +7,7 @@ Motion-11 은 팔을 Pick pregrasp 에 남긴다. 이 sender 는
 내린다. 계획 artifact 전체를 같은 생성기로 다시 계산해 정확히 일치할 때만
 허용하며, 계획 SHA 만 믿지 않는다.
 
-0x00022600 부터 firmware 는 apply lateness 분포를 terminal 에 함께 싣는다.
+0x00022700 부터 firmware 는 apply lateness 분포를 terminal 에 함께 싣는다.
 이 실행은 그 분포의 첫 실측이기도 하다.
 """
 

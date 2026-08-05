@@ -38,7 +38,14 @@ POSITION_STATE_RESPONSE_TIMEOUT_S = 0.5
 DISABLE_RESPONSE_TIMEOUT_S = 2.5
 DIAGNOSTIC_RESPONSE_TIMEOUT_S = 0.5
 DIAGNOSTIC_CAPABILITY = 0x00000010
-HEARTBEAT_RESPONSE_TIMEOUT_S = 0.25
+# The MCU latches if it does not *process* a heartbeat within
+# HOST_BINARY_HEARTBEAT_TIMEOUT_MS (500 ms); the same starvation that delays a
+# response also delays feeding that watchdog. A host budget below the MCU's own
+# limit made the host give up first and reported a transport fault on a link
+# that was merely busy. Keep the budget under the MCU limit with room for the
+# next send, so the MCU decides when the link is dead.
+HEARTBEAT_RESPONSE_TIMEOUT_S = 0.40
+MCU_HEARTBEAT_WATCHDOG_TIMEOUT_S = 0.50
 BUFFERED_VALIDATION_ROUTE_CAPABILITY = 0x00000400
 BUFFERED_EXECUTION_ROUTE_CAPABILITY = 0x00000800
 

@@ -1533,14 +1533,24 @@ static void Host_ExecuteBufferedCandidate(
                             ACTUATOR_BUFFERED_COMMAND_BAD_STATE;
                         reset_after_response = 1U;
                     }
-                    else
-                    {
-                        Servo_MotionSafetyBegin(
-                            (uint8_t)(
-                                (1U << SINGLE_ARM_JOINT_COUNT) - 1U
-                            )
-                        );
-                    }
+                    /*
+                     * Buffered execution deliberately does not arm
+                     * motion-safety polling. The executor owns the servo bus
+                     * on a 5 ms sync-write cadence, and every servo read now
+                     * pays ServoBus_PrepareTransaction, which waits up to
+                     * SERVO_BUS_IDLE_HIGH_TIMEOUT_MS for an idle-high line.
+                     * A 16 ms poll slot cannot absorb a 79 ms worst case, so
+                     * the reads back up and starve host UART processing. That
+                     * starves the heartbeat too, which is fed on processing
+                     * rather than on receipt, so the MCU stops answering and
+                     * stops feeding its own 500 ms watchdog at the same time.
+                     * A 2026-08-06 q0 return aborted this way at startup.
+                     *
+                     * This also restores an existing invariant: every
+                     * host-requested servo read is already refused while
+                     * buffered execution is active. Internal polling was the
+                     * only exception.
+                     */
                 }
                 if (reset_after_response == 0U)
                 {
@@ -1610,15 +1620,6 @@ static void Host_ServiceBufferedExecution(void)
 
     if ((int32_t)(now - host_binary_buffered_motion.anchor_tick) < 0)
     {
-        if (Servo_MotionSafetyPoll() != HAL_OK)
-        {
-            const ServoMotionSafetyDiagnostics *safety =
-                Servo_MotionSafetyGetDiagnostics();
-            Host_AbortBufferedExecution(
-                ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
-                safety->servo_id
-            );
-        }
         return;
     }
 
@@ -1711,15 +1712,6 @@ static void Host_ServiceBufferedExecution(void)
         return;
     }
 
-    if (Servo_MotionSafetyPoll() != HAL_OK)
-    {
-        const ServoMotionSafetyDiagnostics *safety =
-            Servo_MotionSafetyGetDiagnostics();
-        Host_AbortBufferedExecution(
-            ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
-            safety->servo_id
-        );
-    }
 }
 
 static uint8_t Host_BinaryClearStopIsSafe(void)

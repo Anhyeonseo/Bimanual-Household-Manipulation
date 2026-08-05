@@ -46,9 +46,16 @@ def write_plan(tmp_path, anchor=ANCHOR, duration_ms=None):
     return path, MODULE.sha256_file(path)
 
 
+def load(path, digest):
+    # 0x00022700 후보는 아직 미배포이므로 기본 게이트를 우회해 로딩만 검증한다.
+    return MODULE.load_q0_return_plan(
+        path, digest, CALIBRATION, CONTRACT, require_deployed=False
+    )
+
+
 def test_loads_plan_and_exposes_endpoints(tmp_path):
     path, digest = write_plan(tmp_path)
-    plan = MODULE.load_q0_return_plan(path, digest, CALIBRATION, CONTRACT)
+    plan = load(path, digest)
 
     assert plan.sha256 == digest
     assert plan.sample_count == len(plan.waypoints)
@@ -78,9 +85,7 @@ def test_rejects_tampered_plan_even_with_matching_sha(tmp_path):
     document["target"]["raw"][1] += 1
     path.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(ValueError, match="not exactly reproducible"):
-        MODULE.load_q0_return_plan(
-            path, MODULE.sha256_file(path), CALIBRATION, CONTRACT
-        )
+        load(path, MODULE.sha256_file(path))
 
 
 def test_rejects_undeployed_firmware_gate(tmp_path):
@@ -115,7 +120,7 @@ def test_confirmation_and_retry_contract_are_fixed():
 
 
 def test_terminal_diagnostics_are_printed_for_the_lateness_profile():
-    """0x00022600 의 lateness 분포를 실행 증거로 남겨야 한다."""
+    """0x00022700 의 lateness 분포를 실행 증거로 남겨야 한다."""
     source = MODULE_PATH.read_text(encoding="utf-8")
     assert "TERMINAL_DIAGNOSTICS=" in source
     assert "terminal_diagnostics" in source

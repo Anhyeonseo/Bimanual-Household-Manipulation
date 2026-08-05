@@ -41,7 +41,7 @@ def function_body(source: str, signature: str) -> str:
 
 def hello(
     *,
-    firmware_version: int = 0x00022600,
+    firmware_version: int = 0x00022700,
     capabilities: int = 0x00000FFF,
 ) -> Hello:
     return Hello(
@@ -82,7 +82,7 @@ def test_identity_and_capability_are_fail_closed() -> None:
 
 
 def test_capability_is_removed_when_route_initialization_fails() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022600)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022700)" in CONFIG
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in CONFIG
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in CONFIG
@@ -167,9 +167,10 @@ def test_physical_candidate_uses_reviewed_timing_and_no_start_read_sweep() -> No
     assert "actuator_buffered_command_route_step(" in service
     assert "HOST_BUFFERED_EXECUTION_OUTPUT_PERIOD_MS" in service
     assert "Servo_SyncWritePositions(" in service
-    assert service.index("actuator_buffered_command_route_step(") < service.rindex(
-        "Servo_MotionSafetyPoll()"
-    )
+    # buffered 실행 경로는 servo read 를 전혀 하지 않는다. read 1회 최악 비용이
+    # 79 ms 로 16 ms 폴링 slot 을 넘겨 host UART 처리를 굶겼기 때문이다.
+    # 자세한 근거는 tests/test_stm32_main_loop_blocking_budget.py 에 있다.
+    assert "Servo_MotionSafetyPoll()" not in service
 
 
 def test_physical_terminal_paths_are_fail_closed_and_no_retry_exists() -> None:
