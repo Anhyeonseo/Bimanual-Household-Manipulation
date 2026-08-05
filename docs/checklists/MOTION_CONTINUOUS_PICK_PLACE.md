@@ -97,12 +97,11 @@ close(raw 1963) 사이 전체 이동량이 **46 raw 뿐**이다. 물체가 그 4
 Stage 7 의 supervised 실행은 "gripper close and verified object hold" 를
 기록했지만 명령값도 action 결과도 남기지 않았다.
 
-- [ ] 팔은 q0 에 두고, gripper 앞에 **실제 사용할 물체**를 손으로 대고
-      `--label probe --expect report` 로 close 1회
-- [ ] `REACHED_GOAL` / `RESIDUAL_GAP_RAW` / `ACTION_STATUS` 기록
-- [ ] latch 되었는지 확인
-- [ ] open 1회로 되돌리고 같은 값 기록
-- [ ] 결과를 계약의 `gripper_contact_behavior_measured` 에 반영
+- [x] 대조군 포함 probe 완료 (물체 없음 5 raw / 있음 23 raw / open 6 raw)
+- [x] 기록됨. **`REACHED_GOAL` 은 네 회차 모두 True 라 파지 증거가 아니다**
+- [x] latch 없음. 접촉 close 가 정상 종료한다
+- [x] 완료
+- [x] 계약에 `gripper_contact_measurement` 로 실측 기록, 임계 14 raw
 
 > **판정:** `RESIDUAL_GAP_RAW > 30` 인데 action 이 succeeded 면 정착 검사가
 > gripper 를 그렇게 보지 않는다는 뜻이다. abort 면 close 목표값을 물체
@@ -111,35 +110,33 @@ Stage 7 의 supervised 실행은 "gripper close and verified object hold" 를
 
 ### 1. leg A — q0 → pick grasp
 
-- [ ] 12 V ON, 주변 정리, 비상 정지 접근 가능
-- [ ] bridge 를 `ros2 launch single_arm_bridge bridge.launch.py` 로 기동
-      (`ros2 run` 은 `bridge.local.yaml` 을 싣지 않아 READ_ONLY 가 된다)
-- [ ] Pi/desktop 양쪽 `ROS_DOMAIN_ID=30`, `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`
-- [ ] `mode=MOTION_ENABLED` 확인
-- [ ] desktop 에서 `/joint_states` 도달 확인
-- [ ] fresh anchor 포착, spread 0
-- [ ] 계획 생성 → `ANCHOR_DEVIATION_RAW` 전 축 ≤ 40
-- [ ] Action 1회, 재시도 0
-- [ ] terminal `succeeded`, apply lateness ≤ 5 ms, post-settle ≤ 30 raw
-- [ ] `lateness_buckets` 기록
+- [x] 완료
+- [x] 완료
+- [x] 완료
+- [x] 완료
+- [x] 완료
+- [x] 완료 (전 회차 spread 0)
+- [x] 6 / 17 / 16 raw
+- [x] 완료
+- [x] 전부 `succeeded`, lateness 4 ms, post-settle 14/16/6 raw
+- [x] 합산 `3904,217,290,200,92,0`, refill 당 1.019
 
 ### 2. gripper close
 
-- [ ] probe 결과에 따라 `--expect` 결정
-- [ ] 1회 전송, `ARM_MOTION_RAD` ≤ 0.02 확인 (팔이 움직이면 안 된다)
-- [ ] 물체를 실제로 물었는지 **눈으로** 확인
+- [x] `contact` (임계 14 raw)
+- [x] close 0.009204 / open 0.007670 rad
+- [ ] **미달** — 잔여 3 raw(대조군 5)로 손가락 사이에 물체가 없었다.
+      A4 offset 재계측과 W3·W4 손목 보정 이후 항목이다
 
 ### 3. leg B — grasp → place
 
-- [ ] fresh anchor, 이탈 ≤ 40 raw
-- [ ] Action 1회
-- [ ] terminal 통과, `lateness_buckets` 기록
-- [ ] **물체가 이동 중 떨어지지 않았는지 눈으로 확인**
+- [x] 이탈 17 raw, Action 1회, terminal 통과
+- [ ] 물체 이동 확인 — 물체를 잡지 못해 해당 없음
 
 ### 4. gripper release
 
-- [ ] `--expect reached` (물체를 놓으면 gripper 는 명령 위치에 도달해야 한다)
-- [ ] 물체가 놓인 위치를 눈으로 확인
+- [x] `REACHED`, 잔여 6 raw (빈 gripper)
+- [ ] 해당 없음 — 물체를 잡지 못했다
 
 > **A4 의존:** 공칭 Place offset `0.025 m` 는 Stage 7 에서 `-5 mm` 보정 2회를
 > 필요로 했다(실측 후보 ≈ `0.015 m`). 이 회차의 place 자세는 그 보정 전
@@ -148,9 +145,7 @@ Stage 7 의 supervised 실행은 "gripper close and verified object hold" 를
 
 ### 5. leg C — place → q0
 
-- [ ] fresh anchor, 이탈 ≤ 40 raw
-- [ ] Action 1회
-- [ ] terminal 통과, q0 도달
+- [x] 이탈 16 raw, Action 1회, terminal 통과, q0 도달 `0.009204 rad`
 - [ ] physical DISABLE + torque-OFF readback
 - [ ] 12 V OFF
 

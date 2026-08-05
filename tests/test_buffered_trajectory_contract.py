@@ -308,8 +308,18 @@ def test_continuous_pick_place_route_is_plan_only_and_split_at_the_gripper() -> 
     assert route["gripper_moves_inside_a_buffered_leg"] is False
     assert route["buffered_execution_has_load_current_monitoring"] is False
     assert route["gripper_command_path_has_load_current_monitoring"] is True
-    # 접촉 시 gripper 가 무엇을 보고하는지는 아직 실측되지 않았다.
-    assert route["gripper_contact_behavior_measured"] is False
+    # 2026-08-06 대조군 실측으로 확정됐다.
+    assert route["gripper_contact_behavior_measured"] is True
+    measurement = route["gripper_contact_measurement"]
+    # reached_goal 은 네 회차 모두 True 였다. 파지 증거가 아니다.
+    assert measurement["reached_goal_is_contact_evidence"] is False
+    # 잔여 간격이 판별자다. 기준 5, 접촉 23, 임계는 그 사이 14.
+    assert measurement["control_close_residual_raw"] < (
+        measurement["minimum_contact_gap_raw"]
+    ) < measurement["contact_close_residual_raw"]
+    # 접촉 close 가 정상 종료하므로 leg 사이 gripper 가 다음 leg 를 막지 않는다.
+    assert measurement["contact_close_terminates_normally"] is True
+    assert measurement["contact_close_latches"] is False
     # 사이에 q0 복귀가 없어야 "연속" 이다.
     assert route["q0_return_between_legs"] is False
     assert route["admission_simulation_underflow"] == 0

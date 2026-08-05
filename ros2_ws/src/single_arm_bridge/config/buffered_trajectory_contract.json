@@ -311,12 +311,24 @@
     "gripper_moves_inside_a_buffered_leg": false,
     "buffered_execution_has_load_current_monitoring": false,
     "gripper_command_path_has_load_current_monitoring": true,
-    "gripper_contact_behavior_measured": false,
+    "gripper_contact_behavior_measured": true,
     "anchor_deviation_limit_raw": 40,
     "tracking_error_carried_between_stages": true,
     "admission_simulation_underflow": 0,
     "maximum_batch_samples": 9,
     "deployed": false,
-    "motion_authorized": false
+    "motion_authorized": false,
+    "gripper_contact_measurement": {
+      "measured_on": "2026-08-06",
+      "close_command_raw": 1963,
+      "control_close_residual_raw": 5,
+      "contact_close_residual_raw": 23,
+      "open_residual_raw": 6,
+      "minimum_contact_gap_raw": 14,
+      "reached_goal_is_contact_evidence": false,
+      "contact_close_terminates_normally": true,
+      "contact_close_latches": false,
+      "arm_motion_during_contact_close_rad": 0.006136
+    }
   }
 }

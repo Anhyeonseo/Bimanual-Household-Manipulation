@@ -65,10 +65,18 @@ FIRMWARE_SETTLE_TOLERANCE_RAW = 30
 # gripper 만 움직여야 한다. 팔 축이 이만큼 넘게 움직였으면 비명령 동작이다.
 ARM_MOTION_LIMIT_RAD = 0.02
 
-# 물체를 물었다고 보기 위한 최소 잔여 간격. 서보 정상 정착 오차와 구별해야
-# 하므로 대조군(물체 없는 close)이 측정되기 전까지는 보수적으로 둔다.
-# 2026-08-06 실측: 물체 있음 20 raw, 물체 치운 뒤 2 raw.
-MINIMUM_CONTACT_GAP_RAW = 8
+# 물체를 물었다고 보기 위한 최소 잔여 간격.
+#
+# 2026-08-06 대조군 실측 (같은 세션, 같은 물체, 같은 명령 raw 1963):
+#   물체 없음 close -> 잔여  5 raw     (서보 정상 정착 오차)
+#   물체 있음 close -> 잔여 23 raw
+#   open 은 양쪽 다 6 raw
+#
+# 두 분포의 중간을 잡는다. 기준에서 +9, 접촉에서 -9 로 대칭이다.
+# 네 회차 모두 reached_goal=True 였으므로 그 값으로는 구분할 수 없다.
+MINIMUM_CONTACT_GAP_RAW = 14
+CONTROL_GAP_RAW = 5
+MEASURED_CONTACT_GAP_RAW = 23
 
 
 def parse_args() -> argparse.Namespace:
