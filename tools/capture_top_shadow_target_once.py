@@ -12,8 +12,10 @@
   1. 발행자가 스스로 권한을 주장하지 않았음을 확인한다. `motion_authorized`
      나 `robot_target_available` 가 참이면 거부한다 — 인식 노드가 그것을
      주장하기 시작했다는 뜻이고, 그건 이 도구의 문제가 아니라 계약 위반이다.
-  2. 발행자가 이미 계산한 게이트를 전부 요구한다. freshness, workspace,
-     transform 검증, footprint, 가시성, confidence.
+  2. 발행자가 이미 계산한 게이트를 요구한다. freshness, workspace,
+     transform 검증, confidence. 보정 조건은 두 모드 중 하나면 된다 —
+     펜처럼 긴 물체는 보드 사각형 밖으로 나가는 것이 정상이고 검출기가
+     `allow_partial_footprint_observation` 으로 그것을 지원한다.
   3. **여러 표본이 일치할 것을 요구한다.** 한 프레임의 검출은 깜빡일 수
      있다. `capture_buffered_anchor_raw.py` 가 torque 유지를 확인하는 것과
      같은 이유다.
@@ -47,10 +49,21 @@ REQUIRED_TRUE = (
     "transform_validated",
     "inside_workspace",
     "fresh",
-    "source_footprint_inside",
-    "source_image_fully_visible",
 )
 REQUIRED_FALSE = ("motion_authorized", "robot_target_available")
+
+# 검출기는 보정 조건을 두 가지로 인정한다. `top_perception.yaml` 의
+# `allow_partial_footprint_observation: true` 가 후자를 켠다.
+#
+#   footprint_inside      -> TRACKING_BOARD_ONLY
+#                            물체가 보정 보드 사각형 안에 들어온다
+#   image_fully_visible   -> TRACKING_CENTER_CALIBRATED_FULLY_VISIBLE
+#                            펜처럼 긴 물체가 보드 밖으로 나가지만 중심이
+#                            보정 영역에 있고 물체 전체가 화면 안에 있다
+#
+# 둘 다 OK 상태다. 하나라도 성립하면 좌표를 믿을 수 있다. 둘 다 아니면
+# 보정되지 않은 영역의 추정이므로 거부한다.
+CALIBRATION_MODES = ("source_footprint_inside", "source_image_fully_visible")
 
 
 def parse_args() -> argparse.Namespace:
@@ -86,7 +99,17 @@ def evaluate(samples: list[dict], arguments: argparse.Namespace) -> dict:
     for index, sample in enumerate(samples, start=1):
         for field in REQUIRED_TRUE:
             if sample[field] is not True:
-                raise ValueError(f"sample {index} has {field}=false")
+                raise ValueError(
+                    f"sample {index} has {field}=false "
+                    f"(status={sample['status']!r})"
+                )
+        if not any(sample[field] for field in CALIBRATION_MODES):
+            raise ValueError(
+                f"sample {index} satisfies neither calibration mode: "
+                f"footprint_inside=False image_fully_visible=False "
+                f"(status={sample['status']!r}). 물체가 보정 영역 밖이거나 "
+                "화면에서 잘렸다"
+            )
         for field in REQUIRED_FALSE:
             if sample[field] is not False:
                 raise ValueError(
@@ -150,6 +173,17 @@ def evaluate(samples: list[dict], arguments: argparse.Namespace) -> dict:
             "frame_age_limit_s": arguments.maximum_frame_age_s,
             "confidence_limit": arguments.minimum_confidence,
         },
+        "calibration_mode": (
+            "board_footprint"
+            if all(s["source_footprint_inside"] for s in samples)
+            else "center_calibrated_fully_visible"
+        ),
+        "footprint_inside_count": sum(
+            1 for s in samples if s["source_footprint_inside"]
+        ),
+        "image_fully_visible_count": sum(
+            1 for s in samples if s["source_image_fully_visible"]
+        ),
         "publisher_claimed_authority": False,
         "promoted_to_grasp_input": True,
         "promotion_gate": "operator approves each descent separately",
@@ -184,6 +218,7 @@ def main() -> int:
                     **{
                         field: bool(getattr(message, field))
                         for field in REQUIRED_TRUE + REQUIRED_FALSE
+                        + CALIBRATION_MODES
                     },
                 }
             )
@@ -220,6 +255,13 @@ def main() -> int:
     )
     print(f"MAX_FRAME_AGE_S={document['quality']['maximum_frame_age_s']:.3f}")
     print(f"MIN_CONFIDENCE={document['quality']['minimum_confidence']:.3f}")
+    print(f"CALIBRATION_MODE={document['calibration_mode']}")
+    print(
+        f"FOOTPRINT_INSIDE={document['footprint_inside_count']}/"
+        f"{document['sample_count']}  "
+        f"IMAGE_FULLY_VISIBLE={document['image_fully_visible_count']}/"
+        f"{document['sample_count']}"
+    )
     print("PUBLISHER_CLAIMED_AUTHORITY=0")
     print("SHADOW_GATE=PASS")
     print(f"OUTPUT={arguments.output}")

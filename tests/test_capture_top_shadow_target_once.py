@@ -158,3 +158,53 @@ def test_spread_limits_are_far_inside_the_measured_perception_error() -> None:
     """
     assert MODULE.DEFAULT_MAXIMUM_SPREAD_M < 0.010
     assert MODULE.DEFAULT_MAXIMUM_SPREAD_YAW_RAD < math.radians(5.0)
+
+
+def test_a_long_object_outside_the_board_rectangle_is_accepted() -> None:
+    """펜은 보정 보드보다 길다. 그것이 정상이다.
+
+    검출기의 `allow_partial_footprint_observation: true` 가 이 모드를 켠다.
+    중심이 보정 영역에 있고 물체 전체가 화면 안이면 좌표를 믿을 수 있다.
+    2026-08-06 첫 시도에서 이 조건을 필수로 걸어 정당한 관측을 거부했다.
+    """
+    document = MODULE.evaluate(
+        settled(source_footprint_inside=False, source_image_fully_visible=True),
+        arguments(),
+    )
+    assert document["status"] == MODULE.STATUS
+    assert document["calibration_mode"] == "center_calibrated_fully_visible"
+    assert document["footprint_inside_count"] == 0
+    assert document["image_fully_visible_count"] == 5
+
+
+def test_an_object_inside_the_board_rectangle_reports_that_mode() -> None:
+    document = MODULE.evaluate(
+        settled(source_footprint_inside=True, source_image_fully_visible=True),
+        arguments(),
+    )
+    assert document["calibration_mode"] == "board_footprint"
+    assert document["footprint_inside_count"] == 5
+
+
+def test_neither_calibration_mode_is_refused() -> None:
+    """보드 밖이면서 화면에서도 잘렸으면 보정되지 않은 추정이다."""
+    with pytest.raises(ValueError, match="neither calibration mode"):
+        MODULE.evaluate(
+            settled(
+                source_footprint_inside=False,
+                source_image_fully_visible=False,
+            ),
+            arguments(),
+        )
+
+
+def test_calibration_mode_is_not_in_the_hard_required_list() -> None:
+    """두 모드는 선택지이지 각각이 필수 조건이 아니다."""
+    for field in MODULE.CALIBRATION_MODES:
+        assert field not in MODULE.REQUIRED_TRUE
+    assert set(MODULE.REQUIRED_TRUE) == {
+        "shadow_pose_available",
+        "transform_validated",
+        "inside_workspace",
+        "fresh",
+    }
