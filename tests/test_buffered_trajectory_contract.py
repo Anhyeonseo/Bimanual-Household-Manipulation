@@ -291,6 +291,59 @@ def test_status_transmit_budget_route_is_deployed_and_unauthorized() -> None:
 
 
 
+def test_continuous_pick_place_route_is_plan_only_and_split_at_the_gripper() -> None:
+    """leg 경계가 gripper 동작 지점이라는 사실을 계약으로 고정한다.
+
+    buffered 실행에는 load/current 감시가 없다. `Servo_MotionSafetyPoll` 은
+    비버퍼드 경로에만 있다. 경계가 조용히 옮겨져 접촉이 buffered leg 안으로
+    들어가면 그 구간이 통째로 무감시가 된다.
+    """
+    contract = load_buffered_trajectory_contract(CONTRACT_PATH)
+    route = contract["continuous_pick_place_candidate"]
+
+    assert route["deployed"] is False
+    assert route["motion_authorized"] is False
+    assert route["action_count"] == 3
+    assert route["leg_boundaries_are_gripper_actions"] is True
+    assert route["gripper_moves_inside_a_buffered_leg"] is False
+    assert route["buffered_execution_has_load_current_monitoring"] is False
+    assert route["gripper_command_path_has_load_current_monitoring"] is True
+    # 접촉 시 gripper 가 무엇을 보고하는지는 아직 실측되지 않았다.
+    assert route["gripper_contact_behavior_measured"] is False
+    # 사이에 q0 복귀가 없어야 "연속" 이다.
+    assert route["q0_return_between_legs"] is False
+    assert route["admission_simulation_underflow"] == 0
+    assert route["maximum_batch_samples"] <= 9
+
+    chain = [route["legs"][0]["start_pose"]]
+    for leg in route["legs"]:
+        assert leg["start_pose"] == chain[-1]
+        chain.extend(leg["waypoints"])
+    assert chain == [
+        "q0", "pick_pregrasp", "pick_grasp",
+        "lift20", "place_pregrasp", "place",
+        "retreat", "q0",
+    ]
+    assert [leg["gripper_action_after"] for leg in route["legs"]] == [
+        "pick_close", "place_release", None
+    ]
+
+
+def test_continuous_pick_place_cannot_move_the_gripper_inside_a_leg(
+    tmp_path: Path,
+) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    contract["continuous_pick_place_candidate"][
+        "gripper_moves_inside_a_buffered_leg"
+    ] = True
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    with pytest.raises(
+        BufferedTrajectoryContractError, match="split at"
+    ):
+        load_buffered_trajectory_contract(path)
+
+
 def test_machine_contract_cannot_enable_motion(tmp_path: Path) -> None:
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
     contract["motion_authorized"] = True

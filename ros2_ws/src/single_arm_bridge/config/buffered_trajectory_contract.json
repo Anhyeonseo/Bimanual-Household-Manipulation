@@ -260,5 +260,63 @@
     "mcu_heartbeat_watchdog_ms": 500,
     "host_frame_tx_accounting": true,
     "diagnostics_payload_bytes": 146
+  },
+  "continuous_pick_place_candidate": {
+    "status": "LOCAL_CONTINUOUS_PICK_PLACE_PLAN_ONLY",
+    "route_manifest_sha256": "a5ed8d0335e534ef49eff056dd4b3e6415598a613183c9bebca43f12c7d8c405",
+    "route_phase_count": 7,
+    "route_arm_segment_count": 36,
+    "route_is_piecewise_straight_joint_space": true,
+    "route_chain_discontinuity_rad": 0.0,
+    "key_pose_count": 7,
+    "action_count": 3,
+    "leg_boundaries_are_gripper_actions": true,
+    "legs": [
+      {
+        "leg": "A",
+        "start_pose": "q0",
+        "waypoints": [
+          "pick_pregrasp",
+          "pick_grasp"
+        ],
+        "duration_ms": 41000,
+        "sample_count": 2051,
+        "gripper_action_after": "pick_close"
+      },
+      {
+        "leg": "B",
+        "start_pose": "pick_grasp",
+        "waypoints": [
+          "lift20",
+          "place_pregrasp",
+          "place"
+        ],
+        "duration_ms": 14000,
+        "sample_count": 701,
+        "gripper_action_after": "place_release"
+      },
+      {
+        "leg": "C",
+        "start_pose": "place",
+        "waypoints": [
+          "retreat",
+          "q0"
+        ],
+        "duration_ms": 39000,
+        "sample_count": 1951,
+        "gripper_action_after": null
+      }
+    ],
+    "q0_return_between_legs": false,
+    "gripper_moves_inside_a_buffered_leg": false,
+    "buffered_execution_has_load_current_monitoring": false,
+    "gripper_command_path_has_load_current_monitoring": true,
+    "gripper_contact_behavior_measured": false,
+    "anchor_deviation_limit_raw": 40,
+    "tracking_error_carried_between_stages": true,
+    "admission_simulation_underflow": 0,
+    "maximum_batch_samples": 9,
+    "deployed": false,
+    "motion_authorized": false
   }
 }

@@ -10,6 +10,7 @@ host 가 다른 트래픽을 소비하며 예산을 태운 것인지, MCU 가 �
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,11 +23,14 @@ from single_arm_bridge.protocol import (  # noqa: E402
     encode_frame,
     Frame,
 )
+from single_arm_bridge import transport as transport_module  # noqa: E402
 from single_arm_bridge.transport import (  # noqa: E402
     ActuatorTransport,
     ResponseTimeoutError,
     TransportError,
 )
+
+PACKAGE_ROOT = ROOT / "ros2_ws" / "src" / "single_arm_bridge"
 
 
 class SilentPort:
@@ -242,3 +246,30 @@ def test_pure_silence_reports_no_partial_lengths():
     assert info.value.partial_read_lengths == ()
     assert "partial_lengths=none" in str(info.value)
     assert "rejected=none" in str(info.value)
+
+
+def test_stop_latched_error_preserves_the_state_it_decoded() -> None:
+    """latch 는 동작을 막는 게이트이지 관측을 막는 게이트가 아니다.
+
+    2026-08-06 복구가 여기서 멈췄다. torque 가 꺼진 사이 팔이 중력으로 처져
+    팔꿈치가 상한을 넘었는데, 그 사실을 말해줄 유일한 판독이 예외와 함께
+    버려졌다. CLEAR_FAULT 는 6축이 범위 안일 때만 수락되므로, 운영자는 latch
+    상태에서도 자세를 읽어야 복구할 수 있다.
+    """
+    source = (
+        PACKAGE_ROOT / "single_arm_bridge" / "transport.py"
+    ).read_text(encoding="utf-8")
+    # 두 raise 지점 모두 state 를 넘겨야 한다.
+    assert source.count("state=state,") == 2
+    for anchor in ("HEARTBEAT rejected: ", "GET_STATE rejected: status="):
+        index = source.index(anchor)
+        assert "state=state," in source[index:index + 400], anchor
+
+    latched = SimpleNamespace(
+        stop_latched=True, status_code=0, raw_positions=(1, 2, 3, 4, 5, 6)
+    )
+    error = transport_module.StopLatchedError("latched", state=latched)
+    assert error.state is latched
+    assert error.state.raw_positions == (1, 2, 3, 4, 5, 6)
+    # state 없이도 만들 수 있어야 한다. 기존 호출부를 깨지 않는다.
+    assert transport_module.StopLatchedError("latched").state is None

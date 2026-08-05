@@ -59,7 +59,21 @@ class TransportError(RuntimeError):
 
 
 class StopLatchedError(TransportError):
-    """The MCU reports a physical safety stop that requires explicit recovery."""
+    """The MCU reports a physical safety stop that requires explicit recovery.
+
+    Carries the parsed state, which is not the same thing as ignoring the stop.
+    The latch gates motion, not observation: the response decoded cleanly and
+    a status of zero means the position read itself succeeded. Discarding it
+    forced recovery tooling to choose between honouring the gate and reading
+    the sensor, and an operator deciding whether a latched arm can be moved
+    back inside its limits needs exactly those positions. A 2026-08-06 recovery
+    stalled on that: the arm had sagged past the elbow maximum with torque off,
+    and the only reading that could have said so was thrown away.
+    """
+
+    def __init__(self, message: str, state: object | None = None) -> None:
+        super().__init__(message)
+        self.state = state
 
 
 class ResponseTimeoutError(TransportError):
@@ -461,7 +475,8 @@ class ActuatorTransport:
         if state.stop_latched:
             raise StopLatchedError(
                 "HEARTBEAT rejected: "
-                f"status={state.status_code} latched=1"
+                f"status={state.status_code} latched=1",
+                state=state,
             )
         if state.status_code != 0:
             raise TransportError(
@@ -506,7 +521,8 @@ class ActuatorTransport:
             )
         if state.stop_latched:
             raise StopLatchedError(
-                f"GET_STATE rejected: status={state.status_code} latched=1"
+                f"GET_STATE rejected: status={state.status_code} latched=1",
+                state=state,
             )
         if state.status_code != 0:
             raise TransportError(f"GET_STATE status={state.status_code}")

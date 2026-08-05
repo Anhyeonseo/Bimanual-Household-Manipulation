@@ -225,6 +225,66 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
             "and unauthorized for motion"
         )
 
+    # Motion-13. leg 경계는 gripper 동작 지점이다. buffered 실행에는
+    # load/current 감시가 없으므로(`Servo_MotionSafetyPoll` 은 비버퍼드
+    # 경로에만 있다) 접촉은 감시가 있는 gripper 명령에서만 일어나야 한다.
+    # 이 dict 를 통째로 대조해 그 경계가 조용히 옮겨지지 못하게 한다.
+    pick_place = _require_object(document, "continuous_pick_place_candidate")
+    if pick_place != {
+        "status": "LOCAL_CONTINUOUS_PICK_PLACE_PLAN_ONLY",
+        "route_manifest_sha256": (
+            "a5ed8d0335e534ef49eff056dd4b3e6415598a613183c9bebca43f12c7d8c405"
+        ),
+        "route_phase_count": 7,
+        "route_arm_segment_count": 36,
+        "route_is_piecewise_straight_joint_space": True,
+        "route_chain_discontinuity_rad": 0.0,
+        "key_pose_count": 7,
+        "action_count": 3,
+        "leg_boundaries_are_gripper_actions": True,
+        "legs": [
+            {
+                "leg": "A",
+                "start_pose": "q0",
+                "waypoints": ["pick_pregrasp", "pick_grasp"],
+                "duration_ms": 41000,
+                "sample_count": 2051,
+                "gripper_action_after": "pick_close",
+            },
+            {
+                "leg": "B",
+                "start_pose": "pick_grasp",
+                "waypoints": ["lift20", "place_pregrasp", "place"],
+                "duration_ms": 14000,
+                "sample_count": 701,
+                "gripper_action_after": "place_release",
+            },
+            {
+                "leg": "C",
+                "start_pose": "place",
+                "waypoints": ["retreat", "q0"],
+                "duration_ms": 39000,
+                "sample_count": 1951,
+                "gripper_action_after": None,
+            },
+        ],
+        "q0_return_between_legs": False,
+        "gripper_moves_inside_a_buffered_leg": False,
+        "buffered_execution_has_load_current_monitoring": False,
+        "gripper_command_path_has_load_current_monitoring": True,
+        "gripper_contact_behavior_measured": False,
+        "anchor_deviation_limit_raw": 40,
+        "tracking_error_carried_between_stages": True,
+        "admission_simulation_underflow": 0,
+        "maximum_batch_samples": 9,
+        "deployed": False,
+        "motion_authorized": False,
+    }:
+        raise BufferedTrajectoryContractError(
+            "continuous Pick/Place route must stay plan-only and split at "
+            "the gripper actions"
+        )
+
     host_adapter = _require_object(document, "host_adapter_candidate")
     if host_adapter != {
         "multi_point_validation_reused": True,
