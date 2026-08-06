@@ -457,3 +457,26 @@ def test_the_grasp_succeeded_outside_the_task_tolerance(convergence) -> None:
     )
     assert convergence["task_tolerance_is_not_a_grasp_predictor"] is True
     assert convergence["task_tolerance_confirmed_on_hardware"] is False
+
+
+def test_the_a45_retry_is_recorded(convergence) -> None:
+    """A4.5 는 이 계층이 존재하는 이유다. 닫혔으면 그렇게 적혀 있어야 한다."""
+    assert convergence["a45_retry_passed"] is True
+    assert convergence["a45_retry_residual_gap_raw"] >= 14
+    # 파지는 과제 허용치 밖에서 성립했다. 그 사실이 계약에 남아 있어야 한다.
+    assert convergence["a45_retry_residual_mm"] > (
+        convergence["task_tolerance_m"] * 1000.0
+    )
+
+
+def test_the_shadow_target_was_actually_consumed(document) -> None:
+    """`ShadowObjectTarget` 은 "Never consume this as a motion goal" 로 시작한다.
+
+    그 잠금을 넘어 실제 파지에 쓰인 것이 기록되어야 하고, 그래도 발행자는
+    여전히 권한을 주장하지 않아야 한다.
+    """
+    shadow = document["top_shadow_grasp_candidate"]
+    assert shadow["consumed_for_a_physical_grasp"] is True
+    assert shadow["publisher_must_not_claim_authority"] is True
+    assert shadow["motion_authorized"] is False
+    assert shadow["operator_approves_each_descent"] is True

@@ -444,7 +444,9 @@
     "collision_checked_per_run": true,
     "operator_approves_each_descent": true,
     "deployed": false,
-    "motion_authorized": false
+    "motion_authorized": false,
+    "consumed_for_a_physical_grasp": true,
+    "first_successful_grasp_on": "2026-08-06"
   },
   "grasp_convergence": {
     "status": "LOCAL_CONVERGENCE_LAYER_CANDIDATE",
@@ -526,6 +528,11 @@
     "c2_elbow_error_closed_raw": [
       18,
       16
-    ]
+    ],
+    "a45_retry_passed": true,
+    "a45_retry_measured_on": "2026-08-06",
+    "a45_retry_residual_mm": 7.7539,
+    "a45_retry_residual_gap_raw": 21,
+    "a45_retry_note": "인식 -> 계획 -> q0 -> pregrasp -> grasp -> 수렴 -> 파지 전 구간이 이어졌다. 인식 15표본 흔들림 x1.65 y0.41 mm yaw0.19도, 최소 신뢰도 0.757. 수렴 11.19 -> 7.75 mm (넘겨명령 1회, WRIST_FLEX 물림). 파지 잔여 간격 21 raw. 손가락은 펜을 86.28도로 가로질렀고 이상값 90도 대비 3.72도 오차라 손목 보정을 하지 않았다."
   }
 }

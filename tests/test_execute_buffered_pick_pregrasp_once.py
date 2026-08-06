@@ -29,7 +29,7 @@ PLAN = (
     / "2026-08-04"
     / "motion11_buffered_pick_pregrasp_plan_only.json"
 )
-PLAN_SHA = "ef75ecea733493776d8a2ffb764ab130edd2499f8cc4510a1910bbbaf236159c"
+PLAN_SHA = "781a9e7e77ef1d838079669801b6d1fb9f9acc1d52624b326a4fed9a1db528fc"
 CALIBRATION = PACKAGE_ROOT / "config" / "single_arm_calibration.json"
 CONTRACT = PACKAGE_ROOT / "config" / "buffered_trajectory_contract.json"
 SOURCE_ROUTE = (
