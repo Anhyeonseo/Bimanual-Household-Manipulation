@@ -66,6 +66,46 @@ class CommissioningPlan:
     sample_count: int
 
 
+# bridge 가 종단 진단에 관절별 목표/실측/오차를 실어 보낸다. 최대값 하나만
+# 남기면 어느 관절이 얼마나 못 갔는지 알 수 없고, 그러면 그 오차가 TCP 에서
+# 몇 mm 였는지 계산할 수 없다. 수렴 계층의 입력이 이 벡터다.
+POST_SETTLE_VECTOR_PATTERN = re.compile(
+    r"post_settle_target_raw=(?P<target>[-\d,]+) "
+    r"post_settle_measured_raw=(?P<measured>[-\d,]+) "
+    r"post_settle_error_raw=(?P<error>[-\d,]+)"
+)
+
+
+def parse_post_settle_vectors(
+    diagnostics: str | None,
+) -> dict[str, tuple[int, ...]] | None:
+    """종단 진단에서 관절별 벡터를 꺼낸다. 없으면 None — 옛 형식도 읽힌다."""
+    if not diagnostics:
+        return None
+    match = POST_SETTLE_VECTOR_PATTERN.search(diagnostics)
+    if match is None:
+        return None
+    parsed = {
+        key: tuple(int(value) for value in match.group(key).split(","))
+        for key in ("target", "measured", "error")
+    }
+    lengths = {len(values) for values in parsed.values()}
+    if len(lengths) != 1:
+        raise RuntimeError(
+            "post-settle vectors disagree on joint count: "
+            + " ".join(f"{k}={len(v)}" for k, v in parsed.items())
+        )
+    for target, measured, error in zip(
+        parsed["target"], parsed["measured"], parsed["error"], strict=True
+    ):
+        if abs(measured - target) != error:
+            raise RuntimeError(
+                "post-settle vectors are inconsistent: "
+                f"|{measured} - {target}| != {error}"
+            )
+    return parsed
+
+
 @dataclass(frozen=True, slots=True)
 class TerminalEvidence:
     action_status: int
@@ -74,6 +114,9 @@ class TerminalEvidence:
     post_settle_max_error_raw: int
     error_string: str
     terminal_diagnostics: str | None = None
+    post_settle_target_raw: tuple[int, ...] | None = None
+    post_settle_measured_raw: tuple[int, ...] | None = None
+    post_settle_error_raw: tuple[int, ...] | None = None
 
 
 def sha256_file(path: Path) -> str:
@@ -440,13 +483,29 @@ def validate_action_terminal(
         raise RuntimeError("maximum apply lateness is outside 0..5 ms")
     if not 0 <= settle_error <= 30:
         raise RuntimeError("post-settle error is outside 0..30 raw")
+    diagnostics = match.group("diagnostics")
+    vectors = parse_post_settle_vectors(diagnostics)
+    # 벡터는 최종 full diagnostics 의 오차이고, 보고되는 최대값은 그것과
+    # position-only 스냅샷 최대값 중 **큰 쪽**이다. 따라서 같을 필요는 없고
+    # 넘어설 수는 없다. 넘으면 두 값이 다른 관측에서 온 것이다.
+    if vectors is not None and max(vectors["error"]) > settle_error:
+        raise RuntimeError(
+            "post-settle vector maximum "
+            f"{max(vectors['error'])} exceeds the reported "
+            f"post_settle_max_error_raw={settle_error}"
+        )
     return TerminalEvidence(
         action_status=action_status,
         error_code=result.error_code,
         maximum_apply_lateness_ms=maximum_lateness,
         post_settle_max_error_raw=settle_error,
         error_string=result.error_string,
-        terminal_diagnostics=match.group("diagnostics"),
+        terminal_diagnostics=diagnostics,
+        post_settle_target_raw=None if vectors is None else vectors["target"],
+        post_settle_measured_raw=(
+            None if vectors is None else vectors["measured"]
+        ),
+        post_settle_error_raw=None if vectors is None else vectors["error"],
     )
 
 

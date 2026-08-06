@@ -11,15 +11,51 @@ import time
 
 from geometry_msgs.msg import Pose
 from moveit_msgs.msg import Constraints, MoveItErrorCodes, PositionConstraint
-from moveit_msgs.srv import GetMotionPlan
+from moveit_msgs.msg import RobotState
+from moveit_msgs.srv import GetMotionPlan, GetPositionFK
 import rclpy
+from sensor_msgs.msg import JointState
 from shape_msgs.msg import SolidPrimitive
 
 
 PLAN_SERVICE = "/plan_kinematic_path"
+FK_SERVICE = "/compute_fk"
 GROUP_NAME = "left_arm"
 TCP_LINK = "left_gripper_frame_link"
 BASE_FRAME = "left_base_link"
+
+# 목표는 점이 아니라 상자다. `pose_constraints` 가 한 변 `2 x tolerance` 인
+# BOX 영역을 만들고, MoveIt 은 그 안 아무 데나 들어가면 success 를 돌려준다.
+# 따라서 이 값은 곧 **계획이 틀려도 되는 양** 이다.
+#
+# 2026-08-06 실측(작업영역 5개 좌표 x 허용치 7단계 x 3회 = 105회 계획 요청):
+#
+#   허용치 mm   성공     축 최대 잔차 mm
+#     6.00     15/15        5.67
+#     4.00     15/15        3.71
+#     2.00     15/15        1.92
+#     1.00     15/15        0.98
+#     0.20     15/15        0.19
+#
+# **조인다고 IK 가 실패하지 않았다.** 105회 전부 성공했고 잔차는 허용치를
+# 그대로 따라갔다. 종전 기본값 `0.006` 은 이득 없이 축당 6 mm, 모서리로는
+# 10.4 mm 의 오차를 계획 시점에 심고 있었다. A4 파지 창 전체가 8 mm 였다.
+DEFAULT_POSITION_TOLERANCE_M = 0.001
+
+# 해가 정말 그 상자 안에 있었는지 되재는 값이다. 두 번째 허용치가 아니다.
+# 상자의 모서리 거리는 `tolerance x sqrt(3)` 이므로 그보다 커야 정당한 해를
+# 거부하지 않는다. 이것을 넘으면 solver 가 제약을 지키지 않았거나 FK 모델이
+# 계획 모델과 다른 것이고, 둘 다 조용히 넘어가면 안 되는 사건이다.
+PLAN_RESIDUAL_MARGIN = 1.16  # sqrt(3) = 1.732 에 여유를 더한 배수
+MINIMUM_PLAN_RESIDUAL_BOUND_M = 0.0005
+
+
+def plan_residual_bound_m(position_tolerance_m: float) -> float:
+    """상자 기하가 허용하는 최악 잔차. 허용치에서 유도하며 손으로 정하지 않는다."""
+    return max(
+        MINIMUM_PLAN_RESIDUAL_BOUND_M,
+        position_tolerance_m * math.sqrt(3.0) * PLAN_RESIDUAL_MARGIN,
+    )
 
 
 def top_down_quaternion(yaw_rad: float) -> tuple[float, float, float, float]:
@@ -116,7 +152,31 @@ def wait_future(node, future, timeout_s: float):
     return result
 
 
-def plan_one(client, node, name: str, args, z_m: float) -> dict:
+def measure_tcp(fk_client, node, joint_names, positions) -> list[float]:
+    """MoveIt 자신에게 이 관절 해의 TCP 를 묻는다.
+
+    별도 FK 구현을 두지 않는다. 계획을 만든 모델과 잔차를 재는 모델이 다르면
+    그 차이가 잔차로 둔갑한다. 같은 서비스에 물어보면 그럴 일이 없다.
+    """
+    request = GetPositionFK.Request()
+    request.header.frame_id = BASE_FRAME
+    request.fk_link_names = [TCP_LINK]
+    state = JointState()
+    state.name = list(joint_names)
+    state.position = [float(value) for value in positions]
+    request.robot_state = RobotState()
+    request.robot_state.joint_state = state
+    response = wait_future(node, fk_client.call_async(request), timeout_s=8.0)
+    if int(response.error_code.val) != MoveItErrorCodes.SUCCESS:
+        raise RuntimeError(
+            f"{FK_SERVICE} refused the planned solution: "
+            f"error_code={response.error_code.val}"
+        )
+    point = response.pose_stamped[0].pose.position
+    return [float(point.x), float(point.y), float(point.z)]
+
+
+def plan_one(client, node, name: str, args, z_m: float, fk_client) -> dict:
     response = wait_future(
         node,
         client.call_async(
@@ -144,13 +204,34 @@ def plan_one(client, node, name: str, args, z_m: float) -> dict:
         "joint_names": list(trajectory.joint_names),
         "trajectory_point_count": len(points),
     }
+    bound = plan_residual_bound_m(args.position_tolerance)
+    result["position_tolerance_m"] = args.position_tolerance
+    result["plan_residual_bound_m"] = bound
+    planned = code == MoveItErrorCodes.SUCCESS and bool(points)
     if points:
         result["final_joint_positions_rad"] = list(points[-1].positions)
         final_time = points[-1].time_from_start
         result["trajectory_duration_s"] = (
             float(final_time.sec) + float(final_time.nanosec) / 1e9
         )
-    result["success"] = code == MoveItErrorCodes.SUCCESS and bool(points)
+    if planned:
+        # 계획이 성공을 반환했다고 목표에 갔다는 뜻이 아니다. 상자 안이면
+        # success 다. 실제로 어디에 섰는지 재서 기록하고, 상자 밖이면 거부한다.
+        achieved = measure_tcp(
+            fk_client, node, trajectory.joint_names, points[-1].positions
+        )
+        target = result["target_m"]
+        residual = [a - t for a, t in zip(achieved, target)]
+        norm = math.sqrt(sum(value * value for value in residual))
+        result["achieved_tcp_m"] = achieved
+        result["plan_residual_m"] = residual
+        result["plan_residual_norm_m"] = norm
+        result["plan_residual_axis_maximum_m"] = max(
+            abs(value) for value in residual
+        )
+        result["within_plan_residual_bound"] = norm <= bound
+        planned = result["within_plan_residual_bound"]
+    result["success"] = planned
     return result
 
 
@@ -167,7 +248,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--yaw", required=True, type=float)
     parser.add_argument("--pregrasp-offset", type=float, default=0.10)
     parser.add_argument("--grasp-offset", type=float, default=0.025)
-    parser.add_argument("--position-tolerance", type=float, default=0.006)
+    parser.add_argument(
+        "--position-tolerance",
+        type=float,
+        default=DEFAULT_POSITION_TOLERANCE_M,
+    )
     parser.add_argument(
         "--tilt-tolerance",
         type=float,
@@ -192,9 +277,12 @@ def main() -> int:
     rclpy.init()
     node = rclpy.create_node("so101_moveit_plan_grasp")
     client = node.create_client(GetMotionPlan, PLAN_SERVICE)
+    fk_client = node.create_client(GetPositionFK, FK_SERVICE)
     try:
         if not client.wait_for_service(timeout_sec=5.0):
             raise TimeoutError(f"MoveIt plan service unavailable: {PLAN_SERVICE}")
+        if not fk_client.wait_for_service(timeout_sec=5.0):
+            raise TimeoutError(f"MoveIt FK service unavailable: {FK_SERVICE}")
         plans = [
             plan_one(
                 client,
@@ -202,6 +290,7 @@ def main() -> int:
                 "pregrasp",
                 args,
                 args.object_z + args.pregrasp_offset,
+                fk_client,
             ),
             plan_one(
                 client,
@@ -209,6 +298,7 @@ def main() -> int:
                 "grasp",
                 args,
                 args.object_z + args.grasp_offset,
+                fk_client,
             ),
         ]
         result = {
@@ -225,6 +315,10 @@ def main() -> int:
             "group": GROUP_NAME,
             "tcp_link": TCP_LINK,
             "ik_contract": "position_only",
+            "position_tolerance_m": args.position_tolerance,
+            "plan_residual_bound_m": plan_residual_bound_m(
+                args.position_tolerance
+            ),
             "plans": plans,
         }
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -236,7 +330,13 @@ def main() -> int:
             f"{result['status']} output={args.output.resolve()} "
             f"pregrasp_points={plans[0]['trajectory_point_count']} "
             f"grasp_points={plans[1]['trajectory_point_count']} "
-            "execution_api_used=false"
+            f"position_tolerance_m={args.position_tolerance:.6f} "
+            "plan_residual_norm_m="
+            + ",".join(
+                f"{plan.get('plan_residual_norm_m', float('nan')):.6f}"
+                for plan in plans
+            )
+            + " execution_api_used=false"
         )
         return 0 if result["status"] == "PLAN_ONLY_PASS" else 2
     except Exception as error:

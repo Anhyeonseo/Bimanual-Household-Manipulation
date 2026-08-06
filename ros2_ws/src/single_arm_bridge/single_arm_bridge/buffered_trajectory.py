@@ -9,6 +9,12 @@ import math
 from pathlib import Path
 from typing import Any, Sequence
 
+# 안전 허용치는 Action 이 소유한다. 여기서 값을 베껴 적으면 둘이 조용히
+# 갈라지므로 정의 자체를 가져온다.
+from .buffered_action_execution import (
+    POST_SETTLE_TOLERANCE_RAW as POST_SETTLE_SAFETY_TOLERANCE_RAW,
+)
+
 
 CONTRACT_KIND = "single_arm_buffered_trajectory"
 CONTRACT_STATUS = "PHYSICAL_ACTION_COMMISSIONED"
@@ -360,6 +366,51 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
             "measured grasp"
         )
 
+    # C2. 수렴이 적용된 뒤 파지 offset 을 다시 쟀다. 종전 값은 처짐을
+    # 흡수하도록 맞춰져 있었으므로, 처짐을 줄이면 반드시 다시 재야 한다.
+    if offsets["measured_under_convergence"] is not True:
+        raise BufferedTrajectoryContractError(
+            "the pick offset must record that it was measured with the "
+            "convergence layer active"
+        )
+    if not (
+        offsets["pick_grasp_offset_m"]
+        < offsets["superseded_pick_grasp_offset_m"]
+    ):
+        raise BufferedTrajectoryContractError(
+            "removing sag can only require a shallower offset, never a deeper "
+            "one; the recorded values disagree"
+        )
+    converged = offsets["converged_sweep"]
+    held = [entry for entry in converged if entry["held"] is True]
+    missed = [entry for entry in converged if entry["held"] is False]
+    if not held or not missed:
+        raise BufferedTrajectoryContractError(
+            "the converged sweep must bracket the grasp with both a miss and "
+            "a hold"
+        )
+    if offsets["pick_grasp_offset_m"] != min(
+        entry["grasp_offset_m"] for entry in held
+    ):
+        raise BufferedTrajectoryContractError(
+            "the deployed pick offset must be the shallowest offset that was "
+            "measured to hold"
+        )
+    if not all(
+        entry["residual_gap_raw"] >= offsets["contact_threshold_raw"]
+        for entry in held
+    ):
+        raise BufferedTrajectoryContractError(
+            "every held entry must clear the contact threshold"
+        )
+    if not all(
+        entry["residual_gap_raw"] < offsets["contact_threshold_raw"]
+        for entry in missed
+    ):
+        raise BufferedTrajectoryContractError(
+            "every missed entry must sit below the contact threshold"
+        )
+
     # A4.5. `ShadowObjectTarget` 은 "Never consume this as a motion goal" 로
     # 시작하고 발행자는 언제나 robot_target_available=false 를 낸다. 그 잠금을
     # 넘어 파지 좌표로 쓰려면 대신할 게이트가 있어야 하고, 그 게이트가 무엇을
@@ -392,6 +443,162 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
             "shadow spread limits must stay inside the measured perception "
             "error"
         )
+
+    # C1. 도달 수렴 계층. 여기서 지켜지는 것은 **허용치의 소유자가 둘로
+    # 갈라져 있다** 는 사실이다. 안전 허용치 30 raw 는 "동작이 잘못되지
+    # 않았다" 에 답하고 Action 이 소유한다. 과제 허용치는 "이 파지는 성공할
+    # 것이다" 에 답하고 과제 계층이 소유한다. 하나가 둘 다 답하면 Action 이
+    # 안전하지만 정밀하지 않은 동작을 실패로 만들거나, 반대로 과제가 헐거운
+    # 기준을 물려받는다.
+    convergence = _require_object(document, "grasp_convergence")
+    if convergence["tolerances_separated"] is not True:
+        raise BufferedTrajectoryContractError(
+            "the safety and task tolerances must stay separated"
+        )
+    if convergence["safety_tolerance_raw"] != POST_SETTLE_SAFETY_TOLERANCE_RAW:
+        raise BufferedTrajectoryContractError(
+            "the recorded safety tolerance must match the Action's constant"
+        )
+    if convergence["safety_tolerance_unchanged"] is not True:
+        raise BufferedTrajectoryContractError(
+            "the Action's safety tolerance must not be tightened by the "
+            "task layer"
+        )
+    if not (
+        0.0
+        < convergence["task_tolerance_m"]
+        < convergence["maximum_correction_m"]
+    ):
+        raise BufferedTrajectoryContractError(
+            "the task tolerance must be positive and tighter than the "
+            "bounded correction limit"
+        )
+    if convergence["motion_authorized"] is not False:
+        raise BufferedTrajectoryContractError(
+            "convergence block must keep motion_authorized=false"
+        )
+
+    # 예산이 실제로 닫히는지 계약 안에서 산술로 확인한다. A4 스윕이 위로
+    # 8 mm 를 확실한 실패점으로 남겼다.
+    if (
+        convergence["task_tolerance_m"]
+        + convergence["plan_residual_measured_m"]["grasp"]
+        >= convergence["known_grasp_failure_offset_m"]
+    ):
+        raise BufferedTrajectoryContractError(
+            "the plan residual and task tolerance together reach the measured "
+            "grasp failure point"
+        )
+    if convergence["budget_closes"] is not True:
+        raise BufferedTrajectoryContractError(
+            "the convergence block must state that the budget closes"
+        )
+
+    # 계획 목표는 점이 아니라 상자다. 조인 값이 실제로 잔차를 줄였는지,
+    # 그리고 그 잔차가 artifact 에 남는지를 계약이 요구한다.
+    if not (
+        convergence["plan_position_tolerance_m"]
+        < convergence["previous_plan_position_tolerance_m"]
+    ):
+        raise BufferedTrajectoryContractError(
+            "the plan position tolerance must be tighter than the value it "
+            "replaced"
+        )
+    for pose in ("pregrasp", "grasp"):
+        if not (
+            convergence["plan_residual_measured_m"][pose]
+            < convergence["previous_plan_residual_measured_m"][pose]
+        ):
+            raise BufferedTrajectoryContractError(
+                f"the measured {pose} plan residual did not improve"
+            )
+    if convergence["plan_residual_recorded_in_artifact"] is not True:
+        raise BufferedTrajectoryContractError(
+            "a plan artifact must record the residual it was allowed to have"
+        )
+
+    # 넘겨명령은 그 회차의 실측 잔차만큼이다. 상한이 관측된 최대 잔차보다
+    # 작으면 바로 그 상황에서 거부되어 아무 일도 하지 못한다.
+    if not (
+        convergence["largest_measured_residual_m"]
+        < convergence["maximum_overshoot_m"]
+        <= convergence["maximum_correction_m"]
+    ):
+        raise BufferedTrajectoryContractError(
+            "the overshoot cap must cover the largest measured residual and "
+            "stay inside the bounded correction limit"
+        )
+    # C2 실측: 같은 목표를 다시 보내는 것은 문턱 아래 명령이 되어 서보를
+    # 움직이지 못한다. 넘겨명령만이 문턱을 넘는 명령을 만든다.
+    if not (
+        convergence["minimum_observable_command_raw"]
+        <= convergence["ineffective_correction_raw"]
+    ):
+        raise BufferedTrajectoryContractError(
+            "the ineffective-correction threshold must not sit below the "
+            "measured minimum observable command"
+        )
+    for field in (
+        "overshoot_is_the_only_supra_threshold_command",
+        "overshoot_clamped_at_joint_limits",
+        "clamped_joints_reported",
+    ):
+        if convergence[field] is not True:
+            raise BufferedTrajectoryContractError(
+                f"convergence must record what C2 measured: {field}"
+            )
+    # 와이어는 위치를 µrad 정수로 싣는다. 한계에 정확히 걸치는 명령은
+    # 올림되어 거부되므로 애초에 만들지 않는다.
+    if convergence["never_command_exactly_on_a_limit"] is not True:
+        raise BufferedTrajectoryContractError(
+            "a command must never sit exactly on a joint limit"
+        )
+    if not (
+        convergence["joint_limit_margin_rad"]
+        > convergence["wire_position_quantisation_rad"]
+        > convergence["bridge_joint_limit_epsilon_rad"]
+    ):
+        raise BufferedTrajectoryContractError(
+            "the joint-limit margin must exceed the wire quantisation, which "
+            "in turn exceeds the bridge validation epsilon"
+        )
+    if convergence["overshoot_used_at_most_once"] is not True:
+        raise BufferedTrajectoryContractError(
+            "the measured overshoot must be bounded to a single use"
+        )
+    if convergence["error_measured_against_nominal_goal"] is not True:
+        raise BufferedTrajectoryContractError(
+            "the residual must be measured against the original goal, not "
+            "against the corrected command"
+        )
+    if convergence["fail_closed_on_non_convergence"] is not True:
+        raise BufferedTrajectoryContractError(
+            "non-convergence must stop and report, not retry silently"
+        )
+
+    # 층을 섞지 않는다. bridge 는 계획하지 않는다.
+    if convergence["bridge_action_unchanged"] is not True:
+        raise BufferedTrajectoryContractError(
+            "the physically validated buffered Action must not be changed by "
+            "the convergence layer"
+        )
+    if convergence["convergence_lives_in_host_library"] is not True:
+        raise BufferedTrajectoryContractError(
+            "convergence is planning and must live outside the bridge"
+        )
+
+    # 양팔로 확장될 모양인지. 나중에 끼워 넣기 어려운 것들이다.
+    for field in (
+        "per_arm_policy",
+        "arm_name_required",
+        "send_and_evaluate_separated",
+        "coordinated_stop_input",
+        "per_joint_post_settle_recorded",
+    ):
+        if convergence[field] is not True:
+            raise BufferedTrajectoryContractError(
+                f"convergence must be bimanual-shaped now: {field}"
+            )
 
     host_adapter = _require_object(document, "host_adapter_candidate")
     if host_adapter != {

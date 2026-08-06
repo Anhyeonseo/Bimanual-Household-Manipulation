@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import math
 import threading
 import time
@@ -27,12 +28,52 @@ from .hardware_identity import validate_hardware_identity
 from .protocol import Hello
 
 
+# **안전 허용치다. 과제 허용치가 아니다.**
+#
+# 이 값이 답하는 질문은 "동작이 잘못되지 않았다" 이지 "이 파지는 성공할
+# 것이다" 가 아니다. 반경 0.4 m 에서 30 raw 는 약 19 mm 이고, 펜 파지가
+# 요구하는 정밀도보다 한참 헐겁다. 정밀도 판정은 과제 계층이 하며 그 값은
+# `buffered_trajectory_contract.json` 의 `grasp_convergence` 에 있다.
+#
+# Action 이 안전하지만 정밀하지 않은 동작을 실패로 만들면 안 된다. 그래서
+# 이 값은 낮추지 않는다.
 POST_SETTLE_TOLERANCE_RAW = 30
 POST_SETTLE_CONSECUTIVE_SNAPSHOTS = 2
 POST_SETTLE_TIMEOUT_S = 2.5
 POST_SETTLE_POLL_INTERVAL_S = 0.1
 STARTUP_FIRST_SAMPLE_LEAD_GATE_MS = 80
 STARTUP_MAXIMUM_HEARTBEAT_GATES = 3
+
+
+@dataclass(frozen=True)
+class PostSettleMeasurement:
+    """post-settle 에서 실제로 관측된 것 전부.
+
+    종전에는 `max()` 한 개만 남기고 목표·실측·관절별 오차를 전부 버렸다.
+    그래서 2026-08-06 A4 파지 성공 회차와 A4.5 실패 회차의 **도달 자세를
+    되살릴 수 없다.** 어느 관절이 얼마나 못 갔는지 모르면 그 오차가 TCP
+    에서 몇 mm 였는지도 계산할 수 없고, 수렴 계층은 그 값 없이는 아무것도
+    보정할 수 없다.
+
+    `max_error_raw` 는 종전 반환값과 정확히 같은 수다. 나머지는 덧붙인 것이며
+    Action 의 판정 논리는 바뀌지 않는다.
+    """
+
+    max_error_raw: int
+    target_raw: tuple[int, ...]
+    measured_raw: tuple[int, ...]
+    error_raw: tuple[int, ...]
+
+    def terminal_summary(self) -> str:
+        """종단 문자열에 실을 형태. sender 가 이것을 증거로 보존한다."""
+        def joined(values: tuple[int, ...]) -> str:
+            return ",".join(str(value) for value in values)
+
+        return (
+            f"post_settle_target_raw={joined(self.target_raw)} "
+            f"post_settle_measured_raw={joined(self.measured_raw)} "
+            f"post_settle_error_raw={joined(self.error_raw)}"
+        )
 
 
 def format_apply_lateness_profile(result: Any) -> str:
@@ -348,7 +389,7 @@ class BufferedActionExecutionCore:
                 detail=result.detail,
             )
         try:
-            settle_error = self._verify_post_settle(plan)
+            settle = self._verify_post_settle(plan)
         except Exception as error:
             return self._abort_active(
                 f"buffered post-settle diagnostics failed: {error}",
@@ -366,10 +407,13 @@ class BufferedActionExecutionCore:
             result.detail,
             "buffered trajectory completed; "
             f"maximum_apply_lateness_ms={result.detail} "
-            f"post_settle_max_error_raw={settle_error}; {startup}; {lateness}",
+            f"post_settle_max_error_raw={settle.max_error_raw}; "
+            f"{startup}; {lateness}; {settle.terminal_summary()}",
         )
 
-    def _verify_post_settle(self, plan: BufferedExecutionPlan) -> int:
+    def _verify_post_settle(
+        self, plan: BufferedExecutionPlan
+    ) -> PostSettleMeasurement:
         final = (*plan.final_arm_positions_rad, plan.preserved_gripper_rad)
         targets = tuple(
             round(
@@ -525,7 +569,16 @@ class BufferedActionExecutionCore:
                 f"{format_errors(diagnostic_errors)} "
                 f"{diagnostic_context()}"
             )
-        return max(maximum, diagnostic_error)
+        return PostSettleMeasurement(
+            max_error_raw=max(maximum, diagnostic_error),
+            target_raw=targets,
+            # 최종 full diagnostics 는 torque 확인까지 마친 완전한 읽기다.
+            # 실측 자세로 남길 값은 이것이다.
+            measured_raw=tuple(
+                int(sample.position_raw) for sample in diagnostics.joints
+            ),
+            error_raw=diagnostic_errors,
+        )
 
     def _abort_active(
         self,

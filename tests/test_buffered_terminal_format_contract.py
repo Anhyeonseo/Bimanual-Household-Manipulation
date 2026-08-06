@@ -48,8 +48,24 @@ def test_bridge_success_terminal_literal_is_unchanged() -> None:
     assert '"buffered trajectory completed; "' in EXECUTION_SOURCE
     assert 'f"maximum_apply_lateness_ms={result.detail} "' in EXECUTION_SOURCE
     assert (
-        'f"post_settle_max_error_raw={settle_error}; {startup}; {lateness}"'
+        'f"post_settle_max_error_raw={settle.max_error_raw}; "' in EXECUTION_SOURCE
+    )
+    assert (
+        'f"{startup}; {lateness}; {settle.terminal_summary()}",'
         in EXECUTION_SOURCE
+    )
+
+
+def build_measurement(settle: int) -> str:
+    """bridge 의 PostSettleMeasurement.terminal_summary() 를 재구성한다."""
+    target = (2276, 3437, 1550, 1201, 2112, 2003)
+    error = (settle, 3, 2, 5, 1, 0)
+    measured = tuple(t + e for t, e in zip(target, error))
+    joined = lambda values: ",".join(str(value) for value in values)
+    return (
+        f"post_settle_target_raw={joined(target)} "
+        f"post_settle_measured_raw={joined(measured)} "
+        f"post_settle_error_raw={joined(error)}"
     )
 
 
@@ -58,12 +74,16 @@ def build_bridge_terminal(
     settle: int,
     startup: str,
     profile: str = "lateness_buckets=2340,0,0,0,0,0 lateness_worst_sample=none",
+    measurement: str | None = None,
 ) -> str:
     """bridge 가 실제로 만드는 문자열을 그대로 재구성한다."""
+    if measurement is None:
+        measurement = build_measurement(settle)
     return (
         "buffered trajectory completed; "
         f"maximum_apply_lateness_ms={lateness} "
-        f"post_settle_max_error_raw={settle}; {startup}; {profile}"
+        f"post_settle_max_error_raw={settle}; {startup}; {profile}; "
+        f"{measurement}"
     )
 
 
@@ -78,7 +98,9 @@ def test_sender_pattern_accepts_the_real_bridge_terminal() -> None:
     assert match is not None, "sender 패턴이 실제 bridge terminal 을 못 읽는다"
     assert int(match.group(1)) == 4
     assert int(match.group(2)) == 18
-    assert match.group("diagnostics") == f"{startup}; {profile}"
+    assert match.group("diagnostics") == (
+        f"{startup}; {profile}; {build_measurement(18)}"
+    )
 
 
 def test_sender_pattern_still_accepts_the_legacy_terminal() -> None:
@@ -153,3 +175,92 @@ def test_pattern_rejects_a_truncated_terminal() -> None:
         "maximum_apply_lateness_ms=4 post_settle_max_error_raw=18",
     ):
         assert MODULE.TERMINAL_PATTERN.fullmatch(text) is None
+
+
+def test_the_per_joint_measurement_survives_to_the_sender() -> None:
+    """최대값 하나로는 어느 관절이 못 갔는지 알 수 없다.
+
+    2026-08-06 A4 성공 회차와 A4.5 실패 회차의 도달 자세를 되살릴 수 없었던
+    이유가 정확히 이것이다. 벡터가 종단 문자열을 타고 sender 까지 와야
+    수렴 계층이 TCP 잔차를 mm 로 계산할 수 있다.
+    """
+    from types import SimpleNamespace
+
+    result = SimpleNamespace(
+        error_code=MODULE.FOLLOW_JOINT_TRAJECTORY_SUCCESSFUL,
+        error_string=build_bridge_terminal(4, 19, "startup=unavailable"),
+    )
+    evidence = MODULE.validate_action_terminal(
+        MODULE.ACTION_STATUS_SUCCEEDED, result
+    )
+    assert evidence.post_settle_target_raw == (
+        2276, 3437, 1550, 1201, 2112, 2003
+    )
+    assert evidence.post_settle_error_raw == (19, 3, 2, 5, 1, 0)
+    assert evidence.post_settle_measured_raw == (
+        2295, 3440, 1552, 1206, 2113, 2003
+    )
+    assert max(evidence.post_settle_error_raw) == 19
+
+
+def test_a_terminal_without_vectors_still_parses() -> None:
+    """옛 형식으로 기록된 증거를 다시 읽을 수 있어야 한다."""
+    from types import SimpleNamespace
+
+    result = SimpleNamespace(
+        error_code=MODULE.FOLLOW_JOINT_TRAJECTORY_SUCCESSFUL,
+        error_string=(
+            "buffered trajectory completed; "
+            "maximum_apply_lateness_ms=4 post_settle_max_error_raw=18; "
+            "startup=unavailable"
+        ),
+    )
+    evidence = MODULE.validate_action_terminal(
+        MODULE.ACTION_STATUS_SUCCEEDED, result
+    )
+    assert evidence.post_settle_error_raw is None
+    assert evidence.post_settle_max_error_raw == 18
+
+
+def test_inconsistent_vectors_are_refused() -> None:
+    """|실측 - 목표| 가 오차와 다르면 세 벡터 중 하나가 거짓이다."""
+    import pytest
+
+    with pytest.raises(RuntimeError, match="inconsistent"):
+        MODULE.parse_post_settle_vectors(
+            "post_settle_target_raw=2276,3437 "
+            "post_settle_measured_raw=2295,3440 "
+            "post_settle_error_raw=19,99"
+        )
+
+
+def test_a_vector_maximum_above_the_reported_maximum_is_refused() -> None:
+    """보고된 최대값은 두 관측의 큰 쪽이므로 벡터 최대를 넘을 수는 없다."""
+    from types import SimpleNamespace
+    import pytest
+
+    result = SimpleNamespace(
+        error_code=MODULE.FOLLOW_JOINT_TRAJECTORY_SUCCESSFUL,
+        error_string=build_bridge_terminal(
+            4, 5, "startup=unavailable", measurement=build_measurement(19)
+        ),
+    )
+    with pytest.raises(RuntimeError, match="exceeds the reported"):
+        MODULE.validate_action_terminal(MODULE.ACTION_STATUS_SUCCEEDED, result)
+
+
+def test_the_vector_maximum_may_be_below_the_reported_maximum() -> None:
+    """최종 full diagnostics 가 스냅샷보다 좋을 수 있다. 그건 정상이다."""
+    from types import SimpleNamespace
+
+    result = SimpleNamespace(
+        error_code=MODULE.FOLLOW_JOINT_TRAJECTORY_SUCCESSFUL,
+        error_string=build_bridge_terminal(
+            4, 22, "startup=unavailable", measurement=build_measurement(19)
+        ),
+    )
+    evidence = MODULE.validate_action_terminal(
+        MODULE.ACTION_STATUS_SUCCEEDED, result
+    )
+    assert evidence.post_settle_max_error_raw == 22
+    assert max(evidence.post_settle_error_raw) == 19

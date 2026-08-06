@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "status": "C2_CONVERGENCE_PHYSICAL",
+  "measured_on": "2026-08-06",
+  "firmware_version": "0x00022A00",
+  "calibration_hash": "0xB317C672",
+  "automatic_retry_count": 0,
+  "serial_port_opened": false,
+  "convergence_runs": [
+    {
+      "pose": "pregrasp",
+      "residual_mm_by_iteration": [
+        15.7365,
+        10.0027
+      ],
+      "final_residual_mm": 10.0027,
+      "final_residual_vector_mm": [
+        -0.8618,
+        1.2948,
+        -9.881
+      ],
+      "overshoot_used": true,
+      "clamped_joints": [
+        "left_wrist_flex_joint"
+      ],
+      "physical_motion_count": 1,
+      "final_reason": "residual 10.00 mm plateaued after the measured overshoot; convergence is not achievable at this pose"
+    },
+    {
+      "pose": "grasp",
+      "residual_mm_by_iteration": [
+        11.0386,
+        5.9765
+      ],
+      "final_residual_mm": 5.9765,
+      "final_residual_vector_mm": [
+        -1.9711,
+        1.49,
+        -5.4418
+      ],
+      "overshoot_used": true,
+      "clamped_joints": [
+        "left_wrist_flex_joint"
+      ],
+      "physical_motion_count": 1,
+      "final_reason": "residual 5.98 mm plateaued after the measured overshoot; convergence is not achievable at this pose"
+    }
+  ],
+  "converged_offset_sweep": [
+    {
+      "grasp_offset_m": 0.014,
+      "residual_gap_raw": 5,
+      "arm_motion_during_close_rad": 0.001534,
+      "target_tcp_m": [
+        0.36863492711788853,
+        -0.12905463214007076,
+        0.020996479702293645
+      ],
+      "convergence_residual_mm": 9.3273,
+      "achieved_tcp_z_m": 0.012336,
+      "held": false
+    },
+    {
+      "grasp_offset_m": 0.011,
+      "residual_gap_raw": 22,
+      "arm_motion_during_close_rad": 0.0,
+      "target_tcp_m": [
+        0.36888111979104166,
+        -0.1300589431044777,
+        0.01815232271307425
+      ],
+      "convergence_residual_mm": 10.1691,
+      "achieved_tcp_z_m": 0.008927,
+      "held": true
+    }
+  ]
+}
