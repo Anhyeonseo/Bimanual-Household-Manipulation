@@ -1,0 +1,164 @@
+{
+  "aggregate": {
+    "abort_count": 0,
+    "action_count": 3,
+    "automatic_retry_count": 0,
+    "bucket_5_count": 0,
+    "combined_lateness_buckets": [
+      3904,
+      217,
+      290,
+      200,
+      92,
+      0
+    ],
+    "estimated_refill_events": 783.8,
+    "gripper_command_count": 2,
+    "late_fraction": 0.1699,
+    "late_per_refill": 1.019,
+    "late_samples": 799,
+    "maximum_apply_lateness_ms": 4,
+    "q0_return_between_legs": 0,
+    "total_arm_motion_ms": 94000,
+    "total_samples": 4703
+  },
+  "bridge_mode": "MOTION_ENABLED",
+  "calibration_hash": "0xB317C672",
+  "date": "2026-08-06",
+  "firmware_version": "0x00022A00",
+  "gripper_actions": [
+    {
+      "action_status": 4,
+      "after_raw": 1966,
+      "arm_motion_rad": 0.009204,
+      "commanded_raw": 1963,
+      "label": "pick_close",
+      "note": "gripper 는 끝까지 닫혔다. 손가락 사이에 물체가 없었다는 뜻이며 gripper 자체는 정상 동작했다",
+      "object_held": false,
+      "reached_goal": true,
+      "residual_gap_raw": 3,
+      "verdict": "FAIL_NO_CONTACT"
+    },
+    {
+      "action_status": 4,
+      "after_raw": 2003,
+      "arm_motion_rad": 0.00767,
+      "commanded_raw": 2009,
+      "label": "place_release",
+      "reached_goal": true,
+      "residual_gap_raw": 6,
+      "verdict": "REACHED"
+    }
+  ],
+  "legs": [
+    {
+      "action_send_count": 1,
+      "anchor_deviation_raw": [
+        5,
+        2,
+        3,
+        3,
+        6
+      ],
+      "automatic_retry_count": 0,
+      "duration_ms": 41000,
+      "lateness_buckets": [
+        1717,
+        92,
+        119,
+        85,
+        38,
+        0
+      ],
+      "lateness_worst_sample": 74,
+      "leg": "A",
+      "maximum_apply_lateness_ms": 4,
+      "post_settle_max_error_raw": 14,
+      "route": "q0 -> pick_pregrasp -> pick_grasp",
+      "sample_count": 2051,
+      "target_max_error_rad": 0.022026
+    },
+    {
+      "action_send_count": 1,
+      "anchor_deviation_raw": [
+        3,
+        8,
+        17,
+        8,
+        6
+      ],
+      "automatic_retry_count": 0,
+      "duration_ms": 14000,
+      "lateness_buckets": [
+        580,
+        32,
+        35,
+        32,
+        22,
+        0
+      ],
+      "lateness_worst_sample": 16,
+      "leg": "B",
+      "maximum_apply_lateness_ms": 4,
+      "post_settle_max_error_raw": 16,
+      "route": "pick_grasp -> lift20 -> place_pregrasp -> place",
+      "sample_count": 701,
+      "target_max_error_rad": 0.024294
+    },
+    {
+      "action_send_count": 1,
+      "anchor_deviation_raw": [
+        4,
+        7,
+        16,
+        3,
+        4
+      ],
+      "automatic_retry_count": 0,
+      "duration_ms": 39000,
+      "lateness_buckets": [
+        1607,
+        93,
+        136,
+        83,
+        32,
+        0
+      ],
+      "lateness_worst_sample": 32,
+      "leg": "C",
+      "maximum_apply_lateness_ms": 4,
+      "post_settle_max_error_raw": 6,
+      "route": "place -> retreat -> q0",
+      "sample_count": 1951,
+      "target_max_error_rad": 0.009204
+    }
+  ],
+  "motion_authorized_in_contract": false,
+  "not_demonstrated": {
+    "blocked_on": [
+      "A4 Place/Pick offset 재계측",
+      "W3 손목 eye-in-hand 보정",
+      "W4 bounded visual correction"
+    ],
+    "object_actually_picked_moved_released": false,
+    "reason": "Place TCP-to-contact offset 이 A4 재계측 전 공칭값이고 손목 카메라 보정이 아직 없어 물체 위치가 부정확하다. gripper 는 정상 동작했고 물체가 손가락 사이에 없었다"
+  },
+  "q0_return_before_sequence": {
+    "duration_ms": 4000,
+    "lateness_buckets": [
+      172,
+      10,
+      7,
+      10,
+      2,
+      0
+    ],
+    "maximum_apply_lateness_ms": 4,
+    "post_settle_max_error_raw": 6,
+    "q0_max_error_rad": 0.009204,
+    "reason": "세션 경계에서 팔이 q0 를 벗어나 있었다 (SHOULDER 110 / ELBOW 95 raw). leg A 의 anchor 게이트가 거부했다",
+    "sample_count": 201
+  },
+  "record": "motion13-continuous-pick-place-three-legs",
+  "single_bridge_session": true
+}

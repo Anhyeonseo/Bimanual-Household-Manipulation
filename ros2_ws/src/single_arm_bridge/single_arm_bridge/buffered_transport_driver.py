@@ -139,8 +139,11 @@ class BufferedTransportDriver:
         try:
             self._scheduler.acknowledge_motion_result(response.result)
         except BufferedActionAdapterError as exc:
+            # adapter 가 어느 필드가 어긋났는지 상세히 만들어 던진다. 그것을
+            # 일반 문구로 덮으면 왜 거부됐는지 알 수 없다. 2026-08-06 A5
+            # 7회차가 정확히 그렇게 사유 없이 죽었다.
             raise BufferedTransportDriverError(
-                "buffered response failed host admission"
+                f"buffered response failed host admission: {exc}"
             ) from exc
         return command
 
@@ -152,5 +155,5 @@ class BufferedTransportDriver:
             self._scheduler.observe_terminal_motion_result(response.result)
         except BufferedActionAdapterError as exc:
             raise BufferedTransportDriverError(
-                "buffered terminal failed host admission"
+                f"buffered terminal failed host admission: {exc}"
             ) from exc

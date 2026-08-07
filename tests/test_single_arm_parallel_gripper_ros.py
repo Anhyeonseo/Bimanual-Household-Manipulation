@@ -65,7 +65,7 @@ if ROS_AVAILABLE:
                         self.auto_detail,
                         sequence,
                         1200,
-                        0x8AD27897,
+                        0xB317C672,
                     )
                 )
             return MotionResult(
@@ -75,7 +75,7 @@ if ROS_AVAILABLE:
                 0,
                 sequence,
                 1200,
-                0x8AD27897,
+                0xB317C672,
             )
 
         def drain_motion_results(self):
@@ -109,8 +109,8 @@ class ParallelGripperRosIntegrationTests(unittest.TestCase):
             1,
             6,
             False,
-            0x00022100,
-            0x8AD27897,
+            0x00022C00,
+            0xB317C672,
             0x00000FFF,
             0,
         )
@@ -305,7 +305,7 @@ class ParallelGripperRosIntegrationTests(unittest.TestCase):
     def test_gripper_is_blocked_while_arm_feedback_needs_recovery(self) -> None:
         self.positions = tuple(
             self.calibration.raw_feedback_to_radians(
-                (2070, 2043, 2041, 2071, 2080, 1965)
+                (2070, 2043, 2041, 2131, 2080, 1965)
             )
         )
         self.assertFalse(self.send_goal(self.goal()).accepted)

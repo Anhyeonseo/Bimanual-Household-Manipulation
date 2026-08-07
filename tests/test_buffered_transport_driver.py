@@ -70,7 +70,7 @@ def result_for(command, *, sequence: int, state: int, applied: int = 0):
         detail=0,
         request_sequence=sequence,
         apply_tick_ms=command.first_apply_tick_ms,
-        calibration_hash=0x8AD27897,
+        calibration_hash=0xB317C672,
         executor_state=state,
         terminal_reason=BufferedTerminalReason.NONE.value,
         safe_stop_required=False,
@@ -115,7 +115,7 @@ def test_driver_encodes_and_exchanges_prime_9_plus_7_once_each() -> None:
     driver = BufferedTransportDriver(scheduler, port)
 
     first = driver.service_once(current_tick_ms=1_000)
-    second = driver.service_once(current_tick_ms=1_055)
+    second = driver.service_once(current_tick_ms=1_120)
 
     assert first is not None and first.sample_count == 9
     assert second is not None and second.sample_count == 7
@@ -188,7 +188,7 @@ def test_legacy_16_byte_result_is_rejected_without_second_exchange() -> None:
                 detail=0,
                 request_sequence=300,
                 apply_tick_ms=command.first_apply_tick_ms,
-                calibration_hash=0x8AD27897,
+                calibration_hash=0xB317C672,
             ),
         )
 
@@ -212,7 +212,7 @@ def test_terminal_before_pending_ack_aborts_and_does_not_exchange_again() -> Non
         detail=0,
         request_sequence=400,
         apply_tick_ms=plan.samples[0].apply_tick_ms,
-        calibration_hash=0x8AD27897,
+        calibration_hash=0xB317C672,
         executor_state=BufferedExecutorState.ABORTED.value,
         terminal_reason=BufferedTerminalReason.CONNECTION_LOSS.value,
         safe_stop_required=True,
@@ -258,9 +258,9 @@ def test_driver_refills_at_watermark_without_reusing_prime_frames() -> None:
     )
     driver = BufferedTransportDriver(scheduler, port)
     driver.service_once(current_tick_ms=1_000)
-    driver.service_once(current_tick_ms=1_055)
+    driver.service_once(current_tick_ms=1_120)
     scheduler.record_applied(6)
-    refill = driver.service_once(current_tick_ms=1_201)
+    refill = driver.service_once(current_tick_ms=1_261)
 
     assert refill is not None
     assert refill.first_sample_index == 17

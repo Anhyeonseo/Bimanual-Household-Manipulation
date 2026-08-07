@@ -20,7 +20,7 @@ class JointCalibrationTests(unittest.TestCase):
         )
 
     def test_hash_matches_verified_firmware(self) -> None:
-        self.assertEqual(calibration_hash(self.calibration), 0x8AD27897)
+        self.assertEqual(calibration_hash(self.calibration), 0xB317C672)
 
     def test_stage7_joint_gains_keep_only_elbow_at_p28_candidate(self) -> None:
         self.assertEqual(
@@ -40,10 +40,10 @@ class JointCalibrationTests(unittest.TestCase):
 
     def test_operational_raw_ranges_match_observed_envelope_with_margin(self) -> None:
         expected = {
-            "BASE": (2048, 2610),
+            "BASE": (1988, 2610),
             "SHOULDER": (1988, 3766),
             "ELBOW": (627, 2258),
-            "WRIST_FLEX": (1194, 2048),
+            "WRIST_FLEX": (1194, 2108),
             "WRIST_ROLL": (1874, 2219),
             "GRIPPER": (1866, 2048),
         }

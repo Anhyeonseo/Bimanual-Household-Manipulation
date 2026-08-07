@@ -21,6 +21,7 @@ STATE_FEEDBACK_BASE = struct.Struct("<BBBBIIII")
 STATE_FEEDBACK_POSITIONS = struct.Struct("<6H")
 STATE_FEEDBACK_POSITION_READ_FAILURE_LEGACY = struct.Struct("<BBBB")
 STATE_FEEDBACK_POSITION_READ_FAILURE = struct.Struct("<BBBBBBHH2xII")
+STATE_FEEDBACK_POSITION_READ_FAILURE_V2 = struct.Struct("<BBBBBBHH2xIIBB16s")
 
 
 class MessageType(IntEnum):
@@ -81,6 +82,8 @@ class StateFeedback:
     position_read_discarded_bytes: int = 0
     position_read_uart_error_code: int = 0
     position_read_uart_isr: int = 0
+    position_read_snapshot: bytes = b""
+    position_read_receiver_armed: bool = False
 
 
 def parse_state_feedback(payload: bytes) -> StateFeedback:
@@ -90,17 +93,19 @@ def parse_state_feedback(payload: bytes) -> StateFeedback:
     position_size = STATE_FEEDBACK_POSITIONS.size
     legacy_failure_size = STATE_FEEDBACK_POSITION_READ_FAILURE_LEGACY.size
     failure_size = STATE_FEEDBACK_POSITION_READ_FAILURE.size
+    failure_v2_size = STATE_FEEDBACK_POSITION_READ_FAILURE_V2.size
     valid_lengths = (
         base_size,
         base_size + legacy_failure_size,
         base_size + failure_size,
+        base_size + failure_v2_size,
         base_size + position_size,
     )
     if len(payload) not in valid_lengths:
         raise ProtocolError(
             "STATE_FEEDBACK payload must be "
             f"{base_size}, {base_size + legacy_failure_size}, "
-            f"{base_size + failure_size}, or "
+            f"{base_size + failure_size}, {base_size + failure_v2_size}, or "
             f"{base_size + position_size} bytes"
         )
 
@@ -126,6 +131,8 @@ def parse_state_feedback(payload: bytes) -> StateFeedback:
     discarded_bytes = 0
     uart_error_code = 0
     uart_isr = 0
+    failure_snapshot = b""
+    receiver_armed = False
     if len(payload) == base_size + position_size:
         raw_positions = STATE_FEEDBACK_POSITIONS.unpack_from(payload, base_size)
     elif len(payload) == base_size + legacy_failure_size:
@@ -150,6 +157,24 @@ def parse_state_feedback(payload: bytes) -> StateFeedback:
             uart_error_code,
             uart_isr,
         ) = STATE_FEEDBACK_POSITION_READ_FAILURE.unpack_from(payload, base_size)
+    elif len(payload) == base_size + failure_v2_size:
+        (
+            failed_servo_id,
+            failure_streak,
+            failure_limit,
+            failure_reason,
+            hal_status,
+            servo_status,
+            recovery_count,
+            discarded_bytes,
+            uart_error_code,
+            uart_isr,
+            snapshot_length,
+            receiver_armed_raw,
+            snapshot_raw,
+        ) = STATE_FEEDBACK_POSITION_READ_FAILURE_V2.unpack_from(payload, base_size)
+        failure_snapshot = snapshot_raw[:snapshot_length]
+        receiver_armed = receiver_armed_raw != 0
 
     return StateFeedback(
         stop_latched=stop_latched != 0,
@@ -171,6 +196,8 @@ def parse_state_feedback(payload: bytes) -> StateFeedback:
         position_read_discarded_bytes=discarded_bytes,
         position_read_uart_error_code=uart_error_code,
         position_read_uart_isr=uart_isr,
+        position_read_snapshot=failure_snapshot,
+        position_read_receiver_armed=receiver_armed,
     )
 
 

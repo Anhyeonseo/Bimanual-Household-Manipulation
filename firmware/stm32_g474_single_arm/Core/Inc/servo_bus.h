@@ -6,6 +6,8 @@
 
 #include <stdint.h>
 
+#define SERVO_BUS_FAILURE_SNAPSHOT_MAX_BYTES UINT8_C(16)
+
 typedef struct
 {
     uint8_t id;
@@ -53,7 +55,9 @@ typedef enum
     SERVO_BUS_FAILURE_LENGTH = 6,
     SERVO_BUS_FAILURE_STATUS = 7,
     SERVO_BUS_FAILURE_CHECKSUM = 8,
-    SERVO_BUS_FAILURE_RECOVERY = 9
+    SERVO_BUS_FAILURE_RECOVERY = 9,
+    SERVO_BUS_FAILURE_RX_OVERFLOW = 10,
+    SERVO_BUS_FAILURE_DMA = 11
 } ServoBusFailureReason;
 
 typedef struct
@@ -64,9 +68,36 @@ typedef struct
     uint8_t servo_status;
     uint32_t uart_error_code;
     uint32_t uart_isr;
-    uint16_t recovery_count;
+    uint32_t dma_error_code;
+    uint32_t recovery_count;
     uint16_t discarded_bytes;
+    uint16_t received_bytes;
+    uint8_t snapshot_length;
+    uint8_t snapshot[SERVO_BUS_FAILURE_SNAPSHOT_MAX_BYTES];
 } ServoBusDiagnostics;
+
+typedef struct
+{
+    uint32_t transaction_count;
+    uint32_t success_count;
+    uint32_t failure_count;
+    uint32_t recovery_count;
+    uint32_t discarded_bytes;
+    uint32_t timeout_count;
+    uint32_t overflow_count;
+    uint32_t rx_event_count;
+    uint32_t lazy_arm_count;
+    uint32_t receiver_resync_count;
+    uint16_t pe_count;
+    uint16_t ne_count;
+    uint16_t fe_count;
+    uint16_t ore_count;
+    uint16_t rto_count;
+    uint16_t dma_error_count;
+    uint16_t producer_index;
+    uint8_t dma_started;
+    uint8_t last_rx_event;
+} ServoBusHealth;
 
 typedef struct
 {
@@ -86,6 +117,8 @@ void ServoBus_Init(
 );
 
 const ServoBusDiagnostics *ServoBus_GetDiagnostics(void);
+const ServoBusHealth *ServoBus_GetHealth(void);
+void ServoBus_HandleUartError(UART_HandleTypeDef *uart);
 HAL_StatusTypeDef Servo_ReadPosition(
     uint8_t servo_id,
     uint16_t *position

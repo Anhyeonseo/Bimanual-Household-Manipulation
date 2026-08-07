@@ -94,17 +94,37 @@ def _validate_strictly_increasing_times(
         previous = value
 
 
+# 관절 한계 비교의 부동소수점 여유.
+#
+# 한계는 raw count 에서 유도된다(`(zero_raw - minimum_raw) * 2pi/4096` 등).
+# 계획기가 한계 자세를 정확히 겨누면 그 값이 rad 로 왕복하면서 마지막 비트가
+# 어긋나 한계 밖으로 밀린다. 2026-08-06 A4 스윕에서 MoveIt 이 WRIST_FLEX 를
+# raw 1194(=한계)에 정확히 놓았고, 초과량 4.441e-16 rad 로 계획이 거부됐다.
+# 물리적으로는 0.000000000 raw 다 — 존재하지 않는 위반이었다.
+#
+# 이 여유는 그 표현 오차만 흡수한다. 관측된 오차의 200만 배 위이고
+# 한 raw count 의 150만 분의 1 아래다. 명령 해상도가 raw 이므로 이 밴드
+# 안의 차이는 애초에 서보에 전달될 수 없다.
+JOINT_LIMIT_EPSILON_RAD = 1.0e-9
+
+
 def _validate_position(name: str, value: float, lower: float, upper: float) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise GoalValidationError(f"{name} position is not a finite number")
     position = float(value)
     if not math.isfinite(position):
         raise GoalValidationError(f"{name} position is not finite")
-    if not lower <= position <= upper:
+    if not (
+        lower - JOINT_LIMIT_EPSILON_RAD
+        <= position
+        <= upper + JOINT_LIMIT_EPSILON_RAD
+    ):
         raise GoalValidationError(
             f"{name} position {position} is outside safe range {lower}..{upper}"
         )
-    return position
+    # 여유는 비교에만 쓰고 값은 한계 안으로 되돌린다. 여유를 통과한 값이
+    # 그대로 하류로 흘러 raw 변환에서 다시 거부되면 안 된다.
+    return min(max(position, lower), upper)
 
 
 def validate_single_point_trajectory(

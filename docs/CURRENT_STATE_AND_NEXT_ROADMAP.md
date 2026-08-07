@@ -35,7 +35,11 @@
   quintic 211점, 4.2초 단일 Action, maximum apply lateness `4 ms`,
   post-settle `20 raw`, 자동 재시도 0회와 physical DISABLE을 확인했다.
   상승 구간의 약한 흔들림은 후속 추종 품질 항목이며, Pick/Place 연속경로와
-  반복성 시험은 아직 남아 있다.
+  반복성 시험은 아직 남아 있다. Motion-11은 실기 검증된 anchor→q0와
+  MoveIt 충돌 검사 q0→Pick pregrasp를 단일 dense Action 후보로 결합했다.
+  첫 9.1초 물리 시도는 경로를 따라 움직였지만 Shoulder/Wrist Flex 추종
+  부족으로 fail-closed ABORTED가 됐다. 자동 재시도 없이 실측 추종률을
+  반영한 43초·2151 sample 후보를 생성했으며 fresh anchor 재검증이 남았다.
 - Place 높이는 실제 안착에서 총 10 mm 추가 하강이 필요해 Pick/Place 접촉
   offset을 분리해 다시 계측해야 한다.
 - 반사·무늬 배경의 검은 펜 holdout에서 legacy 명도 임계값 검출기는
@@ -105,9 +109,10 @@ STM32
    61 samples, 최대 apply lateness `4 ms`, 독립 복귀 오차 `6 raw`였으며
    `motion_authorized=false`는 유지한다. 이어 dense quintic 211점과
    heartbeat-gated 2.5초 post-settle로 q0 왕복을 실기 통과했다. 다음은
-   Pick pregrasp 연속경로, grasp/lift/place/retreat/q0 전체 연속 실행과
-   반복성 gate 순이다. 상승 구간의 약한 흔들림은 별도 축별 추종 증거를
-   수집한 뒤 시간 스케일링·가속도/jerk·servo 추종 순으로 개선한다.
+   추종률 기반 Motion-11 Pick pregrasp 단일 Action의 fresh-start와 제한 실기,
+   grasp/lift/place/retreat/q0 전체 연속 실행과 반복성 gate 순이다.
+   상승 구간의 약한 흔들림은 별도 축별 추종 증거를 수집한 뒤 시간
+   스케일링·가속도/jerk·servo 추종 순으로 개선한다.
 3. Pick/Place TCP-to-contact offset을 분리하고 Place 후보 0.015 m를 다시 계측한다.
 4. 반사·무늬 배경 holdout과 legacy 실패 기준선을 고정하고 별도 학습
    데이터로 경량 YOLO-OBB를 학습·ONNX export했다. 같은 holdout과 Pi 5
@@ -149,6 +154,63 @@ runtime·provenance 계약을 먼저 fail-closed로 고정한다. 실제 모델�
 6. 왼팔과 같은 pilot·반복 기준을 적용한다.
 
 ### D. 양팔 통합
+
+0. **[진입 전 필수] STM32 main loop를 비동기 구조로 전환한다.**
+
+   현재 firmware는 협조적 단일 루프다. `SingleArmApp_Process` 한 바퀴가 host
+   바이트를 처리하고 `BinaryControl_Service`를 호출하며, 어느 한 호출이 길게
+   블로킹하면 host UART 처리가 멈춘다. heartbeat는 *수신*이 아니라 *처리*
+   시점에 기록되므로(`binary_control.c`의 `host_binary_last_heartbeat_ms`)
+   굶김은 응답 지연으로 끝나지 않고 **MCU가 자기 500 ms watchdog을 먹지
+   못해 스스로 latch**하는 데까지 간다. 시연 중이면 팔이 그 자세로 멈춘다.
+
+   이 불변식은 명시된 적이 없어 **세 번** 조용히 깨졌다. `0x00022500`이 모든
+   servo write에 `PrepareTransaction`을 붙여 DISABLE 봉투를 늘렸고(산술로
+   발견), `0x00022600`에서 같은 비용이 buffered 실행 중 motion-safety
+   폴링에 붙어 host를 굶겼다(실기에서 발견, 관측 침묵 `365 ms` / 한계
+   `500 ms`).
+
+   `0x00022700`은 buffered 실행 경로에서 servo read를 제거해 그 경합을
+   없앴고, `tests/test_stm32_main_loop_blocking_budget.py`가 예산을 소스
+   상수에서 계산해 강제한다.
+
+   세 번째는 servo가 아니라 **host 송신**이었다. `Host_SendBinaryFrame`은
+   blocking `HAL_UART_Transmit`이고, 그것을 호출하는 루프가 곧 executor를
+   stepping하는 루프다. 따라서 **응답 프레임의 길이가 apply lateness로 그대로
+   청구된다.** 115200 baud에서 refill 응답 하나가 `4.688 ms`이고 허용치는
+   `5 ms`다 — 예산의 94%가 이미 쓰이고 있었다. Motion-11이 관측한 max apply
+   lateness가 정확히 `5 ms`였던 것은 우연이 아니라 이 전송시간이었다.
+   `0x00022800`이 lateness histogram을 refill 응답에 실어 이것을 `7.118 ms`로
+   늘렸고, 2026-08-06 q0 복귀가 첫 sample에서 `applied=0`으로 중단됐다.
+   **계측이 계측 대상을 바꿨다.**
+
+   `0x00022900`은 histogram을 terminal 프레임에만 싣고,
+   `binary_control.c`의 `#error`가 acknowledgement 전송시간이 허용치를 넘으면
+   **컴파일을 거부**한다(`payload +4 B`에서 발동함을 음성 검증).
+
+   단일 팔 기준선에는 이것으로 충분하다. **다만 남은 여유는 `0.312 ms`,
+   전선 기준 4바이트 미만이다.** 이 숫자를 여유라고 부르기 어렵다.
+
+   **양팔에서는 충분하지 않다.** 서보 버스 2개, executor 2개, host 트래픽
+   2배, 수건 접기는 Pick/Place보다 길고 연속적이다. 현재 여유 `135 ms`가
+   그때 남아 있을 근거가 없다.
+
+   전환 내용:
+   - 서보 버스 I/O를 비동기 상태머신으로 (블로킹 대기 제거)
+   - **host frame 송신을 비동기로** (DMA + 유한 큐, 넘치면 fail-closed).
+     이것이 `0.312 ms` 여유를 구조적으로 없애는 유일한 방법이다. 프레임
+     길이가 더 이상 lateness에 청구되지 않으므로 진단을 늘려도 안전해진다.
+   - executor tick을 하드웨어 타이머 ISR로 (main loop가 굶길 수 없게)
+
+   대역폭은 제약이 아니다. 1 Mbaud 서보 버스에서 sync write `0.26 ms`,
+   telemetry 왕복 `0.23 ms`로 5 ms slot에 충분히 들어간다. 제약은 전부
+   **blocking 구조**이며, 전환하면 실행 중 load/current 모니터링도 되살릴 수
+   있다. host 링크를 115200에서 올리는 것도 같은 비용을 8배 줄이지만, 그건
+   완화이지 제거가 아니다 — 순서상 비동기가 먼저다.
+
+   근거 기록:
+   - [0x00022600 계측과 startup 중단 분석](test-results/2026-08-06-stm32-0x00022600-apply-lateness-instrumentation.md)
+   - [0x00022900 status 프레임 전송 예산](test-results/2026-08-06-stm32-0x00022900-status-transmit-budget.md)
 
 1. 좌우 namespace, joint order, controller와 camera identity를 분리한다.
 2. 한 팔 fault 시 양팔 coordinated stop을 먼저 검증한다.

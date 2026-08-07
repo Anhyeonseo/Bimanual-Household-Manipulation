@@ -23,7 +23,7 @@ def test_raw_clock_metrics_are_nonnegative() -> None:
 def test_capture_document_preserves_no_motion_provenance() -> None:
     document = build_capture_document(
         firmware_version=0x00021900,
-        calibration_hash=0x8AD27897,
+        calibration_hash=0xB317C672,
         capabilities=0x000007FF,
         requested_samples=1_000,
         interval_ms=20,
@@ -45,7 +45,7 @@ def test_capture_document_preserves_no_motion_provenance() -> None:
 def test_capture_document_rejects_short_or_mismatched_series() -> None:
     kwargs = dict(
         firmware_version=0x00021900,
-        calibration_hash=0x8AD27897,
+        calibration_hash=0xB317C672,
         capabilities=0x000007FF,
         requested_samples=1_000,
         interval_ms=20,

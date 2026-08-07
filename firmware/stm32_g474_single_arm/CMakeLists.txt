@@ -13,6 +13,7 @@ set(CORE_SOURCES
     "${CORE_DIR}/Src/main.c"
     "${CORE_DIR}/Src/servo_bus.c"
     "${CORE_DIR}/Src/servo_response_parser.c"
+    "${CORE_DIR}/Src/servo_rx_window.c"
     "${CORE_DIR}/Src/single_arm_app.c"
     "${CORE_DIR}/Src/stm32g4xx_hal_msp.c"
     "${CORE_DIR}/Src/stm32g4xx_it.c"

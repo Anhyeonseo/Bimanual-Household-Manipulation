@@ -34,8 +34,35 @@ ARM_JOINTS = (
 )
 DEFAULT_MAX_JOINT_STEP_RAD = 0.30
 DEFAULT_DURATION_S = 2.0
-JOINT_GOAL_TOLERANCE_RAD = 0.005
+# 관절 목표도 점이 아니라 구간이다. MoveIt 은 이 허용치 안에 들어오면
+# success 를 돌려주므로 이 값이 곧 **계획이 틀려도 되는 양** 이다.
+#
+# 2026-08-06 실측(경로 3종 x 허용치 6단계 x 3회 = 54회 계획 요청):
+#
+#   허용치 rad   성공     관절 잔차 raw   TCP 잔차 mm
+#     0.0050    9/9          3.05          2.81
+#     0.0020    9/9          1.28          0.95
+#     0.0010    9/9          0.64          0.57
+#     0.0005    9/9          0.33          0.34
+#     0.0001    9/9          0.06          0.04
+#
+# **54회 전부 성공했다.** 조인다고 계획이 실패하지 않았다. 종전 `0.005` 는
+# 서보가 움직이기도 전에 TCP 를 최대 `2.81 mm` 어긋나게 하고 있었고, 그것은
+# 과제 허용치 `4 mm` 의 대부분이다. 그 상태로 수렴 루프를 돌리면 팔의 처짐이
+# 아니라 이 허용치를 재게 된다.
+#
+# `0.0005 rad` 는 `0.33 raw` 로 서보의 1-raw 양자화(`2*pi/4096 = 0.001534 rad`)
+# 보다 작다. 그 아래로는 하드웨어가 구분하지 못하므로 더 조일 이유가 없다.
+JOINT_GOAL_TOLERANCE_RAD = 0.0005
+
+# 해가 정말 그 구간 안에 있었는지 되재는 값이다. 두 번째 허용치가 아니다.
+JOINT_GOAL_RESIDUAL_MARGIN = 1.5
+
 TARGET_NAMES = ("pregrasp", "grasp")
+# 넘겨명령 목표는 어떤 `PLAN_ONLY_PASS` 파일에도 없다. 그 목표를 담은 합성
+# 문서를 만들어 MoveIt 이 내지 않은 것에 `PLAN_ONLY_PASS` 를 붙이는 대신,
+# 명시적 관절 목표를 정직하게 받는다. 한계 검사와 충돌 검사는 동일하다.
+EXPLICIT_TARGET_NAME = "explicit"
 
 
 def parse_joint_vector(value: str) -> tuple[float, ...]:
@@ -221,12 +248,25 @@ def plan_segment(
         "trajectory_point_count": len(points),
         "success": code == MoveItErrorCodes.SUCCESS and bool(points),
     }
+    result["joint_goal_tolerance_rad"] = JOINT_GOAL_TOLERANCE_RAD
+    bound = JOINT_GOAL_TOLERANCE_RAD * JOINT_GOAL_RESIDUAL_MARGIN
+    result["joint_goal_residual_bound_rad"] = bound
     if points:
-        result["planned_final_positions_rad"] = list(points[-1].positions)
+        final = list(points[-1].positions)
+        result["planned_final_positions_rad"] = final
         final_time = points[-1].time_from_start
         result["planned_trajectory_duration_s"] = (
             float(final_time.sec) + float(final_time.nanosec) / 1e9
         )
+        # 계획이 success 를 돌려줬다고 목표에 갔다는 뜻이 아니다. 구간 안이면
+        # success 다. 실제로 어디에 섰는지 재서 기록하고, 구간 밖이면 거부한다.
+        residual = max(
+            abs(value - goal)
+            for value, goal in zip(final, target, strict=True)
+        )
+        result["joint_goal_residual_rad"] = residual
+        result["within_joint_goal_residual_bound"] = residual <= bound
+        result["success"] = result["success"] and residual <= bound
     return result
 
 
@@ -237,11 +277,20 @@ def parse_args() -> argparse.Namespace:
             "segments and collision-check every segment without execution."
         )
     )
-    parser.add_argument("--source-plan", required=True, type=Path)
+    parser.add_argument("--source-plan", type=Path, default=None)
     parser.add_argument("--calibration", required=True, type=Path)
     parser.add_argument("--start", required=True, type=parse_joint_vector)
     parser.add_argument(
         "--target-name", choices=TARGET_NAMES, default="pregrasp"
+    )
+    parser.add_argument(
+        "--target-joints",
+        type=parse_joint_vector,
+        default=None,
+        help=(
+            "explicit joint target instead of a named plan entry. 수렴 "
+            "넘겨명령 목표는 어떤 PLAN_ONLY_PASS 파일에도 없다."
+        ),
     )
     parser.add_argument(
         "--max-joint-step",
@@ -267,6 +316,10 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if not args.plan_only:
         parser.error("--plan-only is required; no planning request was sent")
+    if (args.source_plan is None) == (args.target_joints is None):
+        parser.error(
+            "give exactly one of --source-plan or --target-joints"
+        )
     if args.execution_step_limit is None:
         args.execution_step_limit = args.max_joint_step
     if (
@@ -282,8 +335,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.target_joints is not None:
+        args.target_name = EXPLICIT_TARGET_NAME
     try:
-        target = load_target(args.source_plan, args.target_name)
+        target = (
+            args.target_joints
+            if args.target_joints is not None
+            else load_target(args.source_plan, args.target_name)
+        )
         limits = arm_limits(args.calibration)
         validate_positions("start", args.start, limits)
         validate_positions(args.target_name, target, limits)
@@ -318,7 +377,15 @@ def main() -> int:
             "group": GROUP_NAME,
             "target_name": args.target_name,
             "joint_names": list(ARM_JOINTS),
-            "source_plan": str(args.source_plan),
+            "source_plan": (
+                None if args.source_plan is None else str(args.source_plan)
+            ),
+            "explicit_target_positions_rad": (
+                None
+                if args.target_joints is None
+                else list(args.target_joints)
+            ),
+            "joint_goal_tolerance_rad": JOINT_GOAL_TOLERANCE_RAD,
             "calibration": str(args.calibration),
             "interpolation_joint_step_rad": args.max_joint_step,
             "max_joint_step_rad": args.execution_step_limit,

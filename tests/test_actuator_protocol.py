@@ -66,6 +66,21 @@ class ActuatorProtocolTests(unittest.TestCase):
         self.assertEqual(failure.position_read_uart_error_code, 0x02)
         self.assertEqual(failure.position_read_uart_isr, 0xA0)
 
+        snapshot_failure = parse_state_feedback(
+            base
+            + struct.pack(
+                "<BBBBBBHH2xIIBB16s",
+                1, 1, 3, 4, 3, 0, 9, 4,
+                0, 0x006010C0, 4, 0,
+                bytes.fromhex("ffff0104") + bytes(12),
+            )
+        )
+        self.assertEqual(
+            snapshot_failure.position_read_snapshot,
+            bytes.fromhex("ffff0104"),
+        )
+        self.assertFalse(snapshot_failure.position_read_receiver_armed)
+
     def test_state_feedback_rejects_unknown_payload_size(self) -> None:
         with self.assertRaises(ProtocolError):
             parse_state_feedback(b"\x00" * 21)

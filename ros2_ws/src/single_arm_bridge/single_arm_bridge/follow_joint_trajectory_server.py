@@ -489,6 +489,17 @@ class FollowJointTrajectoryActionAdapter:
 
     def _abort_without_execution(self, goal_handle: Any, reason: str):
         self._setpoint_state.reset()
+        self._node.get_logger().error(
+            format_execution_outcome(
+                ExecutionOutcome(
+                    TerminalState.ABORTED,
+                    0,
+                    None,
+                    None,
+                    reason,
+                )
+            )
+        )
         goal_handle.abort()
         return self._result(FollowJointTrajectory.Result.INVALID_GOAL, reason)
 

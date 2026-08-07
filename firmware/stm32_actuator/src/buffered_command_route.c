@@ -236,14 +236,18 @@ bool actuator_buffered_status_encode(
     uint8_t status_code, uint8_t sample_count, uint8_t safety_state,
     uint8_t detail, uint32_t request_sequence, uint32_t apply_tick,
     uint32_t calibration_hash,
-    const actuator_buffered_diagnostics_t *diagnostics) {
+    const actuator_buffered_diagnostics_t *diagnostics,
+    bool include_lateness) {
     uint16_t queued;
     uint16_t peak;
+    const size_t encoded_size = include_lateness ?
+        ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE :
+        ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE;
     if (output == NULL || output_length == NULL || diagnostics == NULL ||
-        output_capacity < ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE) {
+        output_capacity < encoded_size) {
         return false;
     }
-    memset(output, 0, ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE);
+    memset(output, 0, encoded_size);
     output[0] = status_code;
     output[1] = sample_count;
     output[2] = safety_state;
@@ -263,6 +267,17 @@ bool actuator_buffered_status_encode(
     write_u16_le(&output[22], peak);
     write_u32_le(&output[24], diagnostics->accepted_samples);
     write_u32_le(&output[28], diagnostics->applied_samples);
-    *output_length = ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE;
+    if (include_lateness) {
+        for (size_t bucket = 0u;
+             bucket < ACTUATOR_BUFFERED_LATENESS_BUCKETS;
+             bucket++) {
+            write_u32_le(
+                &output[32u + (bucket * 4u)],
+                diagnostics->apply_lateness_histogram[bucket]);
+        }
+        write_u32_le(
+            &output[56], diagnostics->maximum_apply_lateness_sample_index);
+    }
+    *output_length = encoded_size;
     return true;
 }

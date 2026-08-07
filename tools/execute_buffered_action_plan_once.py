@@ -26,7 +26,7 @@ from single_arm_bridge.calibration import ArmCalibration, load_calibration
 PLAN_STATUS = "BUFFERED_ACTION_COMMISSIONING_PLAN_ONLY_PASS"
 EXPECTED_FIRMWARE = "0x00022100"
 EXPECTED_CAPABILITIES = "0x00000FFF"
-EXPECTED_CALIBRATION = "0x8AD27897"
+EXPECTED_CALIBRATION = "0xB317C672"
 ACTION_NAME = "/left_arm_controller/follow_joint_trajectory"
 JOINT_STATES_TOPIC = "/joint_states"
 CONFIRMATION = "EXECUTE_MOTION9_BUFFERED_ACTION_ONCE"
@@ -37,10 +37,15 @@ START_TOLERANCES_RAD = (0.050, 0.055, 0.050, 0.050, 0.050)
 POST_RETURN_TOLERANCES_RAD = START_TOLERANCES_RAD
 ACTION_STATUS_SUCCEEDED = 4
 FOLLOW_JOINT_TRAJECTORY_SUCCESSFUL = 0
+# buffered_action_execution.ExecutionOutcome 은 성공 terminal 뒤에
+# "; {startup}; {lateness}" 로 진단을 덧붙인다. 두 필수 수치 뒤의 나머지는
+# 통째로 증거로 보존한다. 형식 일치는
+# tests/test_buffered_terminal_format_contract.py 가 양쪽 소스를 파싱해 강제한다.
 TERMINAL_PATTERN = re.compile(
     r"^buffered trajectory completed; "
     r"maximum_apply_lateness_ms=(\d+) "
-    r"post_settle_max_error_raw=(\d+)$"
+    r"post_settle_max_error_raw=(\d+)"
+    r"(?:; (?P<diagnostics>.*))?$"
 )
 
 
@@ -61,6 +66,46 @@ class CommissioningPlan:
     sample_count: int
 
 
+# bridge 가 종단 진단에 관절별 목표/실측/오차를 실어 보낸다. 최대값 하나만
+# 남기면 어느 관절이 얼마나 못 갔는지 알 수 없고, 그러면 그 오차가 TCP 에서
+# 몇 mm 였는지 계산할 수 없다. 수렴 계층의 입력이 이 벡터다.
+POST_SETTLE_VECTOR_PATTERN = re.compile(
+    r"post_settle_target_raw=(?P<target>[-\d,]+) "
+    r"post_settle_measured_raw=(?P<measured>[-\d,]+) "
+    r"post_settle_error_raw=(?P<error>[-\d,]+)"
+)
+
+
+def parse_post_settle_vectors(
+    diagnostics: str | None,
+) -> dict[str, tuple[int, ...]] | None:
+    """종단 진단에서 관절별 벡터를 꺼낸다. 없으면 None — 옛 형식도 읽힌다."""
+    if not diagnostics:
+        return None
+    match = POST_SETTLE_VECTOR_PATTERN.search(diagnostics)
+    if match is None:
+        return None
+    parsed = {
+        key: tuple(int(value) for value in match.group(key).split(","))
+        for key in ("target", "measured", "error")
+    }
+    lengths = {len(values) for values in parsed.values()}
+    if len(lengths) != 1:
+        raise RuntimeError(
+            "post-settle vectors disagree on joint count: "
+            + " ".join(f"{k}={len(v)}" for k, v in parsed.items())
+        )
+    for target, measured, error in zip(
+        parsed["target"], parsed["measured"], parsed["error"], strict=True
+    ):
+        if abs(measured - target) != error:
+            raise RuntimeError(
+                "post-settle vectors are inconsistent: "
+                f"|{measured} - {target}| != {error}"
+            )
+    return parsed
+
+
 @dataclass(frozen=True, slots=True)
 class TerminalEvidence:
     action_status: int
@@ -68,6 +113,10 @@ class TerminalEvidence:
     maximum_apply_lateness_ms: int
     post_settle_max_error_raw: int
     error_string: str
+    terminal_diagnostics: str | None = None
+    post_settle_target_raw: tuple[int, ...] | None = None
+    post_settle_measured_raw: tuple[int, ...] | None = None
+    post_settle_error_raw: tuple[int, ...] | None = None
 
 
 def sha256_file(path: Path) -> str:
@@ -417,8 +466,13 @@ def validate_action_terminal(
     result: Any,
 ) -> TerminalEvidence:
     if action_status != ACTION_STATUS_SUCCEEDED:
+        # 중단 사유는 bridge 가 error_string 에 담아 보낸다. 그것을 버리면
+        # 왜 멈췄는지 알 수 없어 Pi 로그를 뒤져야 한다. 2026-08-06 A5 1회차가
+        # 정확히 그렇게 status=6 만 남기고 죽었다.
         raise RuntimeError(
-            f"buffered Action did not succeed status={action_status}"
+            f"buffered Action did not succeed status={action_status} "
+            f"error_code={getattr(result, 'error_code', '?')} "
+            f"reason={getattr(result, 'error_string', '') or '(빈 문자열)'}"
         )
     if result.error_code != FOLLOW_JOINT_TRAJECTORY_SUCCESSFUL:
         raise RuntimeError(
@@ -434,12 +488,29 @@ def validate_action_terminal(
         raise RuntimeError("maximum apply lateness is outside 0..5 ms")
     if not 0 <= settle_error <= 30:
         raise RuntimeError("post-settle error is outside 0..30 raw")
+    diagnostics = match.group("diagnostics")
+    vectors = parse_post_settle_vectors(diagnostics)
+    # 벡터는 최종 full diagnostics 의 오차이고, 보고되는 최대값은 그것과
+    # position-only 스냅샷 최대값 중 **큰 쪽**이다. 따라서 같을 필요는 없고
+    # 넘어설 수는 없다. 넘으면 두 값이 다른 관측에서 온 것이다.
+    if vectors is not None and max(vectors["error"]) > settle_error:
+        raise RuntimeError(
+            "post-settle vector maximum "
+            f"{max(vectors['error'])} exceeds the reported "
+            f"post_settle_max_error_raw={settle_error}"
+        )
     return TerminalEvidence(
         action_status=action_status,
         error_code=result.error_code,
         maximum_apply_lateness_ms=maximum_lateness,
         post_settle_max_error_raw=settle_error,
         error_string=result.error_string,
+        terminal_diagnostics=diagnostics,
+        post_settle_target_raw=None if vectors is None else vectors["target"],
+        post_settle_measured_raw=(
+            None if vectors is None else vectors["measured"]
+        ),
+        post_settle_error_raw=None if vectors is None else vectors["error"],
     )
 
 

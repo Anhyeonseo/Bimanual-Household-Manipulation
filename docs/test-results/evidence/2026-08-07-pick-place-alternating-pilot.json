@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "status": "PICK_PLACE_PILOT_ALTERNATING",
+  "measured_on": "2026-08-07",
+  "firmware_version": "0x00022A00",
+  "calibration_hash": "0xB317C672",
+  "note_provenance": "스크래치 산출물이 세션 중 삭제되어 운영자가 붙여넣은 콘솔 출력이 유일한 원본이다. 회차별 잔차/간격/방향은 그 출력을 그대로 옮겼다.",
+  "poses": {
+    "A": {
+      "x_m": 0.391348681171,
+      "y_m": -0.132809488706,
+      "yaw_rad": -0.231451352065,
+      "radius_m": 0.4133,
+      "grasp_offset_m": 0.011,
+      "picked_from_here": "2/2"
+    },
+    "B": {
+      "x_m": 0.3,
+      "y_m": -0.06,
+      "yaw_rad": 0.0,
+      "radius_m": 0.3059,
+      "grasp_offset_m": 0.011,
+      "picked_from_here": "0/1"
+    }
+  },
+  "alternates": true,
+  "requested_runs": 3,
+  "completed_runs": 3,
+  "picked": 2,
+  "runs": [
+    {
+      "run": 1,
+      "source_pose": "A",
+      "target_pose": "B",
+      "pick_residual_mm": 9.922,
+      "pick_gap_raw": 23,
+      "picked": true,
+      "place_residual_mm": 3.865,
+      "release_gap_raw": 6
+    },
+    {
+      "run": 2,
+      "source_pose": "B",
+      "target_pose": "A",
+      "pick_residual_mm": 7.049,
+      "pick_gap_raw": 5,
+      "picked": false,
+      "place_residual_mm": 7.697,
+      "release_gap_raw": 6
+    },
+    {
+      "run": 3,
+      "source_pose": "A",
+      "target_pose": "B",
+      "pick_residual_mm": 8.714,
+      "pick_gap_raw": 21,
+      "picked": true,
+      "place_residual_mm": 2.48,
+      "release_gap_raw": 6
+    }
+  ],
+  "lead_bottleneck_hit": false,
+  "findings": [
+    "3회 완주 — lead 병목 없음. 'buffered Action 24개에서 멈춘다'(3회차 예상) 가설이 기각됐다. 원인은 큰 leg 누적 쪽이라는 근거가 됐다.",
+    "A 자세(반경 0.413 m) 파지 2/2. B 자세(반경 0.306 m) 파지 0/1.",
+    "실패는 위치가 아니라 offset 이다. B 파지 잔차 7.049 mm 는 셋 중 가장 작은데도 헛닫혔다(간격 5 = 물체 없음). place 잔차도 A 놓기 7.697 mm 대 B 놓기 2.48/3.87 mm 로 자세별로 크게 다르다.",
+    "즉 pick_grasp_offset_m=0.011 은 A 자세에서 잰 값이고 B 는 다른 자세라 맞지 않는다. C2 가 예측한 '오프셋은 자세마다 다르다' 가 여기서 다시 확인됐다.",
+    "물체 왕복 동작은 성립했다 — 사람이 물체를 되돌리지 않고 3회 돌았다."
+  ],
+  "mot_007_verdict": "부분 통과. 연속 Pick/Place 주기가 물체를 실제로 옮겼다(A 파지 확실, 물체 왕복). 다만 B 자세 offset 미측정으로 전 회차 파지는 아니다.",
+  "automatic_retry_count": 0,
+  "serial_port_opened": false
+}

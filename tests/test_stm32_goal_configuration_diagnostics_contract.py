@@ -45,15 +45,16 @@ BRIDGE = (
 
 
 def test_goal_and_configuration_diagnostics_have_distinct_identity() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022100)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022C00)" in CONFIG
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
-    assert "EXPECTED_FIRMWARE_VERSION = 0x00022100" in IDENTITY
+    assert "EXPECTED_FIRMWARE_VERSION = 0x00022C00" in IDENTITY
     assert "SERVO_COMMAND_CONFIGURATION_DIAGNOSTICS_CAPABILITY = 0x00000080" in IDENTITY
     assert "servo command/configuration diagnostics capability is missing" in IDENTITY
 
 
 def test_diagnostics_read_goal_model_and_eeprom_protection_without_motion() -> None:
-    assert "response.payload_length = 48U;" in BINARY
+    assert "response.payload_length = 146U;" in BINARY
+    assert "DIAGNOSTICS_BUS_HEALTH" in PROTOCOL
     assert "sizeof(identity)" in BINARY
     assert "13U,\n                 16U,\n                 &protection[0]" in BINARY
     assert "29U,\n                 11U,\n                 &protection[16]" in BINARY

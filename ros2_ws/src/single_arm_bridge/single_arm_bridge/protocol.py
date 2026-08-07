@@ -17,14 +17,22 @@ STATE_BASE = struct.Struct("<BBBBIIII")
 STATE_POSITIONS = struct.Struct("<6H")
 STATE_POSITION_READ_FAILURE_LEGACY = struct.Struct("<BBBB")
 STATE_POSITION_READ_FAILURE = struct.Struct("<BBBBBBHH2xII")
+STATE_POSITION_READ_FAILURE_V2 = struct.Struct("<BBBBBBHH2xIIBB16s")
 ARM_RESPONSE = struct.Struct("<BB2xI")
 SETPOINT_STATUS = struct.Struct("<BBBBIII")
 SETPOINT_STATUS_EXTENDED = struct.Struct("<BBBBHHII")
+# 6개 lateness bucket + 최대가 갱신된 applied sample index (1-based, 0=미갱신)
+SETPOINT_STATUS_LATENESS = struct.Struct("<7I")
 BUFFERED_SETPOINT_HEADER = struct.Struct("<IBBH")
 BUFFERED_SETPOINT_SAMPLE = struct.Struct("<I12i")
 BUFFERED_SETPOINT_MAX_SAMPLES = 9
 DIAGNOSTICS_BASE = struct.Struct("<BBBBII")
 DIAGNOSTICS_JOINT = struct.Struct("<8B7H2B2H2BH4B")
+DIAGNOSTICS_BUS_HEALTH_LEGACY = struct.Struct("<8B11I6H")
+DIAGNOSTICS_BUS_HEALTH = struct.Struct("<8B11I6H2IBB16s")
+# 0x00022800 부터: host frame 전송 계측. 전송이 잘리면 host stream
+# 정렬이 깨지는데 지금까지 MCU 쪽에 아무 흔적이 없었다.
+DIAGNOSTICS_HOST_TX = struct.Struct("<3HBx")
 
 
 class MessageType(IntEnum):
@@ -112,6 +120,8 @@ class State:
     position_read_discarded_bytes: int
     position_read_uart_error_code: int
     position_read_uart_isr: int
+    position_read_snapshot: bytes
+    position_read_receiver_armed: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,12 +141,53 @@ class MotionResult:
     peak_queued_samples: int | None = None
     accepted_samples: int | None = None
     applied_samples: int | None = None
+    # 0x00022800 부터: apply lateness 분포와 최악 sample 위치.
+    # 최대값 하나로는 드문 spike 와 계통적 지연을 구분할 수 없다.
+    apply_lateness_histogram: tuple[int, ...] | None = None
+    maximum_apply_lateness_sample_index: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class BufferedSetpointSample:
     tick_offset_ms: int
     positions_urad: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ServoBusHealth:
+    schema_version: int
+    failure_reason: int
+    hal_status: int
+    servo_status: int
+    dma_started: bool
+    last_rx_event: int
+    received_bytes: int
+    producer_index: int
+    uart_error_code: int
+    uart_isr: int
+    dma_error_code: int
+    transaction_count: int
+    success_count: int
+    failure_count: int
+    recovery_count: int
+    discarded_bytes: int
+    timeout_count: int
+    overflow_count: int
+    rx_event_count: int
+    pe_count: int
+    ne_count: int
+    fe_count: int
+    ore_count: int
+    rto_count: int
+    dma_error_count: int
+    lazy_arm_count: int = 0
+    receiver_resync_count: int = 0
+    failure_snapshot: bytes = b""
+    receiver_armed: bool = False
+    host_tx_failure_count: int | None = None
+    host_tx_timeout_count: int | None = None
+    host_tx_maximum_ms: int | None = None
+    host_tx_last_status: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +224,7 @@ class ServoDiagnostic:
     protective_torque_raw: int
     protection_time_raw: int
     overload_torque_raw: int
+    bus_health: ServoBusHealth | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +344,7 @@ def parse_state(payload: bytes) -> State:
         STATE_BASE.size,
         STATE_BASE.size + STATE_POSITION_READ_FAILURE_LEGACY.size,
         STATE_BASE.size + STATE_POSITION_READ_FAILURE.size,
+        STATE_BASE.size + STATE_POSITION_READ_FAILURE_V2.size,
         STATE_BASE.size + STATE_POSITIONS.size,
     )
     if len(payload) not in valid_lengths:
@@ -308,6 +361,8 @@ def parse_state(payload: bytes) -> State:
     discarded_bytes = 0
     uart_error_code = 0
     uart_isr = 0
+    failure_snapshot = b""
+    receiver_armed = False
     if len(payload) == STATE_BASE.size + STATE_POSITIONS.size:
         positions = STATE_POSITIONS.unpack_from(payload, STATE_BASE.size)
     elif len(payload) == STATE_BASE.size + STATE_POSITION_READ_FAILURE_LEGACY.size:
@@ -332,6 +387,24 @@ def parse_state(payload: bytes) -> State:
             uart_error_code,
             uart_isr,
         ) = STATE_POSITION_READ_FAILURE.unpack_from(payload, STATE_BASE.size)
+    elif len(payload) == STATE_BASE.size + STATE_POSITION_READ_FAILURE_V2.size:
+        (
+            failed_servo_id,
+            failure_streak,
+            failure_limit,
+            failure_reason,
+            hal_status,
+            servo_status,
+            recovery_count,
+            discarded_bytes,
+            uart_error_code,
+            uart_isr,
+            snapshot_length,
+            receiver_armed_raw,
+            snapshot_raw,
+        ) = STATE_POSITION_READ_FAILURE_V2.unpack_from(payload, STATE_BASE.size)
+        failure_snapshot = snapshot_raw[:snapshot_length]
+        receiver_armed = receiver_armed_raw != 0
     return State(
         stop_latched=values[0] != 0,
         status_code=values[1],
@@ -352,6 +425,8 @@ def parse_state(payload: bytes) -> State:
         position_read_discarded_bytes=discarded_bytes,
         position_read_uart_error_code=uart_error_code,
         position_read_uart_isr=uart_isr,
+        position_read_snapshot=failure_snapshot,
+        position_read_receiver_armed=receiver_armed,
     )
 
 
@@ -412,27 +487,93 @@ def validate_buffered_setpoint_flags(flags: int) -> BufferedSetpointFlags:
 
 def parse_setpoint_status(payload: bytes) -> MotionResult:
     extended_size = SETPOINT_STATUS.size + SETPOINT_STATUS_EXTENDED.size
-    if len(payload) not in (SETPOINT_STATUS.size, extended_size):
+    lateness_size = extended_size + SETPOINT_STATUS_LATENESS.size
+    if len(payload) not in (SETPOINT_STATUS.size, extended_size, lateness_size):
         raise ProtocolError("invalid SETPOINT_STATUS length")
     base = SETPOINT_STATUS.unpack_from(payload)
     if len(payload) == SETPOINT_STATUS.size:
         return MotionResult(*base)
     extended = SETPOINT_STATUS_EXTENDED.unpack_from(payload, SETPOINT_STATUS.size)
+    histogram: tuple[int, ...] | None = None
+    worst_index: int | None = None
+    if len(payload) == lateness_size:
+        lateness = SETPOINT_STATUS_LATENESS.unpack_from(payload, extended_size)
+        histogram = tuple(lateness[:6])
+        worst_index = lateness[6]
     return MotionResult(
         *base,
         executor_state=extended[0], terminal_reason=extended[1],
         safe_stop_required=extended[2] != 0, queue_result=extended[3],
         queued_samples=extended[4], peak_queued_samples=extended[5],
         accepted_samples=extended[6], applied_samples=extended[7],
+        apply_lateness_histogram=histogram,
+        maximum_apply_lateness_sample_index=worst_index,
     )
 
 
 def parse_servo_diagnostic(payload: bytes) -> ServoDiagnostic:
-    expected_length = DIAGNOSTICS_BASE.size + DIAGNOSTICS_JOINT.size
-    if len(payload) != expected_length:
+    legacy_length = DIAGNOSTICS_BASE.size + DIAGNOSTICS_JOINT.size
+    legacy_health_length = legacy_length + DIAGNOSTICS_BUS_HEALTH_LEGACY.size
+    extended_length = legacy_length + DIAGNOSTICS_BUS_HEALTH.size
+    host_tx_length = extended_length + DIAGNOSTICS_HOST_TX.size
+    if len(payload) not in (
+        legacy_length, legacy_health_length, extended_length, host_tx_length
+    ):
         raise ProtocolError("invalid DIAGNOSTICS length")
     base = DIAGNOSTICS_BASE.unpack_from(payload)
     joint = DIAGNOSTICS_JOINT.unpack_from(payload, DIAGNOSTICS_BASE.size)
+    bus_health = None
+    if len(payload) in (legacy_health_length, extended_length, host_tx_length):
+        wide = len(payload) in (extended_length, host_tx_length)
+        health_format = (
+            DIAGNOSTICS_BUS_HEALTH if wide else DIAGNOSTICS_BUS_HEALTH_LEGACY
+        )
+        health = health_format.unpack_from(payload, legacy_length)
+        lazy_arm_count = health[25] if wide else 0
+        receiver_resync_count = health[26] if wide else 0
+        snapshot_length = health[27] if wide else 0
+        receiver_armed = (health[28] != 0) if wide else (health[4] != 0)
+        failure_snapshot = health[29][:snapshot_length] if wide else b""
+        host_tx = (
+            DIAGNOSTICS_HOST_TX.unpack_from(payload, extended_length)
+            if len(payload) == host_tx_length
+            else None
+        )
+        bus_health = ServoBusHealth(
+            schema_version=health[0],
+            failure_reason=health[1],
+            hal_status=health[2],
+            servo_status=health[3],
+            dma_started=health[4] != 0,
+            last_rx_event=health[5],
+            received_bytes=health[6],
+            producer_index=health[7],
+            uart_error_code=health[8],
+            uart_isr=health[9],
+            dma_error_code=health[10],
+            transaction_count=health[11],
+            success_count=health[12],
+            failure_count=health[13],
+            recovery_count=health[14],
+            discarded_bytes=health[15],
+            timeout_count=health[16],
+            overflow_count=health[17],
+            rx_event_count=health[18],
+            pe_count=health[19],
+            ne_count=health[20],
+            fe_count=health[21],
+            ore_count=health[22],
+            rto_count=health[23],
+            dma_error_count=health[24],
+            lazy_arm_count=lazy_arm_count,
+            receiver_resync_count=receiver_resync_count,
+            failure_snapshot=failure_snapshot,
+            receiver_armed=receiver_armed,
+            host_tx_failure_count=host_tx[0] if host_tx else None,
+            host_tx_timeout_count=host_tx[1] if host_tx else None,
+            host_tx_maximum_ms=host_tx[2] if host_tx else None,
+            host_tx_last_status=host_tx[3] if host_tx else None,
+        )
     return ServoDiagnostic(
         status_code=base[0],
         joint_index=base[1],
@@ -466,4 +607,5 @@ def parse_servo_diagnostic(payload: bytes) -> ServoDiagnostic:
         protective_torque_raw=joint[23],
         protection_time_raw=joint[24],
         overload_torque_raw=joint[25],
+        bus_health=bus_health,
     )

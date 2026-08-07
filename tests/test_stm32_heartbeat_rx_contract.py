@@ -48,7 +48,7 @@ def function_body(source: str, signature: str) -> str:
 
 
 def test_buffered_rx_identity_and_capability_are_fail_closed() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022100)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022C00)" in CONFIG
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
     assert "BUFFERED_HOST_RX_CAPABILITY = 0x00000040" in IDENTITY
     assert "interrupt-buffered host RX capability is missing" in IDENTITY
@@ -123,7 +123,7 @@ def test_host_waits_for_matching_heartbeat_acknowledgement() -> None:
     heartbeat = TRANSPORT[
         heartbeat_start : TRANSPORT.index("def get_state(", heartbeat_start)
     ]
-    assert "HEARTBEAT_RESPONSE_TIMEOUT_S = 0.25" in TRANSPORT
+    assert "HEARTBEAT_RESPONSE_TIMEOUT_S = 0.40" in TRANSPORT
     assert "MessageType.STATE_FEEDBACK" in heartbeat
     assert "parse_state(" in heartbeat
     assert "if state.stop_latched:" in heartbeat

@@ -78,7 +78,9 @@ capability로 구현하고, 검증된 `0x00022100` queue를 ROS Action의 다중
 - [x] ROS Action runtime 로컬 연결과 전체 회귀
 - [x] ROS Action runtime Pi 배포·무동작 gate
 - [x] 짧은 다중 관절 연속경로 실기
-- [ ] 연속 Pick/Place
+- [x] 연속 Pick/Place — 경로 기구만. buffered leg 3개 + gripper 2회로 전
+      구간 완주(2026-08-06, Motion-13). **물체 실제 파지는 미달**이며
+      A4 offset 재계측과 손목 보정 이후 항목이다.
 
 세부 결과는
 [Motion-8 결과](../test-results/2026-08-03-motion8-g474-buffered-physical-route.md)에

@@ -47,8 +47,8 @@ def test_plan_is_exactly_sixteen_samples_and_changes_only_selected_joint() -> No
     assert len(plan.samples) == 16
     assert plan.samples[0].trajectory_elapsed_ms == 0
     assert plan.samples[-1].trajectory_elapsed_ms == 300
-    assert plan.samples[0].apply_tick_ms == 1140
-    assert plan.anchor_tick_ms == 1120
+    assert plan.samples[0].apply_tick_ms == 1220
+    assert plan.anchor_tick_ms == 1200
     assert plan.samples[0].positions_urad == (0,) * 6
     assert plan.samples[-1].positions_urad[:4] == (0,) * 4
     assert plan.samples[-1].positions_urad[4] == 30000
@@ -277,7 +277,7 @@ def test_terminal_diagnostic_includes_hold_cause_and_accounting() -> None:
             detail=4,
             request_sequence=41,
             apply_tick_ms=1234,
-            calibration_hash=0x8AD27897,
+            calibration_hash=0xB317C672,
             executor_state=2,
             terminal_reason=4,
             safe_stop_required=True,

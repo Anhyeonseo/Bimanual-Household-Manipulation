@@ -11,6 +11,7 @@ from typing import Any
 
 from .protocol import (
     ARM_RESPONSE,
+    MAX_PAYLOAD,
     BufferedSetpointFlags,
     BufferedSetpointSample,
     Frame,
@@ -38,7 +39,17 @@ POSITION_STATE_RESPONSE_TIMEOUT_S = 0.5
 DISABLE_RESPONSE_TIMEOUT_S = 2.5
 DIAGNOSTIC_RESPONSE_TIMEOUT_S = 0.5
 DIAGNOSTIC_CAPABILITY = 0x00000010
-HEARTBEAT_RESPONSE_TIMEOUT_S = 0.25
+# The MCU latches if it does not *process* a heartbeat within
+# HOST_BINARY_HEARTBEAT_TIMEOUT_MS (500 ms); the same starvation that delays a
+# response also delays feeding that watchdog. A host budget below the MCU's own
+# limit made the host give up first and reported a transport fault on a link
+# that was merely busy. Keep the budget under the MCU limit with room for the
+# next send, so the MCU decides when the link is dead.
+HEARTBEAT_RESPONSE_TIMEOUT_S = 0.40
+MCU_HEARTBEAT_WATCHDOG_TIMEOUT_S = 0.50
+# A frame is at most a 16-byte header plus MAX_PAYLOAD plus CRC, and COBS
+# adds about one byte per 254. Two frames of slack is ample.
+RX_RESIDUAL_LIMIT_BYTES = 2 * (MAX_PAYLOAD + 64)
 BUFFERED_VALIDATION_ROUTE_CAPABILITY = 0x00000400
 BUFFERED_EXECUTION_ROUTE_CAPABILITY = 0x00000800
 
@@ -48,7 +59,65 @@ class TransportError(RuntimeError):
 
 
 class StopLatchedError(TransportError):
-    """The MCU reports a physical safety stop that requires explicit recovery."""
+    """The MCU reports a physical safety stop that requires explicit recovery.
+
+    Carries the parsed state, which is not the same thing as ignoring the stop.
+    The latch gates motion, not observation: the response decoded cleanly and
+    a status of zero means the position read itself succeeded. Discarding it
+    forced recovery tooling to choose between honouring the gate and reading
+    the sensor, and an operator deciding whether a latched arm can be moved
+    back inside its limits needs exactly those positions. A 2026-08-06 recovery
+    stalled on that: the arm had sagged past the elbow maximum with torque off,
+    and the only reading that could have said so was thrown away.
+    """
+
+    def __init__(self, message: str, state: object | None = None) -> None:
+        super().__init__(message)
+        self.state = state
+
+
+class ResponseTimeoutError(TransportError):
+    """
+    A response did not arrive in time, with evidence of what the wait saw.
+
+    A bare timeout cannot separate two very different faults: the host burning
+    its budget consuming other traffic, or the MCU answering late on a quiet
+    link. The 2026-08-06 buffered startup abort needed that distinction and the
+    old message could not provide it, so the counts are carried here.
+    """
+
+    def __init__(
+        self,
+        message_type: Any,
+        sequence: int,
+        timeout_s: float,
+        elapsed_s: float,
+        empty_reads: int,
+        undecodable_frames: int,
+        observed_frames: tuple[str, ...],
+        partial_read_lengths: tuple[int, ...] = (),
+        rejected_packets: tuple[bytes, ...] = (),
+    ) -> None:
+        self.message_type = message_type
+        self.sequence = sequence
+        self.timeout_s = timeout_s
+        self.elapsed_s = elapsed_s
+        self.empty_reads = empty_reads
+        self.undecodable_frames = undecodable_frames
+        self.observed_frames = observed_frames
+        self.partial_read_lengths = partial_read_lengths
+        self.rejected_packets = rejected_packets
+        observed = ",".join(observed_frames) if observed_frames else "none"
+        super().__init__(
+            f"timeout waiting for {message_type.name} "
+            f"seq={sequence} elapsed_ms={elapsed_s * 1000.0:.1f} "
+            f"budget_ms={timeout_s * 1000.0:.1f} "
+            f"empty_reads={empty_reads} "
+            f"undecodable={undecodable_frames} "
+            f"observed={observed} "
+            f"partial_lengths={','.join(str(v) for v in partial_read_lengths) or 'none'} "
+            f"rejected={','.join(p.hex() for p in rejected_packets) or 'none'}"
+        )
 
 
 SERVO_BUS_FAILURE_NAMES = {
@@ -62,7 +131,51 @@ SERVO_BUS_FAILURE_NAMES = {
     7: "servo_status",
     8: "checksum",
     9: "recovery",
+    10: "rx_overflow",
+    11: "dma",
 }
+
+
+class ServoDiagnosticReadError(TransportError):
+    """A long-form servo diagnostic read failed with UART/DMA evidence."""
+
+    def __init__(self, joint_index: int, sample: Any) -> None:
+        self.joint_index = joint_index
+        self.sample = sample
+        health = sample.bus_health
+        if health is None:
+            detail = "bus_health=legacy_unavailable"
+        else:
+            reason = SERVO_BUS_FAILURE_NAMES.get(
+                health.failure_reason,
+                f"unknown_{health.failure_reason}",
+            )
+            detail = (
+                f"reason={reason} hal={health.hal_status} "
+                f"servo_status=0x{health.servo_status:02X} "
+                f"uart_error=0x{health.uart_error_code:08X} "
+                f"uart_isr=0x{health.uart_isr:08X} "
+                f"dma_error=0x{health.dma_error_code:08X} "
+                f"received={health.received_bytes} "
+                f"producer={health.producer_index} "
+                f"transactions={health.transaction_count} "
+                f"failures={health.failure_count} "
+                f"recoveries={health.recovery_count} "
+                f"timeouts={health.timeout_count} "
+                f"overflows={health.overflow_count} "
+                f"pe/ne/fe/ore/rto/dma="
+                f"{health.pe_count}/{health.ne_count}/{health.fe_count}/"
+                f"{health.ore_count}/{health.rto_count}/{health.dma_error_count}"
+                f" lazy_arms={health.lazy_arm_count} "
+                f"receiver_resyncs={health.receiver_resync_count} "
+                f"receiver_armed={int(health.receiver_armed)} "
+                f"snapshot={health.failure_snapshot.hex()}"
+            )
+        super().__init__(
+            "diagnostic read failed: "
+            f"joint_index={joint_index} status={sample.status_code} "
+            f"read_status=0x{sample.read_status:02X} {detail}"
+        )
 
 
 class PositionReadError(TransportError):
@@ -81,6 +194,8 @@ class PositionReadError(TransportError):
         discarded_bytes: int = 0,
         uart_error_code: int = 0,
         uart_isr: int = 0,
+        snapshot: bytes = b"",
+        receiver_armed: bool = False,
     ) -> None:
         self.servo_id = servo_id
         self.streak = streak
@@ -93,6 +208,8 @@ class PositionReadError(TransportError):
         self.discarded_bytes = discarded_bytes
         self.uart_error_code = uart_error_code
         self.uart_isr = uart_isr
+        self.snapshot = bytes(snapshot)
+        self.receiver_armed = receiver_armed
         super().__init__(
             "GET_STATE position read failed: "
             f"servo_id={servo_id} "
@@ -102,7 +219,9 @@ class PositionReadError(TransportError):
             f"hal={hal_status} servo_status=0x{servo_status:02X} "
             f"recoveries={recovery_count} discarded={discarded_bytes} "
             f"uart_error=0x{uart_error_code:08X} "
-            f"uart_isr=0x{uart_isr:08X}"
+            f"uart_isr=0x{uart_isr:08X} "
+            f"receiver_armed={int(receiver_armed)} "
+            f"snapshot={bytes(snapshot).hex()}"
         )
 
 
@@ -123,6 +242,15 @@ class ActuatorTransport:
     def __init__(self, port: Any, response_timeout_s: float = 0.4) -> None:
         self._port = port
         self._timeout_s = response_timeout_s
+        # read_until returns whatever it has when its timeout expires, so a
+        # frame that straddles that boundary comes back without its delimiter.
+        # Every caller used to discard those bytes, which destroyed the frame
+        # outright: the tail then decoded as garbage and the waiter timed out
+        # even though the data had arrived. Two 2026-08-06 buffered startups
+        # lost a 42-byte STATE_FEEDBACK exactly this way, split 24+18 and
+        # 19+22, while the MCU reported every transmit clean. Carry the
+        # fragment to the next read instead.
+        self._rx_residual = bytearray()
         self._sequence = 1
         self.hello_info: Hello | None = None
         self._motion_results: deque[Any] = deque(maxlen=16)
@@ -165,6 +293,34 @@ class ActuatorTransport:
         self._port.flush()
         return sequence
 
+    def _read_framed_packet(self) -> bytes | None:
+        """
+        Return one delimiter-terminated packet, or None if none is complete yet.
+
+        Fragments are retained across calls so a frame split by the read
+        timeout is reassembled instead of lost.
+        """
+        if b"\x00" in self._rx_residual:
+            index = self._rx_residual.index(b"\x00")
+            packet = bytes(self._rx_residual[: index + 1])
+            del self._rx_residual[: index + 1]
+            return packet
+
+        chunk = self._port.read_until(b"\x00")
+        if not chunk:
+            return None
+        self._rx_residual.extend(chunk)
+        if b"\x00" not in self._rx_residual:
+            # Still incomplete. Bound the buffer so a stream that never
+            # delivers a delimiter cannot grow without limit.
+            if len(self._rx_residual) > RX_RESIDUAL_LIMIT_BYTES:
+                del self._rx_residual[:-RX_RESIDUAL_LIMIT_BYTES]
+            return None
+        index = self._rx_residual.index(b"\x00")
+        packet = bytes(self._rx_residual[: index + 1])
+        del self._rx_residual[: index + 1]
+        return packet
+
     def _receive_matching(
         self,
         sequence: int,
@@ -173,17 +329,38 @@ class ActuatorTransport:
         defer_state_after_motion_result: bool = False,
     ) -> Frame:
         response_timeout = self._timeout_s if timeout_s is None else timeout_s
-        deadline = time.monotonic() + response_timeout
+        started = time.monotonic()
+        deadline = started + response_timeout
+        # A timeout alone cannot distinguish a host that burned its budget
+        # consuming other traffic from an MCU that simply answered late. The
+        # 2026-08-06 buffered startup abort needed exactly that distinction,
+        # so record what the wait actually observed.
+        empty_reads = 0
+        undecodable = 0
+        observed: list[str] = []
+        # A count alone cannot say whether a rejected packet was a frame split
+        # by the port read timeout, an intact frame with a bad checksum, or
+        # noise. Keep a bounded sample of the actual bytes.
+        partial_lengths: list[int] = []
+        rejected_packets: list[bytes] = []
         while time.monotonic() < deadline:
-            packet = self._port.read_until(b"\x00")
-            if not packet.endswith(b"\x00"):
+            packet = self._read_framed_packet()
+            if packet is None:
+                empty_reads += 1
+                if self._rx_residual and len(partial_lengths) < 4:
+                    partial_lengths.append(len(self._rx_residual))
                 continue
             try:
                 frame = decode_frame(packet)
             except ProtocolError:
+                undecodable += 1
+                if len(rejected_packets) < 2:
+                    rejected_packets.append(packet[:48])
                 continue
             if frame.sequence == sequence and frame.message_type is message_type:
                 return frame
+            if len(observed) < 8:
+                observed.append(f"{frame.message_type.name}#{frame.sequence}")
             if frame.message_type is MessageType.SETPOINT_STATUS:
                 result = self._record_unsolicited_motion_result(frame)
                 if result.status_code != 0:
@@ -197,12 +374,27 @@ class ActuatorTransport:
                         raise StateResponseDeferred(
                             "terminal motion result superseded state response"
                         )
-        raise TransportError(f"timeout waiting for {message_type.name}")
+        raise ResponseTimeoutError(
+            message_type=message_type,
+            sequence=sequence,
+            timeout_s=response_timeout,
+            elapsed_s=time.monotonic() - started,
+            empty_reads=empty_reads,
+            undecodable_frames=undecodable,
+            observed_frames=tuple(observed),
+            partial_read_lengths=tuple(partial_lengths),
+            rejected_packets=tuple(rejected_packets),
+        )
 
     def _collect_available_motion_results(self) -> None:
-        while int(getattr(self._port, "in_waiting", 0)) > 0:
-            packet = self._port.read_until(b"\x00")
-            if not packet.endswith(b"\x00"):
+        while (
+            int(getattr(self._port, "in_waiting", 0)) > 0
+            or b"\x00" in self._rx_residual
+        ):
+            packet = self._read_framed_packet()
+            if packet is None:
+                # Incomplete frame retained for the next read rather than
+                # dropped; dropping it is what destroyed responses before.
                 break
             try:
                 frame = decode_frame(packet)
@@ -283,7 +475,8 @@ class ActuatorTransport:
         if state.stop_latched:
             raise StopLatchedError(
                 "HEARTBEAT rejected: "
-                f"status={state.status_code} latched=1"
+                f"status={state.status_code} latched=1",
+                state=state,
             )
         if state.status_code != 0:
             raise TransportError(
@@ -323,10 +516,13 @@ class ActuatorTransport:
                 discarded_bytes=state.position_read_discarded_bytes,
                 uart_error_code=state.position_read_uart_error_code,
                 uart_isr=state.position_read_uart_isr,
+                snapshot=state.position_read_snapshot,
+                receiver_armed=state.position_read_receiver_armed,
             )
         if state.stop_latched:
             raise StopLatchedError(
-                f"GET_STATE rejected: status={state.status_code} latched=1"
+                f"GET_STATE rejected: status={state.status_code} latched=1",
+                state=state,
             )
         if state.status_code != 0:
             raise TransportError(f"GET_STATE status={state.status_code}")
@@ -359,12 +555,7 @@ class ActuatorTransport:
                 ).payload
             )
             if sample.status_code != 0 or sample.read_status != 0:
-                raise TransportError(
-                    "diagnostic read failed: "
-                    f"joint_index={joint_index} "
-                    f"status={sample.status_code} "
-                    f"read_status=0x{sample.read_status:02X}"
-                )
+                raise ServoDiagnosticReadError(joint_index, sample)
             if (
                 sample.joint_index != joint_index
                 or sample.joint_count != hello.joint_count
@@ -397,7 +588,17 @@ class ActuatorTransport:
             ).payload
         )
         if result != 0 or state != 2 or returned_hash != calibration_hash:
-            raise TransportError("ARM_REQUEST rejected")
+            # 거부 사유는 응답에 실려 온다. 버리면 어느 조건에서 막혔는지
+            # 알 수 없어 펌웨어 소스를 뒤져야 한다. 2026-08-06 A5 복구에서
+            # 실제로 그렇게 막혔다.
+            #   result: 0=OK 1=BAD_STATE 2=ESTOP 3=HEALTH_FAILED
+            #           4=CONFIG_MISMATCH  (actuator_safety_result_t)
+            #   state : 2 를 기대한다 (ARMED)
+            raise TransportError(
+                f"ARM_REQUEST rejected result={result} state={state} "
+                f"hash=0x{returned_hash:08X} "
+                f"expected_hash=0x{calibration_hash:08X}"
+            )
         self.heartbeat()
         sequence = self._send(MessageType.ENABLE)
         enabled = parse_state(

@@ -29,7 +29,7 @@ MANIFEST = (
 )
 CALIBRATION = ROOT / "config" / "single_arm_calibration.json"
 MANIFEST_SHA256 = (
-    "b293149848c74ef62df7db193fab8e8e54030254f67a29e8853b75a8a494007a"
+    "1ced3a178692a5ebac26b70a39d0750c3daa71277aa128c599af345535b2a190"
 )
 
 
@@ -47,7 +47,7 @@ def valid_diagnostics() -> dict:
     return {
         "protocol_version": 1,
         "joint_count": 6,
-        "calibration_hash": "0x8AD27897",
+        "calibration_hash": "0xB317C672",
         "joints": [
             {
                 "name": name,
@@ -69,7 +69,7 @@ def valid_diagnostics() -> dict:
 def parse_diagnostics(document: dict, contact=True, open_=False):
     return MODULE.parse_diagnostics_message(
         json.dumps(document),
-        "0x8AD27897",
+        "0xB317C672",
         contact,
         open_,
         1963,

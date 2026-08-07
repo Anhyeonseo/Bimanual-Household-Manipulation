@@ -38,6 +38,18 @@ typedef enum {
     ACTUATOR_BUFFERED_INVALID_ANCHOR
 } actuator_buffered_result_t;
 
+/*
+ * Apply lateness histogram.
+ *
+ * A single maximum cannot distinguish a rare spike from systemic drift, and
+ * Motion-11 reached the top of its 0..5 ms allowance with only that number to
+ * go on. Lateness above the configured maximum terminates execution, so for
+ * the 5 ms operational limit every applied sample lands in 0..5 ticks and six
+ * buckets cover the whole admissible range exactly. The final bucket is
+ * saturating so a larger configured limit still accounts for every sample.
+ */
+#define ACTUATOR_BUFFERED_LATENESS_BUCKETS 6u
+
 typedef struct {
     actuator_buffered_state_t state;
     actuator_buffered_reason_t reason;
@@ -49,6 +61,10 @@ typedef struct {
     uint32_t last_applied_tick;
     uint32_t last_apply_lateness_ticks;
     uint32_t maximum_apply_lateness_ticks;
+    /* applied_samples value when maximum_apply_lateness_ticks was last raised.
+     * Locates the worst tick along the trajectory; 0 means never raised. */
+    uint32_t maximum_apply_lateness_sample_index;
+    uint32_t apply_lateness_histogram[ACTUATOR_BUFFERED_LATENESS_BUCKETS];
     uint32_t terminal_tick;
     bool input_complete;
     bool safe_stop_required;

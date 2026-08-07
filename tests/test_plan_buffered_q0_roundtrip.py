@@ -31,7 +31,7 @@ ARTIFACT = (
     / "motion10_buffered_q0_roundtrip_plan_only.json"
 )
 ARTIFACT_SHA256 = (
-    "032bf81ef3a18cc8126fb2955388b8d0363405d7584327d56f3bbcf534aa72b5"
+    "20f20d0927f0248a496174fe00223107ffc5c7859e61514e46ab6494757d4247"
 )
 
 
@@ -117,7 +117,7 @@ def test_rejects_anchor_outside_calibration_before_plan_creation():
         MODULE.build_plan(
             CALIBRATION,
             CONTRACT,
-            (2047, 2255, 1785, 1981, 2070, 2002),
+            (1987, 2255, 1785, 1981, 2070, 2002),
         )
 
 

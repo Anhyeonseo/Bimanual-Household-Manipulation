@@ -123,10 +123,12 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
     assert contract["host_adapter_candidate"] == {
         "multi_point_validation_reused": True,
         "linear_resampling_period_ms": 20,
-        "initial_first_sample_lead_ms": 140,
+        "initial_first_sample_lead_ms": 220,
         "physical_uart_baud": 115200,
         "startup_prime_wire_lower_bound_ms": 87.674,
-        "startup_anchor_wire_margin_ms": 32.326,
+        "startup_anchor_wire_margin_ms": 52.326,
+        "startup_prime_elapsed_window_ms": [120, 140],
+        "startup_prime_maximum_heartbeat_gates": 8,
         "fresh_start_wire_sample_included": True,
         "firmware_anchor_lead_ms": 80,
         "firmware_anchor_source": "validated_t0_wire_sample",
@@ -172,6 +174,7 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
         "firmware_terminal_scope": "setpoint_application_complete",
         "host_success_requires_post_settle": True,
         "post_settle_timeout_s": 2.5,
+        "post_settle_maximum_timeout_s": 10.0,
         "post_settle_poll_interval_s": 0.1,
         "post_settle_tolerance_raw": 30,
         "post_settle_consecutive_snapshots": 2,
@@ -204,7 +207,7 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
     assert contract["motion9_physical_evidence"] == {
         "status": "PASS",
         "plan_sha256": (
-            "d5378b6c0eb5eb4069e79e609ee12efb14750d228b61b009d29555fb573f47f8"
+            "d29086a5ad699ac9229113ee730d815429323a661bdf3b257222e9a9b1eadb0d"
         ),
         "sender_sha256": (
             "d66f26f7b3907fda1988895a01e657bafa902ea901396a2c38f8524f16e93671"
@@ -213,7 +216,7 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
             "80f14845bab532de3217fcee7a9c4c2b0b5cf4241b65023844d6ba7d615de087"
         ),
         "firmware_version": "0x00022100",
-        "calibration_hash": "0x8AD27897",
+        "calibration_hash": "0xB317C672",
         "duration_ms": 1200,
         "sample_count": 61,
         "action_send_count": 1,
@@ -225,6 +228,131 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
         "abnormal_noise_or_vibration": False,
         "motion_authorized": False,
     }
+
+
+def test_joint_limit_margin_route_is_deployed_and_unauthorized() -> None:
+    contract = load_buffered_trajectory_contract(CONTRACT_PATH)
+
+    assert contract["servo_uart_receive_candidate"] == {
+        "status": "LOCAL_JOINT_LIMIT_MARGIN_DEPLOYED",
+        "firmware_version": "0x00022C00",
+        "previous_candidate_firmware_version": "0x00022B00",
+        "previous_deployed_firmware_version": "0x00022B00",
+        "baud": 1_000_000,
+        "rx_fifo_enabled": False,
+        "receive_api": "HAL_UARTEx_ReceiveToIdle_DMA",
+        "dma_mode": "circular",
+        "dma_ring_capacity_bytes": 256,
+        "armed_before_first_request": False,
+        "rx_dma_lifecycle": "transaction_scoped_lazy_arm",
+        "disarm_after_transaction": True,
+        "rearm_on_idle_or_transfer_complete": False,
+        "rx_idle_bias": "internal_pull_up",
+        "idle_high_stable_ms": 2,
+        "idle_high_timeout_ms": 20,
+        "receiver_hard_resync": "usart_re_disable_enable",
+        "hal_error_irq_abort_disabled": True,
+        "uart_error_capture": "polled_flags_with_callback_fallback",
+        "dma_active_gate": [
+            "software_started",
+            "uart_dmar",
+            "dma_channel_enabled",
+            "rx_state_busy",
+        ],
+        "pre_transaction_quarantine": True,
+        "transaction_window_max_bytes": 64,
+        "transaction_timeout_ms": 50,
+        "parser_state_preserved_across_bursts": True,
+        "resynchronizes_split_stale_corrupt_responses": True,
+        "soft_error_policy": "PE_NE_checksum_resynchronize",
+        "hard_error_policy": "FE_ORE_RTO_DMA_fail_closed_receiver_resync",
+        "diagnosed_uart_errors": ["PE", "NE", "FE", "ORE", "RTO", "DMA"],
+        "recovery_action": "preserve_snapshot_abort_toggle_re_leave_unarmed",
+        "failure_snapshot_bytes": 16,
+        "extended_health_schema_version": 2,
+        "internal_read_retry_count": 3,
+        "feedback_fail_closed_count": 3,
+        "apply_lateness_histogram_buckets": 6,
+        "apply_lateness_worst_sample_index_reported": True,
+        "host_uart_baud": 115_200,
+        "buffered_status_acknowledgement_payload_bytes": 32,
+        "buffered_status_terminal_payload_bytes": 60,
+        "buffered_status_acknowledgement_transmit_ms": 4.688,
+        "apply_lateness_allowance_ms": 5,
+        "host_frame_transmit_is_blocking": True,
+        "buffered_execution_servo_reads": False,
+        "motion_safety_polling_during_buffered_execution": False,
+        "host_heartbeat_response_budget_ms": 400,
+        "mcu_heartbeat_watchdog_ms": 500,
+        "host_frame_tx_accounting": True,
+        "diagnostics_payload_bytes": 146,
+        "deployed": True,
+        "motion_authorized": False,
+    }
+
+
+
+def test_continuous_pick_place_route_is_plan_only_and_split_at_the_gripper() -> None:
+    """leg 경계가 gripper 동작 지점이라는 사실을 계약으로 고정한다.
+
+    buffered 실행에는 load/current 감시가 없다. `Servo_MotionSafetyPoll` 은
+    비버퍼드 경로에만 있다. 경계가 조용히 옮겨져 접촉이 buffered leg 안으로
+    들어가면 그 구간이 통째로 무감시가 된다.
+    """
+    contract = load_buffered_trajectory_contract(CONTRACT_PATH)
+    route = contract["continuous_pick_place_candidate"]
+
+    assert route["deployed"] is False
+    assert route["motion_authorized"] is False
+    assert route["action_count"] == 3
+    assert route["leg_boundaries_are_gripper_actions"] is True
+    assert route["gripper_moves_inside_a_buffered_leg"] is False
+    assert route["buffered_execution_has_load_current_monitoring"] is False
+    assert route["gripper_command_path_has_load_current_monitoring"] is True
+    # 2026-08-06 대조군 실측으로 확정됐다.
+    assert route["gripper_contact_behavior_measured"] is True
+    measurement = route["gripper_contact_measurement"]
+    # reached_goal 은 네 회차 모두 True 였다. 파지 증거가 아니다.
+    assert measurement["reached_goal_is_contact_evidence"] is False
+    # 잔여 간격이 판별자다. 기준 5, 접촉 23, 임계는 그 사이 14.
+    assert measurement["control_close_residual_raw"] < (
+        measurement["minimum_contact_gap_raw"]
+    ) < measurement["contact_close_residual_raw"]
+    # 접촉 close 가 정상 종료하므로 leg 사이 gripper 가 다음 leg 를 막지 않는다.
+    assert measurement["contact_close_terminates_normally"] is True
+    assert measurement["contact_close_latches"] is False
+    # 사이에 q0 복귀가 없어야 "연속" 이다.
+    assert route["q0_return_between_legs"] is False
+    assert route["admission_simulation_underflow"] == 0
+    assert route["maximum_batch_samples"] <= 9
+
+    chain = [route["legs"][0]["start_pose"]]
+    for leg in route["legs"]:
+        assert leg["start_pose"] == chain[-1]
+        chain.extend(leg["waypoints"])
+    assert chain == [
+        "q0", "pick_pregrasp", "pick_grasp",
+        "lift20", "place_pregrasp", "place",
+        "retreat", "q0",
+    ]
+    assert [leg["gripper_action_after"] for leg in route["legs"]] == [
+        "pick_close", "place_release", None
+    ]
+
+
+def test_continuous_pick_place_cannot_move_the_gripper_inside_a_leg(
+    tmp_path: Path,
+) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    contract["continuous_pick_place_candidate"][
+        "gripper_moves_inside_a_buffered_leg"
+    ] = True
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    with pytest.raises(
+        BufferedTrajectoryContractError, match="split at"
+    ):
+        load_buffered_trajectory_contract(path)
 
 
 def test_machine_contract_cannot_enable_motion(tmp_path: Path) -> None:
@@ -316,7 +444,7 @@ def test_g474_identity_advertises_separate_validation_and_execution_routes() -> 
         / "binary_control.c"
     ).read_text(encoding="utf-8")
 
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022100)" in config
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022C00)" in config
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in config
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in config
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in config
@@ -574,3 +702,139 @@ def test_connection_loss_aborts_without_automatic_resume() -> None:
     assert snapshot.reason == "connection_loss"
     with pytest.raises(BufferedQueueError, match="only start once"):
         queue.start()
+
+
+def test_fresh_segment_leg_route_refuses_endpoint_only_plans() -> None:
+    """갓 계획한 경로를 실행하는 모드는 안전 논리가 다르다.
+
+    `ros_moveit_plan_grasp.py` 는 궤적 점을 저장하지 않는다. 그 출력만으로
+    실행하면 MoveIt 이 검사하지 않은 경로를 직선으로 이어 달리게 된다.
+    경계된 segment 체인을 요구하는 것이 이 모드의 전부다.
+    """
+    route = load_buffered_trajectory_contract(CONTRACT_PATH)[
+        "fresh_segment_leg_candidate"
+    ]
+    assert route["deployed"] is False
+    assert route["motion_authorized"] is False
+    assert route["route_source"] == "planned_in_this_session"
+    assert route["accepts_endpoint_only_plans"] is False
+    assert route["requires_bounded_segment_chain"] is True
+    assert route["requires_straight_joint_space_chain"] is True
+    assert route["requires_moveit_success_per_segment"] is True
+    # 계획과 실행 사이에 경로 파일이 바뀌면 거부되어야 한다.
+    assert route["segment_sha_rechecked_at_execution"] is True
+    assert route["plan_recomputed_at_execution"] is True
+    assert route["gripper_moves_inside_a_leg"] is False
+
+
+def test_fresh_segment_leg_cannot_accept_endpoint_only_plans(
+    tmp_path: Path,
+) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    contract["fresh_segment_leg_candidate"]["accepts_endpoint_only_plans"] = True
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    with pytest.raises(
+        BufferedTrajectoryContractError, match="endpoint-only"
+    ):
+        load_buffered_trajectory_contract(path)
+
+
+def test_pick_and_place_tcp_offsets_are_separated_and_honest() -> None:
+    """한쪽 측정이 다른 쪽을 검증한 것처럼 보이면 안 된다.
+
+    2026-08-06 A4: Pick 은 gripper 잔여 간격으로 실측했다(0.025 에서 3 raw
+    = 놓침, 0.017 에서 20 raw = 파지). Place 는 Stage 7 이 -5 mm 보정 2회를
+    필요로 했다는 정황만 있고 측정된 적이 없다.
+    """
+    offsets = load_buffered_trajectory_contract(CONTRACT_PATH)[
+        "tcp_contact_offsets"
+    ]
+    assert offsets["pick_and_place_offsets_separated"] is True
+    assert offsets["pick_offset_measured"] is True
+    assert offsets["place_offset_measured"] is False
+    assert offsets["deployed"] is False
+    assert offsets["motion_authorized"] is False
+
+    # 측정된 Pick 값은 공칭보다 낮아야 한다. 공칭으로는 놓쳤다.
+    assert offsets["pick_grasp_offset_m"] < offsets["nominal_grasp_offset_m"]
+    # Place 는 아직 공칭 그대로임을 드러낸다.
+    assert offsets["place_grasp_offset_m"] == offsets["nominal_grasp_offset_m"]
+
+    held = [e for e in offsets["sweep"] if e["held"] is True]
+    missed = [e for e in offsets["sweep"] if e["held"] is False]
+    assert held and missed
+    # 잡힌 높이가 놓친 높이보다 낮아야 한다.
+    assert max(e["grasp_offset_m"] for e in held) < min(
+        e["grasp_offset_m"] for e in missed
+    )
+    # 임계가 대조군과 실측 파지 사이에 있어야 한다.
+    assert offsets["control_close_residual_raw"] < offsets[
+        "contact_threshold_raw"
+    ] <= min(e["residual_gap_raw"] for e in held)
+
+
+def test_contract_refuses_a_place_offset_claimed_as_measured(
+    tmp_path: Path,
+) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    contract["tcp_contact_offsets"]["place_offset_measured"] = True
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    with pytest.raises(
+        BufferedTrajectoryContractError, match="not measured yet"
+    ):
+        load_buffered_trajectory_contract(path)
+
+
+def test_top_shadow_grasp_route_replaces_the_publisher_lock_with_its_own() -> None:
+    """인식 결과를 파지 좌표로 쓰는 것은 잠금을 넘는 행위다.
+
+    `ShadowObjectTarget` 은 "Never consume this as a motion goal" 로 시작한다.
+    넘으려면 대신할 게이트가 있어야 하고, 그것이 무엇인지가 계약에 있어야 한다.
+    """
+    route = load_buffered_trajectory_contract(CONTRACT_PATH)[
+        "top_shadow_grasp_candidate"
+    ]
+    assert route["deployed"] is False
+    assert route["motion_authorized"] is False
+    assert route["message_forbids_direct_motion_use"] is True
+    assert route["publisher_must_not_claim_authority"] is True
+    assert route["collision_checked_per_run"] is True
+    assert route["operator_approves_each_descent"] is True
+    # 흔들림 한계는 인식 정확도보다 작아야 게이트 구실을 한다.
+    assert route["maximum_position_spread_m"] < route[
+        "measured_perception_error_position_m"
+    ]
+    assert route["maximum_yaw_spread_rad"] < route[
+        "measured_perception_error_yaw_rad"
+    ]
+    # 파지 높이는 A4 실측값을 참조해야 한다. 여기에 다시 적으면 갈라진다.
+    assert route["grasp_offset_m_source"] == (
+        "tcp_contact_offsets.pick_grasp_offset_m"
+    )
+
+
+def test_contract_refuses_shadow_spread_as_wide_as_the_perception_error(
+    tmp_path: Path,
+) -> None:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    shadow = contract["top_shadow_grasp_candidate"]
+    shadow["maximum_position_spread_m"] = shadow[
+        "measured_perception_error_position_m"
+    ]
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    with pytest.raises(
+        BufferedTrajectoryContractError, match="inside the measured perception"
+    ):
+        load_buffered_trajectory_contract(path)
+
+
+def test_contact_boundary_is_recorded_as_unmapped() -> None:
+    """0.017 은 대상 펜에서 확인됐지만 경계는 재지 않았다."""
+    offsets = load_buffered_trajectory_contract(CONTRACT_PATH)[
+        "tcp_contact_offsets"
+    ]
+    assert offsets["contact_boundary_mapped"] is False
+    assert "물체 크기가 바뀌면" in offsets["boundary_note"]

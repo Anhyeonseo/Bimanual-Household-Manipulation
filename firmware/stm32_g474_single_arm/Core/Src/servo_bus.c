@@ -1,21 +1,122 @@
 #include "servo_bus.h"
 #include "servo_response_parser.h"
+#include "servo_rx_window.h"
 
 #include <stddef.h>
 #include <string.h>
 
 #define SERVO_BUS_READ_TIMEOUT_MS UINT32_C(50)
-#define SERVO_BUS_MAX_RX_BYTES UINT16_C(64)
+#define SERVO_BUS_READ_TX_TIMEOUT_MS UINT32_C(5)
+#define SERVO_BUS_DMA_RING_CAPACITY UINT16_C(256)
 #define SERVO_BUS_RECOVERY_QUIET_MS UINT32_C(2)
+#define SERVO_BUS_PREFLIGHT_IDLE_TIMEOUT_MS UINT32_C(2)
+#define SERVO_BUS_IDLE_HIGH_STABLE_MS UINT32_C(2)
+#define SERVO_BUS_IDLE_HIGH_TIMEOUT_MS UINT32_C(20)
+#define SERVO_BUS_RECEIVER_ACK_TIMEOUT_MS UINT32_C(2)
 #define SERVO_BUS_WRITE_REPLY_SETTLE_MS UINT32_C(2)
 
 static UART_HandleTypeDef *servo_uart_handle = NULL;
 static ServoStopRequestedFn servo_stop_requested = NULL;
 static ServoReadFailureFn servo_read_failure = NULL;
-static uint16_t servo_bus_recovery_count = 0U;
-static ServoBusDiagnostics servo_bus_diagnostics = {
-    SERVO_BUS_FAILURE_NONE, 0U, 0U, 0U, 0U, 0U, 0U, 0U
-};
+static volatile uint8_t servo_dma_rx_ring[SERVO_BUS_DMA_RING_CAPACITY]
+    __attribute__((aligned(4))) = {0U};
+static volatile uint32_t servo_dma_wrap_count = 0U;
+static volatile uint32_t servo_uart_async_errors = 0U;
+static volatile uint32_t servo_dma_async_error = 0U;
+static uint32_t servo_transaction_start_absolute = 0U;
+static uint8_t servo_transaction_active = 0U;
+static ServoBusDiagnostics servo_bus_diagnostics = {0};
+static ServoBusHealth servo_bus_health = {0};
+
+static uint32_t ServoBus_CurrentUartErrorCode(void);
+static void ServoBus_ClearHardwareRxState(void);
+static HAL_StatusTypeDef ServoBus_HardResyncReceiver(void);
+static HAL_StatusTypeDef ServoBus_ArmReceiver(void);
+static HAL_StatusTypeDef ServoBus_DisarmReceiver(void);
+static void ServoBus_CaptureFailureSnapshot(void);
+static HAL_StatusTypeDef ServoBus_Recover(void);
+static void ServoBus_RecordFailure(
+    ServoBusFailureReason reason,
+    uint8_t servo_id,
+    HAL_StatusTypeDef hal_status,
+    uint8_t servo_status,
+    uint16_t discarded_bytes
+);
+
+/*
+ * HAL_UART_IRQHandler treats every UART error as blocking while DMAR is set
+ * and aborts even a circular receive. The servo bus polls and clears error
+ * flags at transaction boundaries so a power-domain edge cannot silently
+ * kill an active transaction ring.
+ */
+static void ServoBus_DisableHalErrorAbort(void)
+{
+    if (servo_uart_handle == NULL)
+    {
+        return;
+    }
+
+    ATOMIC_CLEAR_BIT(
+        servo_uart_handle->Instance->CR1,
+        USART_CR1_PEIE | USART_CR1_RTOIE
+    );
+    ATOMIC_CLEAR_BIT(
+        servo_uart_handle->Instance->CR3,
+        USART_CR3_EIE
+    );
+}
+
+static HAL_StatusTypeDef ServoBus_StartCircularDma(void)
+{
+    if ((servo_uart_handle == NULL) ||
+        (servo_uart_handle->hdmarx == NULL))
+    {
+        return HAL_ERROR;
+    }
+
+    HAL_StatusTypeDef status = HAL_UARTEx_ReceiveToIdle_DMA(
+        servo_uart_handle,
+        (uint8_t *)servo_dma_rx_ring,
+        SERVO_BUS_DMA_RING_CAPACITY
+    );
+    if (status != HAL_OK)
+    {
+        servo_bus_health.dma_started = 0U;
+        return status;
+    }
+
+    ServoBus_DisableHalErrorAbort();
+    servo_bus_health.dma_started = 1U;
+    return HAL_OK;
+}
+
+static uint8_t ServoBus_DmaHardwareActive(void)
+{
+    if ((servo_uart_handle == NULL) ||
+        (servo_uart_handle->hdmarx == NULL) ||
+        (servo_bus_health.dma_started == 0U))
+    {
+        return 0U;
+    }
+
+    return ((servo_uart_handle->RxState == HAL_UART_STATE_BUSY_RX) &&
+            (HAL_IS_BIT_SET(
+                servo_uart_handle->Instance->CR3,
+                USART_CR3_DMAR
+            )) &&
+            (HAL_IS_BIT_SET(
+                servo_uart_handle->hdmarx->Instance->CCR,
+                DMA_CCR_EN
+            ))) ? 1U : 0U;
+}
+
+static void ServoBus_IncrementU16(uint16_t *value)
+{
+    if ((value != NULL) && (*value < UINT16_MAX))
+    {
+        (*value)++;
+    }
+}
 
 static uint8_t servo_motion_safety_mask = 0U;
 static uint32_t servo_motion_safety_last_sample_ms = 0U;
@@ -27,12 +128,12 @@ static ServoMotionSafetyDiagnostics servo_motion_safety_diagnostics = {
 };
 
 const ServoJointConfig servo_joints[SINGLE_ARM_JOINT_COUNT] = {
-    {1U, "BASE",        1U, 2048U, 2048U, 2610U, 16U,  1,  34U,  600U, 400U},
+    {1U, "BASE",        1U, 2048U, 1988U, 2610U, 16U,  1,  34U,  600U, 400U},
     {2U, "SHOULDER",    1U, 2048U, 1988U, 3766U, 32U,  1,  34U, 1200U,
         SERVO_SHOULDER_TORQUE_LIMIT_RAW},
     {3U, "ELBOW",       1U, 2048U, 627U, 2258U, 28U, -1,  34U, 1000U,
         SERVO_ELBOW_TORQUE_LIMIT_RAW},
-    {4U, "WRIST_FLEX",  1U, 2048U, 1194U, 2048U, 16U, -1,  34U,  800U, 400U},
+    {4U, "WRIST_FLEX",  1U, 2048U, 1194U, 2108U, 16U, -1,  34U,  800U, 400U},
     {5U, "WRIST_ROLL",  1U, 2048U, 1874U, 2219U, 16U,  1,  34U,  500U, 250U},
     {6U, "GRIPPER",     1U, 2048U, 1866U, 2048U, 16U, -1,  34U,  800U, 150U}
 };
@@ -50,8 +151,24 @@ void ServoBus_Init(
     servo_stop_requested = stop_requested;
     servo_read_failure = read_failure;
     servo_last_all_read_failed_id = 0U;
-    servo_bus_recovery_count = 0U;
     memset(&servo_bus_diagnostics, 0, sizeof(servo_bus_diagnostics));
+    memset(&servo_bus_health, 0, sizeof(servo_bus_health));
+    memset((void *)servo_dma_rx_ring, 0, sizeof(servo_dma_rx_ring));
+    servo_dma_wrap_count = 0U;
+    servo_uart_async_errors = 0U;
+    servo_dma_async_error = 0U;
+
+    /*
+     * The external servo adapter lives in the switched 12 V domain. Leaving
+     * DMA armed while that domain is off captures the power edge as a partial
+     * response and can poison the USART receiver until an MCU reset. Keep RX
+     * unarmed until the first transaction observes a stable idle-high line.
+     */
+    ServoBus_ClearHardwareRxState();
+    ServoBus_DisableHalErrorAbort();
+    servo_bus_health.dma_started = 0U;
+    servo_transaction_start_absolute = 0U;
+    servo_transaction_active = 0U;
     Servo_MotionSafetyEnd();
     memset(
         &servo_motion_safety_diagnostics,
@@ -65,7 +182,79 @@ const ServoBusDiagnostics *ServoBus_GetDiagnostics(void)
     return &servo_bus_diagnostics;
 }
 
-static void ServoBus_ClearRxState(void)
+const ServoBusHealth *ServoBus_GetHealth(void)
+{
+    return &servo_bus_health;
+}
+
+static void ServoBus_CountUartErrors(uint32_t errors)
+{
+    if ((errors & HAL_UART_ERROR_PE) != 0U)
+    {
+        ServoBus_IncrementU16(&servo_bus_health.pe_count);
+    }
+    if ((errors & HAL_UART_ERROR_NE) != 0U)
+    {
+        ServoBus_IncrementU16(&servo_bus_health.ne_count);
+    }
+    if ((errors & HAL_UART_ERROR_FE) != 0U)
+    {
+        ServoBus_IncrementU16(&servo_bus_health.fe_count);
+    }
+    if ((errors & HAL_UART_ERROR_ORE) != 0U)
+    {
+        ServoBus_IncrementU16(&servo_bus_health.ore_count);
+    }
+    if ((errors & HAL_UART_ERROR_RTO) != 0U)
+    {
+        ServoBus_IncrementU16(&servo_bus_health.rto_count);
+    }
+}
+
+void ServoBus_HandleUartError(UART_HandleTypeDef *uart)
+{
+    if ((uart == NULL) || (uart != servo_uart_handle))
+    {
+        return;
+    }
+
+    uint32_t errors = ServoBus_CurrentUartErrorCode();
+    servo_uart_async_errors |= errors;
+    ServoBus_CountUartErrors(errors);
+    /* HAL delivers this callback after aborting DMA-mode reception. */
+    servo_bus_health.dma_started = 0U;
+    if (uart->hdmarx != NULL)
+    {
+        uint32_t dma_error = uart->hdmarx->ErrorCode;
+        servo_dma_async_error |= dma_error;
+        if (dma_error != HAL_DMA_ERROR_NONE)
+        {
+            ServoBus_IncrementU16(&servo_bus_health.dma_error_count);
+        }
+    }
+}
+
+void HAL_UARTEx_RxEventCallback(
+    UART_HandleTypeDef *uart,
+    uint16_t received
+)
+{
+    (void)received;
+    if ((uart == NULL) || (uart != servo_uart_handle))
+    {
+        return;
+    }
+
+    HAL_UART_RxEventTypeTypeDef event = HAL_UARTEx_GetRxEventType(uart);
+    servo_bus_health.last_rx_event = (uint8_t)event;
+    servo_bus_health.rx_event_count++;
+    if (event == HAL_UART_RXEVENT_TC)
+    {
+        servo_dma_wrap_count++;
+    }
+}
+
+static void ServoBus_ClearHardwareRxState(void)
 {
     if (servo_uart_handle == NULL)
     {
@@ -86,12 +275,349 @@ static void ServoBus_ClearRxState(void)
     );
 }
 
-static void ServoBus_BeginTransaction(uint8_t servo_id)
+static uint32_t ServoBus_ProducerAbsolute(void)
 {
+    if ((servo_uart_handle == NULL) ||
+        (servo_uart_handle->hdmarx == NULL) ||
+        (ServoBus_DmaHardwareActive() == 0U))
+    {
+        return 0U;
+    }
+
+    uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    uint32_t wraps = servo_dma_wrap_count;
+    uint16_t remaining = (uint16_t)__HAL_DMA_GET_COUNTER(
+        servo_uart_handle->hdmarx
+    );
+    uint32_t pending_tc = __HAL_DMA_GET_FLAG(
+        servo_uart_handle->hdmarx,
+        __HAL_DMA_GET_TC_FLAG_INDEX(servo_uart_handle->hdmarx)
+    );
+    if ((pending_tc != 0U) && (remaining != 0U))
+    {
+        wraps++;
+    }
+    uint32_t absolute =
+        (wraps * SERVO_BUS_DMA_RING_CAPACITY) +
+        (SERVO_BUS_DMA_RING_CAPACITY - remaining);
+    __DMB();
+    if (interrupt_mask == 0U)
+    {
+        __enable_irq();
+    }
+    servo_bus_health.producer_index = (uint16_t)(
+        absolute % SERVO_BUS_DMA_RING_CAPACITY
+    );
+    return absolute;
+}
+
+static uint32_t ServoBus_CurrentUartErrorCode(void)
+{
+    if (servo_uart_handle == NULL)
+    {
+        return HAL_UART_ERROR_NONE;
+    }
+
+    uint32_t errors = servo_uart_handle->ErrorCode;
+    uint32_t isr = servo_uart_handle->Instance->ISR;
+
+    if ((isr & UART_FLAG_PE) != 0U)
+    {
+        errors |= HAL_UART_ERROR_PE;
+    }
+    if ((isr & UART_FLAG_NE) != 0U)
+    {
+        errors |= HAL_UART_ERROR_NE;
+    }
+    if ((isr & UART_FLAG_FE) != 0U)
+    {
+        errors |= HAL_UART_ERROR_FE;
+    }
+    if ((isr & UART_FLAG_ORE) != 0U)
+    {
+        errors |= HAL_UART_ERROR_ORE;
+    }
+    if ((isr & UART_FLAG_RTOF) != 0U)
+    {
+        errors |= HAL_UART_ERROR_RTO;
+    }
+
+    return errors;
+}
+
+static uint8_t ServoBus_WaitForIdleHighStable(void)
+{
+    if (servo_uart_handle == NULL)
+    {
+        return 0U;
+    }
+
+    uint32_t wait_started = HAL_GetTick();
+    uint32_t high_started = wait_started;
+    uint8_t high_active = 0U;
+
+    while ((uint32_t)(HAL_GetTick() - wait_started) <
+           SERVO_BUS_IDLE_HIGH_TIMEOUT_MS)
+    {
+        uint32_t now = HAL_GetTick();
+        uint8_t line_high = (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_5) ==
+                             GPIO_PIN_SET) ? 1U : 0U;
+        uint8_t uart_idle = (__HAL_UART_GET_FLAG(
+            servo_uart_handle, UART_FLAG_BUSY
+        ) == RESET) ? 1U : 0U;
+
+        uint8_t hardware_error_present = (
+            (ServoBus_CurrentUartErrorCode() != HAL_UART_ERROR_NONE) ||
+            ((servo_uart_handle->hdmarx != NULL) &&
+             (servo_uart_handle->hdmarx->ErrorCode != HAL_DMA_ERROR_NONE))
+        ) ? 1U : 0U;
+        if ((line_high != 0U) &&
+            (uart_idle != 0U) &&
+            (hardware_error_present == 0U))
+        {
+            if (high_active == 0U)
+            {
+                high_active = 1U;
+                high_started = now;
+            }
+            if (ServoRxWindow_ArmPermitted(
+                    line_high,
+                    uart_idle,
+                    (uint32_t)(now - high_started),
+                    SERVO_BUS_IDLE_HIGH_STABLE_MS,
+                    hardware_error_present
+                ) != 0U)
+            {
+                return 1U;
+            }
+        }
+        else
+        {
+            high_active = 0U;
+            high_started = now;
+        }
+    }
+
+    return 0U;
+}
+
+static HAL_StatusTypeDef ServoBus_HardResyncReceiver(void)
+{
+    if ((servo_uart_handle == NULL) ||
+        (servo_uart_handle->hdmarx == NULL))
+    {
+        return HAL_ERROR;
+    }
+
+    HAL_StatusTypeDef status = HAL_UART_AbortReceive(servo_uart_handle);
+    servo_bus_health.dma_started = 0U;
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+
+    ATOMIC_CLEAR_BIT(servo_uart_handle->Instance->CR1, USART_CR1_RE);
+    uint32_t ack_started = HAL_GetTick();
+    while (HAL_IS_BIT_SET(
+        servo_uart_handle->Instance->ISR, USART_ISR_REACK
+    ))
+    {
+        if ((uint32_t)(HAL_GetTick() - ack_started) >=
+            SERVO_BUS_RECEIVER_ACK_TIMEOUT_MS)
+        {
+            return HAL_TIMEOUT;
+        }
+    }
+
+    ServoBus_ClearHardwareRxState();
+    HAL_Delay(SERVO_BUS_RECOVERY_QUIET_MS);
+    ServoBus_ClearHardwareRxState();
+
+    ATOMIC_SET_BIT(servo_uart_handle->Instance->CR1, USART_CR1_RE);
+    ack_started = HAL_GetTick();
+    while (!HAL_IS_BIT_SET(
+        servo_uart_handle->Instance->ISR, USART_ISR_REACK
+    ))
+    {
+        if ((uint32_t)(HAL_GetTick() - ack_started) >=
+            SERVO_BUS_RECEIVER_ACK_TIMEOUT_MS)
+        {
+            return HAL_TIMEOUT;
+        }
+    }
+
+    ServoBus_ClearHardwareRxState();
+    servo_uart_handle->ErrorCode = HAL_UART_ERROR_NONE;
+    servo_uart_handle->hdmarx->ErrorCode = HAL_DMA_ERROR_NONE;
+    servo_uart_async_errors = 0U;
+    servo_dma_async_error = 0U;
+    servo_bus_health.receiver_resync_count++;
+    return HAL_OK;
+}
+
+static HAL_StatusTypeDef ServoBus_ArmReceiver(void)
+{
+    if ((servo_uart_handle == NULL) ||
+        (servo_uart_handle->hdmarx == NULL))
+    {
+        return HAL_ERROR;
+    }
+
+    HAL_StatusTypeDef status = HAL_UART_AbortReceive(servo_uart_handle);
+    servo_bus_health.dma_started = 0U;
+    if (status != HAL_OK)
+    {
+        return status;
+    }
+    ServoBus_ClearHardwareRxState();
+    if (ServoBus_WaitForIdleHighStable() == 0U)
+    {
+        return HAL_TIMEOUT;
+    }
+
+    memset((void *)servo_dma_rx_ring, 0, sizeof(servo_dma_rx_ring));
+    servo_dma_wrap_count = 0U;
+    servo_uart_async_errors = 0U;
+    servo_dma_async_error = 0U;
+    servo_uart_handle->ErrorCode = HAL_UART_ERROR_NONE;
+    servo_uart_handle->hdmarx->ErrorCode = HAL_DMA_ERROR_NONE;
+
+    status = ServoBus_StartCircularDma();
+    if (status == HAL_OK)
+    {
+        servo_bus_health.lazy_arm_count++;
+    }
+    return status;
+}
+
+static HAL_StatusTypeDef ServoBus_DisarmReceiver(void)
+{
+    if (servo_uart_handle == NULL)
+    {
+        return HAL_ERROR;
+    }
+
+    HAL_StatusTypeDef status = HAL_UART_AbortReceive(servo_uart_handle);
+    servo_bus_health.dma_started = 0U;
+    servo_transaction_active = 0U;
+    ServoBus_ClearHardwareRxState();
+    servo_uart_handle->ErrorCode = HAL_UART_ERROR_NONE;
+    servo_uart_async_errors = 0U;
+    servo_dma_async_error = 0U;
+    return status;
+}
+
+static void ServoBus_CaptureFailureSnapshot(void)
+{
+    servo_bus_diagnostics.snapshot_length = 0U;
+    memset(
+        servo_bus_diagnostics.snapshot,
+        0,
+        sizeof(servo_bus_diagnostics.snapshot)
+    );
+
+    if ((servo_transaction_active == 0U) ||
+        (ServoBus_DmaHardwareActive() == 0U))
+    {
+        return;
+    }
+
+    servo_bus_diagnostics.snapshot_length = ServoRxWindow_CaptureRecent(
+        servo_dma_rx_ring,
+        SERVO_BUS_DMA_RING_CAPACITY,
+        servo_transaction_start_absolute,
+        ServoBus_ProducerAbsolute(),
+        servo_bus_diagnostics.snapshot,
+        SERVO_BUS_FAILURE_SNAPSHOT_MAX_BYTES
+    );
+}
+
+static HAL_StatusTypeDef ServoBus_PrepareTransaction(
+    uint8_t servo_id,
+    uint32_t *start_absolute
+)
+{
+    if ((servo_uart_handle == NULL) || (start_absolute == NULL))
+    {
+        return HAL_ERROR;
+    }
+
     memset(&servo_bus_diagnostics, 0, sizeof(servo_bus_diagnostics));
     servo_bus_diagnostics.servo_id = servo_id;
-    servo_bus_diagnostics.recovery_count = servo_bus_recovery_count;
-    ServoBus_ClearRxState();
+    servo_bus_diagnostics.recovery_count = servo_bus_health.recovery_count;
+    servo_bus_health.transaction_count++;
+    servo_transaction_active = 0U;
+
+    uint32_t callback_errors = servo_uart_async_errors;
+    uint32_t polled_errors = ServoBus_CurrentUartErrorCode();
+    uint32_t uart_errors = callback_errors | polled_errors;
+    uint32_t dma_error = servo_dma_async_error;
+    if (servo_uart_handle->hdmarx != NULL)
+    {
+        dma_error |= servo_uart_handle->hdmarx->ErrorCode;
+    }
+
+    uint8_t receiver_active = ServoBus_DmaHardwareActive();
+    if ((uart_errors != HAL_UART_ERROR_NONE) ||
+        (dma_error != HAL_DMA_ERROR_NONE) ||
+        ((receiver_active != 0U) && (__HAL_UART_GET_FLAG(
+            servo_uart_handle, UART_FLAG_BUSY
+        ) != RESET)))
+    {
+        ServoBus_CountUartErrors(polled_errors & ~callback_errors);
+        if (dma_error != HAL_DMA_ERROR_NONE)
+        {
+            ServoBus_IncrementU16(&servo_bus_health.dma_error_count);
+        }
+        if (ServoBus_Recover() != HAL_OK)
+        {
+            ServoBus_RecordFailure(
+                SERVO_BUS_FAILURE_RECOVERY, servo_id, HAL_ERROR, 0U, 0U
+            );
+            return HAL_ERROR;
+        }
+    }
+    if (ServoBus_DmaHardwareActive() == 0U)
+    {
+        if (ServoBus_ArmReceiver() != HAL_OK)
+        {
+            ServoBus_RecordFailure(
+                SERVO_BUS_FAILURE_RECOVERY, servo_id, HAL_TIMEOUT, 0U, 0U
+            );
+            return HAL_ERROR;
+        }
+    }
+
+    uint32_t idle_started = HAL_GetTick();
+    while (__HAL_UART_GET_FLAG(
+        servo_uart_handle, UART_FLAG_BUSY
+    ) != RESET)
+    {
+        if ((uint32_t)(HAL_GetTick() - idle_started) >=
+            SERVO_BUS_PREFLIGHT_IDLE_TIMEOUT_MS)
+        {
+            ServoBus_RecordFailure(
+                SERVO_BUS_FAILURE_UART, servo_id, HAL_BUSY, 0U, 0U
+            );
+            (void)ServoBus_Recover();
+            return HAL_BUSY;
+        }
+    }
+
+    if (ServoBus_DmaHardwareActive() == 0U)
+    {
+        ServoBus_RecordFailure(
+            SERVO_BUS_FAILURE_DMA, servo_id, HAL_ERROR, 0U, 0U
+        );
+        (void)ServoBus_Recover();
+        return HAL_ERROR;
+    }
+
+    *start_absolute = ServoBus_ProducerAbsolute();
+    servo_transaction_start_absolute = *start_absolute;
+    servo_transaction_active = 1U;
+    return HAL_OK;
 }
 
 static void ServoBus_RecordFailure(
@@ -107,6 +633,8 @@ static void ServoBus_RecordFailure(
     servo_bus_diagnostics.hal_status = (uint8_t)hal_status;
     servo_bus_diagnostics.servo_status = servo_status;
     servo_bus_diagnostics.discarded_bytes = discarded_bytes;
+    servo_bus_health.failure_count++;
+    servo_bus_health.discarded_bytes += discarded_bytes;
 
     if (servo_uart_handle != NULL)
     {
@@ -114,6 +642,11 @@ static void ServoBus_RecordFailure(
             servo_uart_handle->ErrorCode;
         servo_bus_diagnostics.uart_isr =
             servo_uart_handle->Instance->ISR;
+        if (servo_uart_handle->hdmarx != NULL)
+        {
+            servo_bus_diagnostics.dma_error_code =
+                servo_uart_handle->hdmarx->ErrorCode;
+        }
     }
 }
 
@@ -125,21 +658,22 @@ static HAL_StatusTypeDef ServoBus_Recover(void)
         return HAL_ERROR;
     }
 
-    HAL_StatusTypeDef status = HAL_UART_Abort(servo_uart_handle);
-    if (servo_bus_recovery_count < UINT16_MAX)
-    {
-        servo_bus_recovery_count++;
-    }
-    servo_bus_diagnostics.recovery_count = servo_bus_recovery_count;
+    /* Preserve the last transaction bytes before abort/reset clears the ring. */
+    ServoBus_CaptureFailureSnapshot();
+    servo_transaction_active = 0U;
+    servo_bus_health.recovery_count++;
+    servo_bus_diagnostics.recovery_count = servo_bus_health.recovery_count;
 
-    ServoBus_ClearRxState();
-    HAL_Delay(SERVO_BUS_RECOVERY_QUIET_MS);
-    ServoBus_ClearRxState();
-
+    HAL_StatusTypeDef status = ServoBus_HardResyncReceiver();
     if (status != HAL_OK)
     {
         servo_bus_diagnostics.reason = SERVO_BUS_FAILURE_RECOVERY;
         servo_bus_diagnostics.hal_status = (uint8_t)status;
+        if (servo_uart_handle->hdmarx != NULL)
+        {
+            servo_bus_diagnostics.dma_error_code =
+                servo_uart_handle->hdmarx->ErrorCode;
+        }
         return status;
     }
     return HAL_OK;
@@ -413,13 +947,21 @@ HAL_StatusTypeDef Servo_ReadData(
     request[6] = data_length;
     request[7] = Servo_Checksum(request, 6U);
 
-    ServoBus_BeginTransaction(servo_id);
+    uint32_t transaction_start_absolute = 0U;
+    if (ServoBus_PrepareTransaction(
+            servo_id,
+            &transaction_start_absolute
+        ) != HAL_OK)
+    {
+        return HAL_ERROR;
+    }
+    uint32_t transaction_start_tick = HAL_GetTick();
 
     HAL_StatusTypeDef status = HAL_UART_Transmit(
         servo_uart_handle,
         request,
         sizeof(request),
-        100U
+        SERVO_BUS_READ_TX_TIMEOUT_MS
     );
 
     if (status != HAL_OK)
@@ -435,103 +977,158 @@ HAL_StatusTypeDef Servo_ReadData(
         return status;
     }
 
-    ServoResponseParser parser;
-    ServoResponseParser_Init(&parser, servo_id, data_length);
-    uint32_t start_tick = HAL_GetTick();
-    HAL_StatusTypeDef receive_status = HAL_TIMEOUT;
+    ServoRxWindow window;
+    ServoRxWindow_Init(
+        &window,
+        servo_id,
+        data_length,
+        transaction_start_absolute
+    );
 
-    for (uint16_t received = 0U;
-         received < SERVO_BUS_MAX_RX_BYTES;
-         received++)
+    while (ServoRxWindow_DeadlineExpired(
+        transaction_start_tick,
+        HAL_GetTick(),
+        SERVO_BUS_READ_TIMEOUT_MS
+    ) == 0U)
     {
-        uint32_t elapsed = HAL_GetTick() - start_tick;
-        if (elapsed >= SERVO_BUS_READ_TIMEOUT_MS)
+        uint32_t callback_errors = servo_uart_async_errors;
+        uint32_t polled_errors = ServoBus_CurrentUartErrorCode();
+        uint32_t uart_errors = callback_errors | polled_errors;
+        uint32_t dma_error = servo_dma_async_error;
+        if (servo_uart_handle->hdmarx != NULL)
         {
-            break;
+            dma_error |= servo_uart_handle->hdmarx->ErrorCode;
         }
-
-        uint8_t byte = 0U;
-        receive_status = HAL_UART_Receive(
-            servo_uart_handle,
-            &byte,
-            1U,
-            SERVO_BUS_READ_TIMEOUT_MS - elapsed
-        );
-        if (receive_status != HAL_OK)
+        if (uart_errors != HAL_UART_ERROR_NONE)
         {
-            uint32_t uart_errors = servo_uart_handle->ErrorCode;
-            uint32_t uart_flags = servo_uart_handle->Instance->ISR &
-                (UART_FLAG_PE |
-                 UART_FLAG_FE |
-                 UART_FLAG_NE |
-                 UART_FLAG_ORE |
-                 UART_FLAG_RTOF);
-            ServoBusFailureReason failure_reason =
-                SERVO_BUS_FAILURE_RX_TIMEOUT;
-            if ((uart_errors != HAL_UART_ERROR_NONE) ||
-                (uart_flags != 0U))
-            {
-                failure_reason = SERVO_BUS_FAILURE_UART;
-            }
-            else if (parser.last_reject != SERVO_RESPONSE_REJECT_NONE)
-            {
-                /*
-                 * Preserve the parser's concrete rejection cause when a
-                 * corrupt or stale frame is followed by silence. Reporting
-                 * only the final byte timeout would hide the evidence needed
-                 * to distinguish desynchronization from a disconnected bus.
-                 */
-                failure_reason = ServoBus_MapRejectReason(
-                    parser.last_reject
-                );
-            }
-            ServoBus_RecordFailure(
-                failure_reason,
-                servo_id,
-                receive_status,
-                0U,
-                parser.discarded_bytes
+            ServoBus_CountUartErrors(polled_errors & ~callback_errors);
+            servo_uart_async_errors = 0U;
+            servo_uart_handle->ErrorCode = HAL_UART_ERROR_NONE;
+            __HAL_UART_CLEAR_FLAG(
+                servo_uart_handle,
+                UART_CLEAR_OREF |
+                UART_CLEAR_NEF |
+                UART_CLEAR_PEF |
+                UART_CLEAR_FEF |
+                UART_CLEAR_RTOF
             );
-            break;
+
+            /*
+             * NE/PE bytes remain checksum-gated. FE indicates receiver framing
+             * contamination at the power boundary; FE/ORE/RTO all hard-
+             * resynchronize the receiver and fail this transaction closed.
+             */
+            if (ServoRxWindow_HardResyncRequired(
+                    (uart_errors & HAL_UART_ERROR_FE) != 0U,
+                    (uart_errors & HAL_UART_ERROR_ORE) != 0U,
+                    (uart_errors & HAL_UART_ERROR_RTO) != 0U,
+                    0U
+                ) != 0U)
+            {
+                ServoBus_RecordFailure(
+                    SERVO_BUS_FAILURE_UART,
+                    servo_id,
+                    HAL_ERROR,
+                    0U,
+                    window.parser.discarded_bytes
+                );
+                servo_bus_diagnostics.uart_error_code = uart_errors;
+                servo_bus_diagnostics.received_bytes =
+                    window.consumed_bytes;
+                (void)ServoBus_Recover();
+                return HAL_ERROR;
+            }
+        }
+        if (dma_error != HAL_DMA_ERROR_NONE)
+        {
+            ServoBus_RecordFailure(
+                SERVO_BUS_FAILURE_DMA,
+                servo_id,
+                HAL_ERROR,
+                0U,
+                window.parser.discarded_bytes
+            );
+            servo_bus_diagnostics.dma_error_code = dma_error;
+            servo_bus_diagnostics.received_bytes = window.consumed_bytes;
+            (void)ServoBus_Recover();
+            return HAL_ERROR;
         }
 
-        ServoResponseParseResult parse_result =
-            ServoResponseParser_Push(&parser, byte);
-        if (parse_result == SERVO_RESPONSE_FRAME_READY)
+        ServoRxWindowResult result = ServoRxWindow_Consume(
+            &window,
+            servo_dma_rx_ring,
+            SERVO_BUS_DMA_RING_CAPACITY,
+            ServoBus_ProducerAbsolute(),
+            data,
+            data_length
+        );
+        if (result == SERVO_RX_WINDOW_FRAME_READY)
         {
-            memcpy(data, ServoResponseParser_Data(&parser), data_length);
             servo_bus_diagnostics.discarded_bytes =
-                parser.discarded_bytes;
+                window.parser.discarded_bytes;
+            servo_bus_diagnostics.received_bytes =
+                window.consumed_bytes;
+            if (ServoBus_DisarmReceiver() != HAL_OK)
+            {
+                ServoBus_RecordFailure(
+                    SERVO_BUS_FAILURE_RECOVERY,
+                    servo_id,
+                    HAL_ERROR,
+                    0U,
+                    window.parser.discarded_bytes
+                );
+                return HAL_ERROR;
+            }
+            servo_bus_health.success_count++;
+            servo_bus_health.discarded_bytes +=
+                window.parser.discarded_bytes;
             return HAL_OK;
         }
-        if (parse_result == SERVO_RESPONSE_STATUS_ERROR)
+        if (result == SERVO_RX_WINDOW_STATUS_ERROR)
         {
             ServoBus_RecordFailure(
                 SERVO_BUS_FAILURE_STATUS,
                 servo_id,
                 HAL_ERROR,
-                parser.servo_status,
-                parser.discarded_bytes
+                window.parser.servo_status,
+                window.parser.discarded_bytes
             );
+            servo_bus_diagnostics.received_bytes = window.consumed_bytes;
+            (void)ServoBus_Recover();
+            return HAL_ERROR;
+        }
+        if (result == SERVO_RX_WINDOW_OVERFLOW)
+        {
+            servo_bus_health.overflow_count++;
+            ServoBus_RecordFailure(
+                SERVO_BUS_FAILURE_RX_OVERFLOW,
+                servo_id,
+                HAL_ERROR,
+                0U,
+                window.parser.discarded_bytes
+            );
+            servo_bus_diagnostics.received_bytes = window.consumed_bytes;
             (void)ServoBus_Recover();
             return HAL_ERROR;
         }
     }
 
-    HAL_StatusTypeDef terminal_status =
-        (receive_status == HAL_OK) ? HAL_ERROR : receive_status;
-    if (servo_bus_diagnostics.reason == SERVO_BUS_FAILURE_NONE)
+    servo_bus_health.timeout_count++;
+    ServoBusFailureReason reason = SERVO_BUS_FAILURE_RX_TIMEOUT;
+    if (window.parser.last_reject != SERVO_RESPONSE_REJECT_NONE)
     {
-        ServoBus_RecordFailure(
-            ServoBus_MapRejectReason(parser.last_reject),
-            servo_id,
-            terminal_status,
-            0U,
-            parser.discarded_bytes
-        );
+        reason = ServoBus_MapRejectReason(window.parser.last_reject);
     }
+    ServoBus_RecordFailure(
+        reason,
+        servo_id,
+        HAL_TIMEOUT,
+        0U,
+        window.parser.discarded_bytes
+    );
+    servo_bus_diagnostics.received_bytes = window.consumed_bytes;
     (void)ServoBus_Recover();
-    return terminal_status;
+    return HAL_TIMEOUT;
 }
 
 HAL_StatusTypeDef Servo_WriteData(
@@ -570,7 +1167,15 @@ HAL_StatusTypeDef Servo_WriteData(
         (uint8_t)(checksum_index - 1U)
     );
 
-    ServoBus_BeginTransaction(servo_id);
+    uint32_t transaction_start_absolute = 0U;
+    if (ServoBus_PrepareTransaction(
+            servo_id,
+            &transaction_start_absolute
+        ) != HAL_OK)
+    {
+        return HAL_ERROR;
+    }
+    (void)transaction_start_absolute;
 
     HAL_StatusTypeDef status = HAL_UART_Transmit(
         servo_uart_handle,
@@ -599,7 +1204,14 @@ HAL_StatusTypeDef Servo_WriteData(
      * reply finish on the wire, then discard it atomically.
      */
     HAL_Delay(SERVO_BUS_WRITE_REPLY_SETTLE_MS);
-    ServoBus_ClearRxState();
+    if (ServoBus_DisarmReceiver() != HAL_OK)
+    {
+        ServoBus_RecordFailure(
+            SERVO_BUS_FAILURE_RECOVERY, servo_id, HAL_ERROR, 0U, 0U
+        );
+        return HAL_ERROR;
+    }
+    servo_bus_health.success_count++;
     return HAL_OK;
 }
 
@@ -1005,7 +1617,8 @@ HAL_StatusTypeDef Servo_ConfigureForTrajectory(
         (uint8_t)(*initial_position & 0xFFU),
         (uint8_t)((*initial_position >> 8) & 0xFFU),
         0U, 0U,
-        65U, 0U,
+        (uint8_t)(SERVO_GOAL_SPEED_RAW & 0xFFU),
+        (uint8_t)((SERVO_GOAL_SPEED_RAW >> 8) & 0xFFU),
         (uint8_t)(torque_limit & 0xFFU),
         (uint8_t)((torque_limit >> 8) & 0xFFU)
     };

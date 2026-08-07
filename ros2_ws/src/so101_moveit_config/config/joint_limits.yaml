@@ -4,7 +4,7 @@ default_acceleration_scaling_factor: 0.5
 joint_limits:
   left_base_joint:
     has_position_limits: true
-    min_position: 0.0
+    min_position: -0.092038847273138
     max_position: 0.862097202791730
     has_velocity_limits: true
     max_velocity: 0.5
@@ -28,7 +28,7 @@ joint_limits:
     max_acceleration: 1.0
   left_wrist_flex_joint:
     has_position_limits: true
-    min_position: 0.0
+    min_position: -0.092038847273138
     max_position: 1.310019592854338
     has_velocity_limits: true
     max_velocity: 0.5

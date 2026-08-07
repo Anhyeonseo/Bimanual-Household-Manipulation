@@ -12,6 +12,22 @@
 #define ACTUATOR_BUFFERED_WIRE_SAMPLE_SIZE 52u
 #define ACTUATOR_BUFFERED_STATUS_BASE_SIZE 16u
 #define ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE 32u
+/*
+ * Extended status plus the apply-lateness distribution: six saturating bucket
+ * counts followed by the applied-sample index at which the maximum was last
+ * raised. Hosts accept 16, 32 and 60 byte payloads so older firmware still
+ * decodes.
+ *
+ * This block is carried by terminal status frames only. Every status frame is
+ * transmitted by a blocking call on the same cooperative loop that steps the
+ * executor, so its length is charged directly to apply lateness: at 115200
+ * baud the 32 byte extended form costs 4.688 ms of the 5 ms allowance and the
+ * 60 byte form costs 7.118 ms, which exceeds it outright. A terminal frame is
+ * sent after execution has already stopped and can afford the extra bytes; a
+ * refill acknowledgement cannot. See
+ * tests/test_stm32_status_frame_transmit_budget.py.
+ */
+#define ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE 60u
 
 #define ACTUATOR_BUFFERED_FLAG_VALIDATION_ONLY UINT16_C(0x0001)
 #define ACTUATOR_BUFFERED_FLAG_CANDIDATE UINT16_C(0x0002)
@@ -104,6 +120,7 @@ bool actuator_buffered_status_encode(
     uint32_t request_sequence,
     uint32_t apply_tick,
     uint32_t calibration_hash,
-    const actuator_buffered_diagnostics_t *diagnostics);
+    const actuator_buffered_diagnostics_t *diagnostics,
+    bool include_lateness);
 
 #endif
