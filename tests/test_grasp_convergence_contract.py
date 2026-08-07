@@ -480,3 +480,60 @@ def test_the_shadow_target_was_actually_consumed(document) -> None:
     assert shadow["publisher_must_not_claim_authority"] is True
     assert shadow["motion_authorized"] is False
     assert shadow["operator_approves_each_descent"] is True
+
+
+# ---------------------------------------------------------------------------
+# A5 재현성
+# ---------------------------------------------------------------------------
+
+
+def test_short_term_repeatability_is_recorded(convergence) -> None:
+    """평탄역 안에서는 사실상 결정론적이다."""
+    assert convergence["residual_is_repeatable_when_settled"] is True
+    assert convergence["offset_absorption_is_valid"] is True
+    assert convergence["a5_adjacent_difference_median_mm"] < 0.15
+
+
+def test_the_session_drift_is_recorded_separately(convergence) -> None:
+    """단기 재현성과 세션 표류는 다른 질문이다.
+
+    2026-08-06 첫 분석이 워밍업 2회로 잘라 "정착 흩어짐 0.094 mm" 로
+    결론냈는데, 두 번째 회차에서 계단 지점이 달라 그 자르기가 한 데이터에만
+    맞는 값이었음이 드러났다.
+    """
+    assert convergence["residual_drifts_within_a_session"] is True
+    assert (
+        convergence["a5_session_drift_mm"]
+        > convergence["a5_adjacent_difference_median_mm"]
+    )
+    step = convergence["a5_plateau_high_mm"] - convergence["a5_plateau_low_mm"]
+    assert step == pytest.approx(convergence["a5_plateau_step_mm"], abs=0.01)
+
+
+def test_the_drift_exceeded_the_sweep_gap_yet_every_run_held(
+    convergence,
+) -> None:
+    """3 mm 는 명령 offset 사이의 간격이지 실패 경계가 아니다.
+
+    A 세션 표류가 `3.317 mm` 로 그 간격을 넘었는데도 12/12 파지했다.
+    잔여 간격이 21~23 raw 로 문턱 14 대비 여유가 있었기 때문이다.
+    """
+    assert max(convergence["a5_session_drift_mm_by_session"]) > 3.0
+    assert convergence["a5_held_runs"] == convergence["a5_completed_runs"]
+    low, high = convergence["a5_residual_gap_raw_range"]
+    assert low - 14 >= 5  # 문턱 대비 실제 여유
+
+
+def test_every_a5_run_held(convergence) -> None:
+    assert convergence["a5_held_runs"] == convergence["a5_completed_runs"]
+    low, high = convergence["a5_residual_gap_raw_range"]
+    assert low >= 14  # 접촉 문턱
+
+
+def test_the_task_tolerance_question_was_replaced_not_relaxed(
+    convergence,
+) -> None:
+    """허용치를 10.5 mm 로 키운 것이 아니다. 판정 기준 자체가 바뀌었다."""
+    assert convergence["task_tolerance_m"] == 0.004      # 값은 그대로
+    assert convergence["task_tolerance_is_not_a_grasp_predictor"] is True
+    assert convergence["task_tolerance_superseded_by_repeatability"] is True

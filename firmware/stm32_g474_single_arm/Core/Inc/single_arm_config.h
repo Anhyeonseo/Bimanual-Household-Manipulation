@@ -8,7 +8,7 @@
 #define ENABLE_SERVO_CENTERING_COMMAND 0U
 #define ENABLE_BOOT_ID1_AUTOCONFIG 0U
 
-#define HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022A00)
+#define HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022C00)
 #define HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)
 #define HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)
 #define HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)
@@ -106,7 +106,7 @@
  */
 #define SERVO_MOTION_SAFETY_SLOT_MS UINT32_C(16)
 #define SERVO_MOTION_SAFETY_SWEEP_MS UINT32_C(96)
-#define SERVO_MOTION_LOAD_LIMIT_RAW UINT16_C(800)
+#define SERVO_MOTION_LOAD_LIMIT_RAW UINT16_C(950)
 #define SERVO_MOTION_CURRENT_LIMIT_RAW UINT16_C(320)
 #define SERVO_MOTION_LIMIT_CONSECUTIVE UINT8_C(2)
 
@@ -132,9 +132,32 @@
  * Joint torque caps stay below the independent sustained-load stop threshold.
  * The Shoulder/Elbow caps account for the installed camera payload while the
  * load/current watchdog remains unchanged.
+ *
+ * Raised 2026-08-07 to chase a higher CONSERVATIVE_TRACKING_RATE_RAW_S: at
+ * the old caps (780/650) both already sat just under the old load watchdog
+ * (800), so Present_Load -- which the servo internally clamps to
+ * Torque_Limit -- could never approach that watchdog for either joint. The
+ * independent current watchdog (SERVO_MOTION_CURRENT_LIMIT_RAW) is untouched
+ * by this change and remains the backstop against a genuine jam/collision.
  */
-#define SERVO_SHOULDER_TORQUE_LIMIT_RAW UINT16_C(780)
-#define SERVO_ELBOW_TORQUE_LIMIT_RAW UINT16_C(650)
+#define SERVO_SHOULDER_TORQUE_LIMIT_RAW UINT16_C(900)
+#define SERVO_ELBOW_TORQUE_LIMIT_RAW UINT16_C(800)
+
+/*
+ * STS3215 Goal_Speed (address 46-47). Feetech convention: 0 = unlimited,
+ * 1..4095 = a persistent speed cap applied to subsequent Goal_Position
+ * writes. `Servo_ConfigureForTrajectory` wrote an unlabeled 65 here for
+ * every joint, which is a severe cap out of the 4095 range.
+ *
+ * 2026-08-07 speed-ramp evidence: a 250 raw/s leg left SHOULDER 713 raw
+ * short at trajectory end, then closed that gap at a strikingly constant
+ * ~65 raw/s -- matching this register's value almost exactly. Buffered
+ * streaming re-writes Goal_Position every 20 ms in small steps and never
+ * seemed to hit this cap, but the one large catch-up move to the final
+ * held position clearly did. Raised to keep some governor rather than
+ * removing it outright (0).
+ */
+#define SERVO_GOAL_SPEED_RAW UINT16_C(800)
 
 #if SERVO_SHOULDER_TORQUE_LIMIT_RAW >= SERVO_MOTION_LOAD_LIMIT_RAW
 #error "Shoulder torque cap must remain below the load safety threshold"

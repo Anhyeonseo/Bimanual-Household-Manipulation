@@ -67,6 +67,7 @@ TRACKING_MARGIN_FRACTION = 0.70
 def select_duration_ms(
     anchor_raw: tuple[int, ...],
     q0_raw: tuple[int, ...],
+    tracking_rate_raw_s: float = CONSERVATIVE_TRACKING_RATE_RAW_S,
 ) -> int:
     """
     추종 게이트를 통과하는 최소 시간을 찾는다.
@@ -83,7 +84,7 @@ def select_duration_ms(
         DURATION_SEARCH_STEP_MS,
     ):
         tracking = simulate_rate_limited_tracking(
-            anchor_raw, q0_raw, duration_ms
+            anchor_raw, q0_raw, duration_ms, tracking_rate_raw_s
         )
         if (
             tracking["maximum_peak_error_raw"] <= peak_budget
@@ -101,6 +102,7 @@ def build_plan(
     contract_path: Path,
     anchor_raw: tuple[int, ...],
     duration_ms: int | None = None,
+    tracking_rate_raw_s: float = CONSERVATIVE_TRACKING_RATE_RAW_S,
 ) -> dict[str, object]:
     calibration = load_calibration(calibration_path)
     contract = load_buffered_trajectory_contract(contract_path)
@@ -120,7 +122,7 @@ def build_plan(
         raise ValueError("calibration does not map arm q0 to raw 2048")
 
     selected_duration_ms = (
-        select_duration_ms(anchor_raw, q0_raw)
+        select_duration_ms(anchor_raw, q0_raw, tracking_rate_raw_s)
         if duration_ms is None
         else duration_ms
     )
@@ -205,7 +207,7 @@ def build_plan(
         )
     )
     tracking = simulate_rate_limited_tracking(
-        anchor_raw, q0_raw, selected_duration_ms
+        anchor_raw, q0_raw, selected_duration_ms, tracking_rate_raw_s
     )
     if tracking["maximum_peak_error_raw"] > MAXIMUM_MODELED_PEAK_ERROR_RAW:
         raise ValueError("modeled peak tracking error exceeds the contract")
@@ -288,7 +290,7 @@ def build_plan(
         },
         "physical_tracking_model": {
             "kind": "per_axis_rate_limited_minimum_jerk_follower",
-            "conservative_rate_raw_s": CONSERVATIVE_TRACKING_RATE_RAW_S,
+            "conservative_rate_raw_s": tracking_rate_raw_s,
             "maximum_allowed_peak_error_raw": MAXIMUM_MODELED_PEAK_ERROR_RAW,
             "maximum_allowed_terminal_error_raw": (
                 MAXIMUM_MODELED_TERMINAL_ERROR_RAW
@@ -330,6 +332,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="생략하면 추종 계약을 통과하는 최소 시간을 탐색한다",
     )
+    parser.add_argument(
+        "--tracking-rate-raw-s",
+        type=float,
+        default=CONSERVATIVE_TRACKING_RATE_RAW_S,
+        help="이 leg 의 추종률 가정(raw/s). 기본값은 보수적 50",
+    )
     repository_root = Path(__file__).resolve().parents[1]
     parser.add_argument(
         "--calibration",
@@ -353,6 +361,7 @@ def main() -> int:
         args.contract,
         tuple(args.anchor_raw),
         args.duration_ms,
+        args.tracking_rate_raw_s,
     )
     encoded = (
         json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"

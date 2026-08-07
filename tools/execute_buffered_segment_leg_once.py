@@ -33,6 +33,9 @@ from execute_buffered_q0_roundtrip_once import (
     validate_fresh_start,
     wait_joint_state,
 )
+from plan_buffered_pick_place_leg import (
+    MAXIMUM_AUTHORIZED_TRACKING_RATE_RAW_S,
+)
 from plan_buffered_segment_leg import PHASE, STATUS, build_plan
 
 
@@ -56,6 +59,7 @@ class SegmentLegPlan:
     sample_count: int
     segment_route: dict
     anchor_deviation_raw: tuple[int, ...]
+    tracking_rate_raw_s: float
 
 
 def load_segment_leg_plan(
@@ -121,12 +125,34 @@ def load_segment_leg_plan(
     ):
         raise ValueError("plan anchor raw must contain six integers")
 
+    # 재계산은 계획이 스스로 밝힌 추종률로 한다. 파일에 적힌 값이 임의로
+    # 바뀌었다면 재현이 깨져 아래에서 거부된다 — rate 는 duration 을 통해
+    # 모든 sample 에 퍼지기 때문이다. 다만 그 자기일관성만으로는 검토되지
+    # 않은 값이 통과할 수 있으므로 상한을 여기서도 독립으로 본다.
+    model = document.get("physical_tracking_model")
+    if not isinstance(model, dict):
+        raise ValueError("plan does not record its tracking model")
+    tracking_rate_raw_s = model.get("conservative_rate_raw_s")
+    if (
+        isinstance(tracking_rate_raw_s, bool)
+        or not isinstance(tracking_rate_raw_s, (int, float))
+        or not 0.0
+        < float(tracking_rate_raw_s)
+        <= MAXIMUM_AUTHORIZED_TRACKING_RATE_RAW_S
+    ):
+        raise ValueError(
+            "plan tracking rate is outside the reviewed range (0, "
+            f"{MAXIMUM_AUTHORIZED_TRACKING_RATE_RAW_S:g}] raw/s: "
+            f"{tracking_rate_raw_s}"
+        )
+
     rebuilt = build_plan(
         calibration_path,
         contract_path,
         segments_path,
         route["sha256"],
         tuple(anchor_raw),
+        float(tracking_rate_raw_s),
     )
     if rebuilt != document:
         raise ValueError("plan is not exactly reproducible from its inputs")
@@ -162,6 +188,7 @@ def load_segment_leg_plan(
         sample_count=document["resampling"]["sample_count"],
         segment_route=route,
         anchor_deviation_raw=tuple(int(v) for v in anchor["deviation_raw"]),
+        tracking_rate_raw_s=float(tracking_rate_raw_s),
     )
 
 
@@ -205,6 +232,7 @@ def main() -> int:
     print(f"SEGMENT_COUNT={plan.segment_route['segment_count']}")
     print(f"PLAN_DURATION_MS={plan.duration_ms}")
     print(f"PLAN_SAMPLE_COUNT={plan.sample_count}")
+    print(f"PLAN_TRACKING_RATE_RAW_S={plan.tracking_rate_raw_s:g}")
     print(f"ANCHOR_DEVIATION_RAW={list(plan.anchor_deviation_raw)}")
     print("PLAN_GATE=PASS")
 

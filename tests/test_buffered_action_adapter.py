@@ -18,6 +18,7 @@ from single_arm_bridge.buffered_action_adapter import (  # noqa: E402
     INITIAL_FIRST_SAMPLE_LEAD_MS,
     MAXIMUM_APPLY_LATENESS_MS,
     SAMPLE_PERIOD_MS,
+    STARTUP_PRIME_MINIMUM_ELAPSED_MS,
     BufferedActionAdapterError,
     BufferedAdapterState,
     BufferedBatchScheduler,
@@ -89,11 +90,11 @@ def test_reanchor_preserves_positions_and_uses_fresh_tick() -> None:
         current_tick_ms=50_000,
     )
 
-    assert rebased.anchor_tick_ms == 50_140
+    assert rebased.anchor_tick_ms == 50_200
     assert rebased.samples[0].apply_tick_ms == (
         50_000 + INITIAL_FIRST_SAMPLE_LEAD_MS
     )
-    assert rebased.samples[-1].apply_tick_ms == 50_960
+    assert rebased.samples[-1].apply_tick_ms == 51_020
     assert tuple(sample.positions_urad for sample in rebased.samples) == tuple(
         sample.positions_urad for sample in provisional.samples
     )
@@ -111,9 +112,9 @@ def test_reanchor_handles_uint32_wraparound() -> None:
         current_tick_ms=0xFFFFFFC0,
     )
 
-    assert rebased.anchor_tick_ms == 76
-    assert rebased.samples[0].apply_tick_ms == 96
-    assert rebased.samples[-1].apply_tick_ms == 396
+    assert rebased.anchor_tick_ms == 136
+    assert rebased.samples[0].apply_tick_ms == 156
+    assert rebased.samples[-1].apply_tick_ms == 456
 
 
 def ack_pending(
@@ -136,7 +137,9 @@ def prime(value: BufferedBatchScheduler, *, current_tick_ms: int = 1_000):
     first = value.next_batch(current_tick_ms=current_tick_ms)
     assert first is not None
     ack_pending(value, first, applied=0)
-    second = value.next_batch(current_tick_ms=current_tick_ms + 60)
+    second = value.next_batch(
+        current_tick_ms=current_tick_ms + STARTUP_PRIME_MINIMUM_ELAPSED_MS
+    )
     assert second is not None
     ack_pending(value, second, applied=0)
     return first, second
@@ -175,17 +178,17 @@ def extended_result(
     )
 
 
-def test_resamples_at_20ms_with_160ms_initial_lead_and_preserves_gripper() -> None:
+def test_resamples_at_20ms_with_220ms_initial_lead_and_preserves_gripper() -> None:
     plan, _ = scheduler()
 
-    assert plan.anchor_tick_ms == 1_140
+    assert plan.anchor_tick_ms == 1_200
     assert len(plan.samples) == 41
     assert plan.samples[0].trajectory_elapsed_ms == 0
-    assert plan.samples[0].apply_tick_ms == 1_160
+    assert plan.samples[0].apply_tick_ms == 1_220
     assert plan.samples[0].positions_urad[:5] == (0,) * 5
     assert plan.samples[0].positions_urad[5] == 60_000
     assert plan.samples[1].trajectory_elapsed_ms == 20
-    assert plan.samples[1].apply_tick_ms == 1_180
+    assert plan.samples[1].apply_tick_ms == 1_240
     assert plan.samples[1].positions_urad[:5] == (2_000,) * 5
     assert plan.samples[-1].trajectory_elapsed_ms == 800
     assert plan.samples[-1].positions_urad[:5] == (80_000,) * 5
@@ -234,13 +237,13 @@ def test_watermark_refills_from_10_to_16() -> None:
     prime(value)
     value.record_applied(6)
 
-    refill = value.next_batch(current_tick_ms=1_201)
+    refill = value.next_batch(current_tick_ms=1_261)
     assert refill is not None
     assert refill.sample_count == 6
     assert refill.first_sample_index == 17
     ack_pending(value, refill, applied=6)
     assert value.snapshot().queued_samples == 16
-    assert value.next_batch(current_tick_ms=1_220) is None
+    assert value.next_batch(current_tick_ms=1_280) is None
 
 
 def test_80ms_outage_refill_uses_9_plus_2_without_gap() -> None:
@@ -248,12 +251,12 @@ def test_80ms_outage_refill_uses_9_plus_2_without_gap() -> None:
     prime(value)
     value.record_applied(11)
 
-    first = value.next_batch(current_tick_ms=1_318)
+    first = value.next_batch(current_tick_ms=1_378)
     assert first is not None and first.sample_count == 9
     ack_pending(value, first, applied=11)
     assert value.snapshot().queued_samples == 14
 
-    second = value.next_batch(current_tick_ms=1_336)
+    second = value.next_batch(current_tick_ms=1_396)
     assert second is not None and second.sample_count == 2
     ack_pending(value, second, applied=11)
     assert value.snapshot().queued_samples == 16
@@ -292,7 +295,7 @@ def test_late_refill_aborts_before_a_frame_can_be_sent() -> None:
     value.record_applied(6)
 
     with pytest.raises(BufferedActionAdapterError, match="below 60 ms"):
-        value.next_batch(current_tick_ms=1_425)
+        value.next_batch(current_tick_ms=1_485)
     snapshot = value.snapshot()
     assert snapshot.state is BufferedAdapterState.ABORTED
     assert snapshot.reason == "batch_lead_outside_reviewed_window"
@@ -310,11 +313,11 @@ def test_early_second_prime_waits_until_maximum_horizon() -> None:
         queued_samples=9,
     )
 
-    assert value.next_batch(current_tick_ms=1_020) is None
+    assert value.next_batch(current_tick_ms=1_080) is None
     snapshot = value.snapshot()
     assert snapshot.state is BufferedAdapterState.PRIMING
     assert snapshot.pending_batch is False
-    assert value.next_batch(current_tick_ms=1_060) is not None
+    assert value.next_batch(current_tick_ms=1_120) is not None
 
 
 def test_underflow_and_cancel_are_terminal_fail_closed() -> None:
@@ -352,15 +355,15 @@ def test_uint32_tick_wrap_preserves_lead_and_offsets() -> None:
     current = 0xFFFFFFB0
     plan, value = scheduler(current_tick_ms=current)
 
-    assert plan.anchor_tick_ms == 60
-    assert plan.samples[0].apply_tick_ms == 80
+    assert plan.anchor_tick_ms == 120
+    assert plan.samples[0].apply_tick_ms == 140
     first = value.next_batch(current_tick_ms=current)
     assert first is not None
-    assert first.first_apply_tick_ms == 80
+    assert first.first_apply_tick_ms == 140
     assert first.samples[-1].tick_offset_ms == 160
 
 
-def test_160ms_lead_covers_physical_9_plus_7_uart_wire_budget() -> None:
+def test_220ms_lead_covers_physical_9_plus_7_uart_wire_budget() -> None:
     def encoded_command_size(sample_count: int, flags: int) -> int:
         samples = tuple(
             BufferedSetpointSample(index * 20, (0,) * 6)
@@ -428,7 +431,7 @@ def test_extended_motion_result_ack_maps_priming_then_running() -> None:
             applied=0,
         )
     )
-    second = value.next_batch(current_tick_ms=1_060)
+    second = value.next_batch(current_tick_ms=1_120)
     assert second is not None
     value.acknowledge_motion_result(
         extended_result(

@@ -34,7 +34,7 @@ from plan_buffered_q0_roundtrip import (
 
 STATUS = "BUFFERED_PICK_PREGRASP_PLAN_ONLY_PASS"
 PHASE = "motion11_pick_pregrasp"
-FIRMWARE_VERSION = "0x00022A00"
+FIRMWARE_VERSION = "0x00022C00"
 CAPABILITIES = "0x00000FFF"
 PLAN_TICK_MS = 100_000
 ANCHOR_TO_Q0_DURATION_MS = 12_000
@@ -169,12 +169,13 @@ def simulate_rate_limited_tracking(
     start_raw: tuple[int, ...],
     target_raw: tuple[int, ...],
     duration_ms: int,
+    tracking_rate_raw_s: float = CONSERVATIVE_TRACKING_RATE_RAW_S,
 ) -> dict[str, object]:
     """Model conservative physical tracking against a minimum-jerk leg."""
     if len(start_raw) != 6 or len(target_raw) != 6:
         raise ValueError("tracking simulation requires six-axis endpoints")
     maximum_step = (
-        CONSERVATIVE_TRACKING_RATE_RAW_S
+        tracking_rate_raw_s
         * TRACKING_SIMULATION_PERIOD_MS
         / 1000.0
     )

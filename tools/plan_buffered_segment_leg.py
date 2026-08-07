@@ -54,6 +54,7 @@ from plan_buffered_pick_pregrasp import (
 )
 from plan_buffered_pick_place_leg import (
     ANCHOR_DEVIATION_LIMIT_RAW,
+    MAXIMUM_AUTHORIZED_TRACKING_RATE_RAW_S,
     PLAN_TICK_MS,
     select_duration_ms,
     simulate_stage_tracking,
@@ -163,6 +164,7 @@ def build_plan(
     segments_path: Path,
     segments_sha256: str,
     anchor_raw: tuple[int, ...],
+    tracking_rate_raw_s: float = CONSERVATIVE_TRACKING_RATE_RAW_S,
 ) -> dict[str, object]:
     calibration = load_calibration(calibration_path)
     contract = load_buffered_trajectory_contract(contract_path)
@@ -204,11 +206,17 @@ def build_plan(
         calibration, target_rad + (preserved_gripper_rad,)
     )
     actual_raw = tuple(float(value) for value in anchor_raw)
-    duration_ms = select_duration_ms(actual_raw, tuple(anchor_raw), target_raw)
+    duration_ms = select_duration_ms(
+        actual_raw, tuple(anchor_raw), target_raw, tracking_rate_raw_s
+    )
     if duration_ms % SAMPLE_PERIOD_MS != 0:
         raise ValueError("duration must be a whole number of 20 ms samples")
     tracking = simulate_stage_tracking(
-        actual_raw, tuple(anchor_raw), target_raw, duration_ms
+        actual_raw,
+        tuple(anchor_raw),
+        target_raw,
+        duration_ms,
+        tracking_rate_raw_s,
     )
     if tracking["maximum_peak_error_raw"] > MAXIMUM_MODELED_PEAK_ERROR_RAW:
         raise ValueError("modeled peak tracking error exceeds the contract")
@@ -333,7 +341,13 @@ def build_plan(
         },
         "physical_tracking_model": {
             "kind": "per_axis_rate_limited_minimum_jerk_follower",
-            "conservative_rate_raw_s": CONSERVATIVE_TRACKING_RATE_RAW_S,
+            # 실행기가 이 값을 읽어 계획을 그대로 재계산한다. 계획과 다른
+            # rate 로 재계산하면 재현이 깨져 실행이 거부된다.
+            "conservative_rate_raw_s": float(tracking_rate_raw_s),
+            "default_rate_raw_s": CONSERVATIVE_TRACKING_RATE_RAW_S,
+            "maximum_authorized_rate_raw_s": (
+                MAXIMUM_AUTHORIZED_TRACKING_RATE_RAW_S
+            ),
             "maximum_allowed_peak_error_raw": MAXIMUM_MODELED_PEAK_ERROR_RAW,
             "maximum_allowed_terminal_error_raw": (
                 MAXIMUM_MODELED_TERMINAL_ERROR_RAW
@@ -381,9 +395,25 @@ def parse_args() -> argparse.Namespace:
         default=root
         / "ros2_ws/src/single_arm_bridge/config/buffered_trajectory_contract.json",
     )
+    # 속도 손잡이. 기본값은 2026-08-04 의 보수적 가정이고, 올리려면 그
+    # 근거를 같은 세션의 실측으로 남겨야 한다.
+    parser.add_argument(
+        "--tracking-rate-raw-s",
+        type=float,
+        default=CONSERVATIVE_TRACKING_RATE_RAW_S,
+    )
     arguments = parser.parse_args()
     if not arguments.plan_only:
         parser.error("--plan-only is required; this tool never executes")
+    if not (
+        0.0
+        < arguments.tracking_rate_raw_s
+        <= MAXIMUM_AUTHORIZED_TRACKING_RATE_RAW_S
+    ):
+        parser.error(
+            "tracking rate must be in (0, "
+            f"{MAXIMUM_AUTHORIZED_TRACKING_RATE_RAW_S:g}] raw/s"
+        )
     return arguments
 
 
@@ -395,6 +425,7 @@ def main() -> int:
         arguments.segments,
         arguments.segments_sha256,
         tuple(arguments.anchor_raw),
+        arguments.tracking_rate_raw_s,
     )
     text = json.dumps(document, indent=2, sort_keys=True) + "\n"
     arguments.output.write_text(text, encoding="utf-8")
@@ -409,6 +440,10 @@ def main() -> int:
     print(f"TARGET_RAW={document['target']['raw']}")
     print(f"DURATION_MS={document['analytic_profile']['duration_ms']}")
     print(f"SAMPLES={document['resampling']['sample_count']}")
+    print(
+        "TRACKING_RATE_RAW_S="
+        f"{document['physical_tracking_model']['conservative_rate_raw_s']:g}"
+    )
     tracking = document["physical_tracking_model"]["legs"][
         "anchor_to_segment_target"
     ]

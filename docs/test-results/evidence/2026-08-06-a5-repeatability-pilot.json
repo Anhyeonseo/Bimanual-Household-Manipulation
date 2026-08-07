@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "status": "A5_REPEATABILITY_PILOT",
+  "measured_on": "2026-08-06",
+  "firmware_version": "0x00022A00",
+  "calibration_hash": "0xB317C672",
+  "question": "잔차가 회차 간 재현되는가. offset 이 남은 잔차를 흡수할 수 있는지가 여기에 달렸다. A4 가 실패한 이유는 잔차가 컸기 때문이 아니라 회차마다 달랐기 때문이다.",
+  "cycle": "q0 -> pregrasp -> grasp -> converge -> close(report) -> open -> q0",
+  "requested_runs": 10,
+  "completed_runs": 6,
+  "held": 6,
+  "warmup_runs": 2,
+  "residual_mm": {
+    "all": [
+      8.303,
+      11.6202,
+      10.5032,
+      10.5033,
+      10.597,
+      10.5032
+    ],
+    "all_spread": 3.3171999999999997,
+    "settled": [
+      10.5032,
+      10.5033,
+      10.597,
+      10.5032
+    ],
+    "settled_spread": 0.09379999999999988,
+    "settled_stdev": 0.046883357032817784
+  },
+  "residual_before_convergence_mm": {
+    "values": [
+      11.4218,
+      11.7927,
+      11.4218,
+      11.4218,
+      11.1619,
+      11.8739
+    ],
+    "spread": 0.7120000000000015
+  },
+  "residual_gap_raw": {
+    "values": [
+      22,
+      22,
+      23,
+      21,
+      21,
+      22
+    ],
+    "minimum": 21,
+    "maximum": 23,
+    "contact_threshold_raw": 14
+  },
+  "settled_residual_vector_mm": [
+    [
+      -4.0297,
+      1.2204,
+      -9.6223
+    ],
+    [
+      -3.8281,
+      1.7539,
+      -9.6223
+    ],
+    [
+      -3.4273,
+      2.8217,
+      -9.6223
+    ],
+    [
+      -4.0297,
+      1.2204,
+      -9.6223
+    ]
+  ],
+  "clamped_every_run": [
+    "left_wrist_flex_joint"
+  ],
+  "overshoot_used_every_run": true,
+  "stopped_reason": "run 7: pregrasp: execute failed with exit 1",
+  "stopped_detail": "run 7 pregrasp leg 의 첫 프레임에 대한 펌웨어 응답이 host admission 을 통과하지 못했다(acknowledge_motion_result). 어느 필드가 어긋났는지는 드라이버가 상세 메시지를 일반 문구로 덮어써서 기록되지 않았다 — 그 결함은 고쳤다. precompute_ms=385.777 (A4.5 때 같은 leg 186.195) 은 Pi 가 느려졌다는 신호이나 원인으로 확인되지는 않았다. 코드상 precompute 뒤에 reanchor 가 있어 그 시간은 startup lead 를 깎지 않는다. 팔은 움직이지 않았고 fail-closed 로 멈췄다.",
+  "verdict": "정착 후 재현된다. 3~6회차 잔차 흩어짐 0.094 mm, z 성분은 -9.622 mm 로 네 번 동일하고 3회차와 6회차는 벡터가 완전히 같다. 잔여 간격은 21~23 raw 로 6/6 전부 파지. 초기 2회는 다르다(8.303 / 11.620) — 워밍업 전이가 있다.",
+  "automatic_retry_count": 0,
+  "serial_port_opened": false,
+  "stopped_root_cause_known": false
+}

@@ -466,8 +466,13 @@ def validate_action_terminal(
     result: Any,
 ) -> TerminalEvidence:
     if action_status != ACTION_STATUS_SUCCEEDED:
+        # 중단 사유는 bridge 가 error_string 에 담아 보낸다. 그것을 버리면
+        # 왜 멈췄는지 알 수 없어 Pi 로그를 뒤져야 한다. 2026-08-06 A5 1회차가
+        # 정확히 그렇게 status=6 만 남기고 죽었다.
         raise RuntimeError(
-            f"buffered Action did not succeed status={action_status}"
+            f"buffered Action did not succeed status={action_status} "
+            f"error_code={getattr(result, 'error_code', '?')} "
+            f"reason={getattr(result, 'error_string', '') or '(빈 문자열)'}"
         )
     if result.error_code != FOLLOW_JOINT_TRAJECTORY_SUCCESSFUL:
         raise RuntimeError(

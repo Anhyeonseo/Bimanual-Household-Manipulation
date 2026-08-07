@@ -68,7 +68,7 @@ def leg_a_plan(tmp_path_factory):
 def load(path, digest, **kwargs):
     """계획 내용을 보는 시험은 배포 게이트를 우회한다.
 
-    0x00022A00 후보가 플래시 전이라 계약이 undeployed 다. 게이트 자체는
+    0x00022C00 후보가 플래시 전이라 계약이 undeployed 다. 게이트 자체는
     test_rejects_undeployed_firmware_candidate 가 기본값으로 지킨다.
     """
     kwargs.setdefault("require_deployed", False)

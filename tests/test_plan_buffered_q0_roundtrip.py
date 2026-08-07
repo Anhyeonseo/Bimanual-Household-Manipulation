@@ -31,7 +31,7 @@ ARTIFACT = (
     / "motion10_buffered_q0_roundtrip_plan_only.json"
 )
 ARTIFACT_SHA256 = (
-    "ebb88b8ead2fd92b9ddcb8ddfeb1e03dde5e28841bf5a3b33000035c06e6c6b4"
+    "20f20d0927f0248a496174fe00223107ffc5c7859e61514e46ab6494757d4247"
 )
 
 

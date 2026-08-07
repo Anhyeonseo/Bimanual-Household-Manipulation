@@ -123,12 +123,12 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
     assert contract["host_adapter_candidate"] == {
         "multi_point_validation_reused": True,
         "linear_resampling_period_ms": 20,
-        "initial_first_sample_lead_ms": 160,
+        "initial_first_sample_lead_ms": 220,
         "physical_uart_baud": 115200,
         "startup_prime_wire_lower_bound_ms": 87.674,
         "startup_anchor_wire_margin_ms": 52.326,
-        "startup_prime_elapsed_window_ms": [60, 80],
-        "startup_prime_maximum_heartbeat_gates": 3,
+        "startup_prime_elapsed_window_ms": [120, 140],
+        "startup_prime_maximum_heartbeat_gates": 8,
         "fresh_start_wire_sample_included": True,
         "firmware_anchor_lead_ms": 80,
         "firmware_anchor_source": "validated_t0_wire_sample",
@@ -174,6 +174,7 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
         "firmware_terminal_scope": "setpoint_application_complete",
         "host_success_requires_post_settle": True,
         "post_settle_timeout_s": 2.5,
+        "post_settle_maximum_timeout_s": 10.0,
         "post_settle_poll_interval_s": 0.1,
         "post_settle_tolerance_raw": 30,
         "post_settle_consecutive_snapshots": 2,
@@ -234,9 +235,9 @@ def test_joint_limit_margin_route_is_deployed_and_unauthorized() -> None:
 
     assert contract["servo_uart_receive_candidate"] == {
         "status": "LOCAL_JOINT_LIMIT_MARGIN_DEPLOYED",
-        "firmware_version": "0x00022A00",
-        "previous_candidate_firmware_version": "0x00022900",
-        "previous_deployed_firmware_version": "0x00022900",
+        "firmware_version": "0x00022C00",
+        "previous_candidate_firmware_version": "0x00022B00",
+        "previous_deployed_firmware_version": "0x00022B00",
         "baud": 1_000_000,
         "rx_fifo_enabled": False,
         "receive_api": "HAL_UARTEx_ReceiveToIdle_DMA",
@@ -443,7 +444,7 @@ def test_g474_identity_advertises_separate_validation_and_execution_routes() -> 
         / "binary_control.c"
     ).read_text(encoding="utf-8")
 
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022A00)" in config
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022C00)" in config
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in config
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in config
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in config

@@ -30,15 +30,15 @@
   "host_adapter_candidate": {
     "multi_point_validation_reused": true,
     "linear_resampling_period_ms": 20,
-    "initial_first_sample_lead_ms": 160,
+    "initial_first_sample_lead_ms": 220,
     "physical_uart_baud": 115200,
     "startup_prime_wire_lower_bound_ms": 87.674,
     "startup_anchor_wire_margin_ms": 52.326,
     "startup_prime_elapsed_window_ms": [
-      60,
-      80
+      120,
+      140
     ],
-    "startup_prime_maximum_heartbeat_gates": 3,
+    "startup_prime_maximum_heartbeat_gates": 8,
     "fresh_start_wire_sample_included": true,
     "firmware_anchor_lead_ms": 80,
     "firmware_anchor_source": "validated_t0_wire_sample",
@@ -82,6 +82,7 @@
     "firmware_terminal_scope": "setpoint_application_complete",
     "host_success_requires_post_settle": true,
     "post_settle_timeout_s": 2.5,
+    "post_settle_maximum_timeout_s": 10.0,
     "post_settle_poll_interval_s": 0.1,
     "post_settle_tolerance_raw": 30,
     "post_settle_consecutive_snapshots": 2,
@@ -200,9 +201,9 @@
   },
   "servo_uart_receive_candidate": {
     "status": "LOCAL_JOINT_LIMIT_MARGIN_DEPLOYED",
-    "firmware_version": "0x00022A00",
-    "previous_candidate_firmware_version": "0x00022900",
-    "previous_deployed_firmware_version": "0x00022900",
+    "firmware_version": "0x00022C00",
+    "previous_candidate_firmware_version": "0x00022B00",
+    "previous_deployed_firmware_version": "0x00022B00",
     "baud": 1000000,
     "rx_fifo_enabled": false,
     "receive_api": "HAL_UARTEx_ReceiveToIdle_DMA",
@@ -533,6 +534,47 @@
     "a45_retry_measured_on": "2026-08-06",
     "a45_retry_residual_mm": 7.7539,
     "a45_retry_residual_gap_raw": 21,
-    "a45_retry_note": "인식 -> 계획 -> q0 -> pregrasp -> grasp -> 수렴 -> 파지 전 구간이 이어졌다. 인식 15표본 흔들림 x1.65 y0.41 mm yaw0.19도, 최소 신뢰도 0.757. 수렴 11.19 -> 7.75 mm (넘겨명령 1회, WRIST_FLEX 물림). 파지 잔여 간격 21 raw. 손가락은 펜을 86.28도로 가로질렀고 이상값 90도 대비 3.72도 오차라 손목 보정을 하지 않았다."
+    "a45_retry_note": "인식 -> 계획 -> q0 -> pregrasp -> grasp -> 수렴 -> 파지 전 구간이 이어졌다. 인식 15표본 흔들림 x1.65 y0.41 mm yaw0.19도, 최소 신뢰도 0.757. 수렴 11.19 -> 7.75 mm (넘겨명령 1회, WRIST_FLEX 물림). 파지 잔여 간격 21 raw. 손가락은 펜을 86.28도로 가로질렀고 이상값 90도 대비 3.72도 오차라 손목 보정을 하지 않았다.",
+    "a5_measured_on": "2026-08-06",
+    "a5_completed_runs": 12,
+    "a5_held_runs": 12,
+    "a5_residual_gap_raw_range": [
+      21,
+      23
+    ],
+    "residual_is_repeatable_when_settled": true,
+    "offset_absorption_is_valid": true,
+    "a5_note": "6회씩 두 번 돌렸다. 파지 12/12, 잔여 간격 21~23 raw. 잔차는 낮은 평탄역(~8.74 mm)과 높은 평탄역(~10.76 mm) 두 개를 가지며 그 사이가 2.02 mm 다. 평탄역 안에서는 인접 회차 차이가 0.0~0.114 mm 로 사실상 결정론적이지만, 계단이 생기는 회차가 고정돼 있지 않다 (A 는 2->3, B 는 3->4). 따라서 '몇 회차까지 워밍업' 으로 자를 수 없고 단기 재현성과 세션 표류를 따로 봐야 한다. 첫 분석이 한 데이터에 맞춘 워밍업 2회로 잘라 '정착 흩어짐 0.094 mm' 로 잘못 결론냈다.",
+    "task_tolerance_superseded_by_repeatability": true,
+    "task_tolerance_final_note": "과제 허용치 4 mm 는 파지의 필요조건이 아니었다. A5 가 그것을 확정한다 — 잔차 10.5 mm 에서 6회 전부 파지했고 잔여 간격이 21~23 raw 로 좁았다. 판정 기준은 '잔차가 4 mm 안인가' 가 아니라 '잔차가 재현되는가' 이며, 정착 후 0.094 mm 로 재현된다. 다만 워밍업 2회는 3.3 mm 벗어나므로 세션 첫 회차를 시연에 쓰면 안 된다.",
+    "a5_sessions": 2,
+    "a5_residual_mm_session_a": [
+      8.303,
+      11.62,
+      10.503,
+      10.503,
+      10.597,
+      10.503
+    ],
+    "a5_residual_mm_session_b": [
+      8.966,
+      8.852,
+      8.852,
+      11.073,
+      11.079,
+      11.05
+    ],
+    "a5_adjacent_difference_median_mm": 0.094,
+    "a5_adjacent_difference_maximum_mm": 3.317,
+    "a5_session_drift_mm": 3.317,
+    "a5_plateau_low_mm": 8.743,
+    "a5_plateau_high_mm": 10.758,
+    "a5_plateau_step_mm": 2.015,
+    "residual_drifts_within_a_session": true,
+    "a5_margin_note": "세션 표류가 3.317 mm(A) / 2.227 mm(B) 로 A4 스윕에서 놓침과 파지를 가른 3 mm 간격을 넘거나 근접한다. **그런데도 12/12 파지했다** — 잔여 간격이 21~23 raw 로 문턱 14 대비 7~9 raw 여유가 있었다. 즉 3 mm 는 명령 offset 사이의 간격이지 실패 경계가 아니며, 실제 파지 여유는 그보다 크다. 다만 표류가 이 크기라는 것은 offset 을 세션 초반에 맞추면 후반에 2~3 mm 어긋난다는 뜻이다.",
+    "a5_session_drift_mm_by_session": [
+      3.317,
+      2.227
+    ]
   }
 }

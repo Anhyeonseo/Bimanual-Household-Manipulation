@@ -22,9 +22,9 @@ SERVO_BUS = (
 
 def test_payload_torque_caps_and_watchdogs_are_fixed() -> None:
     config = CONFIG.read_text(encoding="utf-8")
-    assert "SERVO_SHOULDER_TORQUE_LIMIT_RAW UINT16_C(780)" in config
-    assert "SERVO_ELBOW_TORQUE_LIMIT_RAW UINT16_C(650)" in config
-    assert "SERVO_MOTION_LOAD_LIMIT_RAW UINT16_C(800)" in config
+    assert "SERVO_SHOULDER_TORQUE_LIMIT_RAW UINT16_C(900)" in config
+    assert "SERVO_ELBOW_TORQUE_LIMIT_RAW UINT16_C(800)" in config
+    assert "SERVO_MOTION_LOAD_LIMIT_RAW UINT16_C(950)" in config
     assert "SERVO_MOTION_CURRENT_LIMIT_RAW UINT16_C(320)" in config
     assert "SERVO_MOTION_LIMIT_CONSECUTIVE UINT8_C(2)" in config
     assert (

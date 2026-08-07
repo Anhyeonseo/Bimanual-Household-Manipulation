@@ -85,6 +85,31 @@ DURATION_SEARCH_STEP_MS = 1_000
 # 이 비율 이하가 되는 시간을 고른다. 최소 시간은 정의상 상한에 붙는다.
 TRACKING_MARGIN_FRACTION = 0.70
 
+# **이 저장소에서 팔이 느린 이유는 여기 하나다.**
+#
+# `select_duration_ms` 는 "서보가 초당 `CONSERVATIVE_TRACKING_RATE_RAW_S` raw
+# 밖에 못 따라온다"고 가정한 모의추종으로 leg 시간을 정한다. 기본값 `50`
+# 은 초당 4.4° 다. MoveIt 의 velocity scaling(0.15/0.20)은 이 경로에 아무
+# 영향이 없다 — `plan_buffered_segment_leg` 가 MoveIt 타이밍을 버리고 여기서
+# 다시 시간을 정하기 때문이다.
+#
+# 그런데 `50` 의 근거가 약하다. 2026-08-04 Motion-11 이 관측한 `60 raw/s` 는
+# **post-terminal** 추종률 — 궤적이 끝난 뒤 뒤처진 팔이 따라잡던 속도지
+# 서보의 능력치가 아니다. STS3215 에는 여유가 있다.
+#
+# **이 가정을 올리면 모델 게이트는 같이 느슨해진다.** peak/terminal 오차를
+# 같은 rate 로 계산하기 때문에 self-consistent 하게 통과한다. 그래서 rate 를
+# 올릴 때 실제로 지켜주는 것은 두 가지뿐이다:
+#
+#   1. `validate_buffered_trajectory` 의 관절 속도 상한 `0.5 rad/s`
+#      (= 326 raw/s). 이건 rate 가정과 무관한 독립 게이트다.
+#   2. 하드웨어에서 실측되는 post-settle `30 raw` 게이트.
+#
+# 상한을 `326` 아래에 여유를 남기고 정한다. 2026-08-07 실기로 200 raw/s
+# 까지(post-settle 20~26raw, 하드 게이트 30까지 여유 4~10raw) 검증했고,
+# 그 근거로 300 으로 올렸다 — 여유는 26 raw/s 로 줄어든다.
+MAXIMUM_AUTHORIZED_TRACKING_RATE_RAW_S = 300.0
+
 # leg 시작 시 실제 anchor 가 계획된 시작 pose 에서 벗어날 수 있는 한계.
 # buffered terminal 의 post-settle 게이트가 30 raw 이므로 그 위에 여유를
 # 조금만 둔다. 넘으면 팔이 collision-checked 경로 위에 있지 않다는 뜻이다.
@@ -207,6 +232,7 @@ def simulate_stage_tracking(
     start_raw: tuple[int, ...],
     target_raw: tuple[int, ...],
     duration_ms: int,
+    tracking_rate_raw_s: float = CONSERVATIVE_TRACKING_RATE_RAW_S,
 ) -> dict[str, object]:
     """한 stage 의 추종을 모의하되 팔의 실제 위치를 이어받는다.
 
@@ -220,8 +246,15 @@ def simulate_stage_tracking(
     """
     if len(start_raw) != 6 or len(target_raw) != 6 or len(actual) != 6:
         raise ValueError("tracking simulation requires six-axis state")
+    if not (
+        0.0 < tracking_rate_raw_s <= MAXIMUM_AUTHORIZED_TRACKING_RATE_RAW_S
+    ):
+        raise ValueError(
+            "tracking rate must be in (0, "
+            f"{MAXIMUM_AUTHORIZED_TRACKING_RATE_RAW_S:g}] raw/s"
+        )
     maximum_step = (
-        CONSERVATIVE_TRACKING_RATE_RAW_S * TRACKING_SIMULATION_PERIOD_MS / 1000.0
+        tracking_rate_raw_s * TRACKING_SIMULATION_PERIOD_MS / 1000.0
     )
     position = [float(value) for value in actual]
     peak_errors = [0.0] * 6
@@ -261,10 +294,20 @@ def select_duration_ms(
     actual: tuple[float, ...],
     start_raw: tuple[int, ...],
     target_raw: tuple[int, ...],
+    tracking_rate_raw_s: float = CONSERVATIVE_TRACKING_RATE_RAW_S,
 ) -> int:
     """추종 게이트를 여유 있게 통과하는 최소 시간을 찾는다.
 
     팔이 이미 뒤처진 상태에서 시작하므로, 그 상태를 넣고 탐색한다.
+
+    `tracking_rate_raw_s` 가 **이 저장소의 속도 손잡이다.** 올리면 같은
+    경로가 짧은 시간에 배치된다. 기본값은 바꾸지 않는다 — 2026-08-07
+    speed-ramp 로 특정 leg(a45_top_shadow pregrasp)에 대해 `300`까지
+    명시적으로 지정해 검증했지만(post-settle 16raw, 하드 게이트까지
+    14raw 여유), leg 마다 관절 이동량이 달라 기본값으로 그대로 올리면
+    다른 leg(q0_return 등)에서 관절 속도 하드 게이트(0.5 rad/s)를 넘겨
+    계획 자체가 거부될 수 있다(실측으로 확인됨). 빠르게 갈 legs 는
+    `--tracking-rate-raw-s 300` 을 그때그때 명시할 것.
     """
     peak_budget = MAXIMUM_MODELED_PEAK_ERROR_RAW * TRACKING_MARGIN_FRACTION
     for duration_ms in range(
@@ -273,7 +316,7 @@ def select_duration_ms(
         DURATION_SEARCH_STEP_MS,
     ):
         tracking = simulate_stage_tracking(
-            actual, start_raw, target_raw, duration_ms
+            actual, start_raw, target_raw, duration_ms, tracking_rate_raw_s
         )
         if (
             tracking["maximum_peak_error_raw"] <= peak_budget

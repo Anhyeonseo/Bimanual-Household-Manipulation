@@ -1617,7 +1617,8 @@ HAL_StatusTypeDef Servo_ConfigureForTrajectory(
         (uint8_t)(*initial_position & 0xFFU),
         (uint8_t)((*initial_position >> 8) & 0xFFU),
         0U, 0U,
-        65U, 0U,
+        (uint8_t)(SERVO_GOAL_SPEED_RAW & 0xFFU),
+        (uint8_t)((SERVO_GOAL_SPEED_RAW >> 8) & 0xFFU),
         (uint8_t)(torque_limit & 0xFFU),
         (uint8_t)((torque_limit >> 8) & 0xFFU)
     };

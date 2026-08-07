@@ -7,7 +7,7 @@ Motion-11 은 팔을 Pick pregrasp 에 남긴다. 이 sender 는
 내린다. 계획 artifact 전체를 같은 생성기로 다시 계산해 정확히 일치할 때만
 허용하며, 계획 SHA 만 믿지 않는다.
 
-0x00022A00 부터 firmware 는 apply lateness 분포를 terminal 프레임에만
+0x00022C00 부터 firmware 는 apply lateness 분포를 terminal 프레임에만
 싣는다. 0x00022800 은 refill 응답에도 실어 blocking 전송을 4.688 ms 에서
 7.118 ms 로 늘렸고, 그것이 5 ms 예산을 넘겨 첫 sample 에서 죽었다.
 이 실행은 그 분포의 첫 실측이기도 하다.
@@ -104,11 +104,17 @@ def load_q0_return_plan(
 
     # 계획 전체를 같은 생성기로 다시 만들어 정확히 일치하는지 본다.
     # SHA 만으로는 다른 입력으로 만든 유효한 계획을 구분하지 못한다.
+    # tracking_rate_raw_s 도 계획이 실제로 쓴 값을 그대로 넣어야 한다 --
+    # duration_ms 는 고정하면서 rate 만 기본값(50)으로 되돌리면, 빠른
+    # rate 로 고른 짧은 duration 을 느린 rate 모델로 재검증하게 되어
+    # 모델 peak 오차가 부풀려져 거짓으로 재현 불가 판정이 난다
+    # (2026-08-07 밤 300raw/s q0 복귀에서 실제로 겪음).
     rebuilt = build_plan(
         calibration_path,
         contract_path,
         tuple(anchor_raw),
         document["analytic_profile"]["duration_ms"],
+        document["physical_tracking_model"]["conservative_rate_raw_s"],
     )
     # 자동 선택 표시는 재계산 시 명시 지정이 되므로 비교에서 제외한다.
     rebuilt["analytic_profile"]["duration_selected_automatically"] = document[

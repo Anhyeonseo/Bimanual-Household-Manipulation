@@ -588,7 +588,17 @@ class ActuatorTransport:
             ).payload
         )
         if result != 0 or state != 2 or returned_hash != calibration_hash:
-            raise TransportError("ARM_REQUEST rejected")
+            # 거부 사유는 응답에 실려 온다. 버리면 어느 조건에서 막혔는지
+            # 알 수 없어 펌웨어 소스를 뒤져야 한다. 2026-08-06 A5 복구에서
+            # 실제로 그렇게 막혔다.
+            #   result: 0=OK 1=BAD_STATE 2=ESTOP 3=HEALTH_FAILED
+            #           4=CONFIG_MISMATCH  (actuator_safety_result_t)
+            #   state : 2 를 기대한다 (ARMED)
+            raise TransportError(
+                f"ARM_REQUEST rejected result={result} state={state} "
+                f"hash=0x{returned_hash:08X} "
+                f"expected_hash=0x{calibration_hash:08X}"
+            )
         self.heartbeat()
         sequence = self._send(MessageType.ENABLE)
         enabled = parse_state(

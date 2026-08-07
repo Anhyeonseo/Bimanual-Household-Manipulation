@@ -264,3 +264,67 @@ def test_the_vector_maximum_may_be_below_the_reported_maximum() -> None:
     )
     assert evidence.post_settle_max_error_raw == 22
     assert max(evidence.post_settle_error_raw) == 19
+
+
+def test_an_aborted_action_reports_why() -> None:
+    """중단 사유를 버리면 Pi 로그를 뒤져야 한다.
+
+    2026-08-06 A5 1회차가 `status=6` 만 남기고 죽어 원인을 알 수 없었다.
+    bridge 는 사유를 `error_string` 에 담아 보낸다.
+    """
+    from types import SimpleNamespace
+    import pytest
+
+    result = SimpleNamespace(
+        error_code=-1,
+        error_string=(
+            "buffered post-settle diagnostics failed: last maximum error 42 "
+            "did not provide 2 consecutive position-only snapshots"
+        ),
+    )
+    with pytest.raises(RuntimeError, match="post-settle diagnostics failed"):
+        MODULE.validate_action_terminal(6, result)
+
+
+def test_an_abort_without_a_reason_says_so() -> None:
+    from types import SimpleNamespace
+    import pytest
+
+    result = SimpleNamespace(error_code=-1, error_string="")
+    with pytest.raises(RuntimeError, match=r"빈 문자열"):
+        MODULE.validate_action_terminal(6, result)
+
+
+def test_an_arm_rejection_reports_which_condition_failed() -> None:
+    """거부 사유를 버리면 펌웨어 소스를 뒤져야 한다.
+
+    2026-08-06 A5 복구에서 `ARM_REQUEST rejected` 만 남아 BAD_STATE 인지
+    HEALTH_FAILED 인지 알 수 없었다. 응답은 result 와 state 를 싣고 온다.
+    """
+    source = (
+        ROOT
+        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/transport.py"
+    ).read_text(encoding="utf-8")
+    assert 'f"ARM_REQUEST rejected result={result} state={state} "' in source
+    assert "HEALTH_FAILED" in source
+    assert "CONFIG_MISMATCH" in source
+
+
+def test_an_admission_rejection_carries_the_adapter_detail() -> None:
+    """adapter 는 어느 필드가 어긋났는지 만들어 던진다. 덮으면 안 된다.
+
+    2026-08-06 A5 7회차가 `buffered response failed host admission` 만 남기고
+    죽어 원인을 알 수 없었다. 오늘 같은 패턴에 네 번 당했다 —
+    Action 중단, ARM 거부, post-settle 벡터, 그리고 이것이다.
+    """
+    source = (
+        ROOT
+        / "ros2_ws/src/single_arm_bridge/single_arm_bridge"
+        / "buffered_transport_driver.py"
+    ).read_text(encoding="utf-8")
+    assert (
+        'f"buffered response failed host admission: {exc}"' in source
+    )
+    assert (
+        'f"buffered terminal failed host admission: {exc}"' in source
+    )

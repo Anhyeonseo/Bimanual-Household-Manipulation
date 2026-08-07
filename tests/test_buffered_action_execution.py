@@ -236,7 +236,7 @@ def hello():
         protocol_version=1,
         joint_count=6,
         stop_latched=False,
-        firmware_version=0x00022A00,
+        firmware_version=0x00022C00,
         calibration_hash=CALIBRATION.calibration_hash,
         capabilities=0x00000FFF,
         rejected_frame_count=0,
@@ -275,7 +275,7 @@ def test_continuous_runtime_refills_and_requires_terminal_and_settle() -> None:
     assert outcome.state.value == "succeeded"
     assert "maximum_apply_lateness_ms=2" in outcome.reason
     assert "first_sample_lead_ms=100" in outcome.reason
-    assert "prime_heartbeat_gates=3" in outcome.reason
+    assert "prime_heartbeat_gates=6" in outcome.reason
     assert "prime_frames=2 accepted=16 applied=0 queued=16" in outcome.reason
     assert len(transport.commands) > 2
     assert transport.commands[0].sample_count == 9
@@ -302,7 +302,7 @@ def test_continuous_runtime_refills_and_requires_terminal_and_settle() -> None:
 
 @pytest.mark.parametrize(
     ("elapsed_ms", "expected_first_sample_lead_ms"),
-    ((60, 100), (61, 99), (80, 80)),
+    ((120, 100), (121, 99), (140, 80)),
 )
 def test_startup_prime_accepts_reviewed_elapsed_window_boundaries(
     elapsed_ms: int,
@@ -325,7 +325,7 @@ def test_startup_prime_accepts_reviewed_elapsed_window_boundaries(
     assert core.blocked is False
 
 
-@pytest.mark.parametrize("elapsed_ms", (59, 81))
+@pytest.mark.parametrize("elapsed_ms", (119, 141))
 def test_startup_prime_rejects_elapsed_outside_reviewed_window(
     elapsed_ms: int,
 ) -> None:
@@ -344,15 +344,15 @@ def test_startup_prime_rejects_elapsed_outside_reviewed_window(
     )
 
 
-def test_startup_prime_61ms_elapsed_handles_uint32_wraparound() -> None:
-    transport = SimulatedBufferedTransport(heartbeat_step_ms=61)
+def test_startup_prime_121ms_elapsed_handles_uint32_wraparound() -> None:
+    transport = SimulatedBufferedTransport(heartbeat_step_ms=121)
     transport.tick = UINT32_MAX - 30
     core = BufferedActionExecutionCore(transport, hello(), CALIBRATION)
 
     plan = core.start_goal(trajectory(), preserved_gripper_rad=0.0)
 
-    assert plan.samples[0].apply_tick_ms == 190
-    assert transport.tick == 91
+    assert plan.samples[0].apply_tick_ms == 310
+    assert transport.tick == 211
     assert (plan.samples[0].apply_tick_ms - transport.tick) & UINT32_MAX == 99
     assert len(transport.commands) == 2
     assert transport.commands[1].flags & int(BufferedSetpointFlags.START)
@@ -361,7 +361,7 @@ def test_startup_prime_61ms_elapsed_handles_uint32_wraparound() -> None:
 
 
 def test_startup_lead_gate_fails_closed_before_start_frame() -> None:
-    transport = SimulatedBufferedTransport(heartbeat_step_ms=120)
+    transport = SimulatedBufferedTransport(heartbeat_step_ms=180)
     core = BufferedActionExecutionCore(
         transport,
         hello(),
@@ -515,6 +515,127 @@ def test_post_settle_recovers_after_one_outlier_without_full_sweep_retries() -> 
     assert "post_settle_max_error_raw=19" in outcome.reason
     assert transport.position_snapshot_calls == 3
     assert transport.diagnostics_calls == 1
+
+
+def test_post_settle_extends_deadline_while_strictly_improving() -> None:
+    """관절이 목표를 계속 따라잡는 중이면 기본 시한을 넘겨도 기다린다.
+
+    2026-08-07 실기 120 raw/s 램프에서 한 관절이 283 raw 벗어난 채 시작해
+    매 관측마다 줄어들다가 고정 2.5s 시한에 걸려 실패했다 — 추세선대로면
+    완주까지 더 걸렸을 뿐이었다.
+    """
+    transport = SimulatedBufferedTransport(
+        settle_error_raw=20,
+        position_errors_raw=(100, 80, 60, 40, 20, 20),
+    )
+    core = BufferedActionExecutionCore(
+        transport,
+        hello(),
+        CALIBRATION,
+        post_settle_timeout_s=0.12,
+        post_settle_poll_interval_s=0.05,
+        post_settle_maximum_timeout_s=0.5,
+    )
+    plan = core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+    transport.target_raw = tuple(
+        round(
+            joint.zero_raw
+            + joint.direction * position * 4096.0 / (2.0 * 3.141592653589793)
+        )
+        for joint, position in zip(
+            CALIBRATION.joints,
+            (*plan.final_arm_positions_rad, plan.preserved_gripper_rad),
+            strict=True,
+        )
+    )
+
+    outcome = None
+    for _ in range(80):
+        outcome = core.poll()
+        if outcome is not None:
+            break
+
+    assert outcome is not None
+    assert outcome.state.value == "succeeded"
+    assert transport.position_snapshot_calls == 6
+
+
+def test_post_settle_does_not_extend_when_error_plateaus() -> None:
+    """정체 사례(2026-08-06 SHOULDER 32 raw 평형)는 여전히 기본 시한에서 실패한다.
+
+    연장은 매 관측이 직전보다 엄격히 좋아질 때만 일어난다 — 그렇지 않으면
+    '기다리면 온다'는 보장이 없는 정체를 계속 기다리게 된다.
+    """
+    transport = SimulatedBufferedTransport(settle_error_raw=100)
+    core = BufferedActionExecutionCore(
+        transport,
+        hello(),
+        CALIBRATION,
+        post_settle_timeout_s=0.12,
+        post_settle_poll_interval_s=0.05,
+        post_settle_maximum_timeout_s=0.5,
+    )
+    plan = core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+    transport.target_raw = tuple(
+        round(
+            joint.zero_raw
+            + joint.direction * position * 4096.0 / (2.0 * 3.141592653589793)
+        )
+        for joint, position in zip(
+            CALIBRATION.joints,
+            (*plan.final_arm_positions_rad, plan.preserved_gripper_rad),
+            strict=True,
+        )
+    )
+
+    outcome = None
+    for _ in range(80):
+        outcome = core.poll()
+        if outcome is not None:
+            break
+
+    assert outcome is not None
+    assert outcome.state.value == "aborted"
+    # 기본 시한(120ms)이 상한(500ms)까지 연장됐다면 훨씬 더 많은 관측이
+    # 쌓였을 것이다 — 정체는 몇 회 안에서 그대로 끝나야 한다.
+    assert transport.position_snapshot_calls <= 4
+
+
+def test_post_settle_extension_is_capped_at_the_absolute_ceiling() -> None:
+    """개선이 계속돼도 상한을 넘겨 무한정 기다리지는 않는다."""
+    transport = SimulatedBufferedTransport(
+        settle_error_raw=100,
+        position_errors_raw=tuple(range(200, 31, -1)),
+    )
+    core = BufferedActionExecutionCore(
+        transport,
+        hello(),
+        CALIBRATION,
+        post_settle_timeout_s=0.05,
+        post_settle_poll_interval_s=0.03,
+        post_settle_maximum_timeout_s=0.2,
+    )
+    plan = core.start_goal(trajectory(), preserved_gripper_rad=0.0)
+    transport.target_raw = tuple(
+        round(
+            joint.zero_raw
+            + joint.direction * position * 4096.0 / (2.0 * 3.141592653589793)
+        )
+        for joint, position in zip(
+            CALIBRATION.joints,
+            (*plan.final_arm_positions_rad, plan.preserved_gripper_rad),
+            strict=True,
+        )
+    )
+
+    outcome = None
+    for _ in range(80):
+        outcome = core.poll()
+        if outcome is not None:
+            break
+
+    assert outcome is not None
+    assert outcome.state.value == "aborted"
 
 
 def test_terminal_heartbeat_gate_failure_is_fail_closed_without_position_read():

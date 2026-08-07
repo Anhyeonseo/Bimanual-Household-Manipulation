@@ -13,6 +13,7 @@ from .action_validation import ValidatedBufferedTrajectory
 from .buffered_action_adapter import (
     INITIAL_FIRST_SAMPLE_LEAD_MS,
     MAXIMUM_APPLY_LATENESS_MS,
+    STARTUP_PRIME_MINIMUM_ELAPSED_MS,
     STARTUP_PRIME_SAMPLES,
     UINT32_HALF_RANGE,
     UINT32_MAX,
@@ -41,8 +42,24 @@ POST_SETTLE_TOLERANCE_RAW = 30
 POST_SETTLE_CONSECUTIVE_SNAPSHOTS = 2
 POST_SETTLE_TIMEOUT_S = 2.5
 POST_SETTLE_POLL_INTERVAL_S = 0.1
+
+# **속도를 올리면 관절이 정착에 더 오래 걸릴 수 있다 — 그 자체는 실패가
+# 아니다.** 2026-08-07 speed-ramp 실기에서 120 raw/s 로 올렸더니 한 관절이
+# 목표에서 283 raw 벗어난 채 시작해 매 관측마다 거의 일정한 속도로
+# 줄어들다가(283→...→120) `POST_SETTLE_TIMEOUT_S`(2.5s)에 걸려 실패
+# 처리됐다 — 추세선대로면 완주까지 ~4.5s 가 걸렸을 값이다.
+#
+# 그런데 2026-08-06 에는 같은 신호(정착 못 함)가 다른 모양으로 나온 적이
+# 있다 — SHOULDER 가 32 raw 에 **멈춰서 14회 관측이 전부 동일**했다. 그건
+# 아무리 기다려도 안 온다. 두 경우를 구분하는 것은 시간이 아니라 **매
+# 관측마다 개선되고 있는가**다.
+#
+# 그래서 마감을 고정하지 않는다 — 매 관측이 직전보다 엄격히 좋아질 때만
+# `POST_SETTLE_TIMEOUT_S` 단위로 연장하고, 이 상한에서 멈춘다. 정체·악화는
+# 즉시 연장을 멈추므로 평형 사례는 원래와 똑같이 2.5s 에서 실패한다.
+POST_SETTLE_MAXIMUM_TIMEOUT_S = 10.0
 STARTUP_FIRST_SAMPLE_LEAD_GATE_MS = 80
-STARTUP_MAXIMUM_HEARTBEAT_GATES = 3
+STARTUP_MAXIMUM_HEARTBEAT_GATES = 8
 
 
 @dataclass(frozen=True)
@@ -137,16 +154,25 @@ class BufferedActionExecutionCore:
         *,
         post_settle_timeout_s: float = POST_SETTLE_TIMEOUT_S,
         post_settle_poll_interval_s: float = POST_SETTLE_POLL_INTERVAL_S,
+        post_settle_maximum_timeout_s: float = POST_SETTLE_MAXIMUM_TIMEOUT_S,
     ) -> None:
         validate_hardware_identity(hello, calibration.calibration_hash)
         if post_settle_timeout_s <= 0.0 or post_settle_poll_interval_s < 0.0:
             raise ValueError("post-settle timing values are invalid")
+        if post_settle_maximum_timeout_s < post_settle_timeout_s:
+            raise ValueError(
+                "post-settle maximum timeout must not be below the base "
+                "timeout"
+            )
         self._transport = transport
         self._calibration = calibration
         self._blocked = hello.stop_latched
         self._post_settle_timeout_s = float(post_settle_timeout_s)
         self._post_settle_poll_interval_s = float(
             post_settle_poll_interval_s
+        )
+        self._post_settle_maximum_timeout_s = float(
+            post_settle_maximum_timeout_s
         )
         self._plan: BufferedExecutionPlan | None = None
         self._scheduler: BufferedBatchScheduler | None = None
@@ -178,6 +204,14 @@ class BufferedActionExecutionCore:
             self._startup_diagnostics = None
             stage = "precompute"
             precompute_started = time.monotonic()
+            # Kept outside the try so the failure path can report whichever
+            # phases had already been timed. The lead gate fails before
+            # _startup_diagnostics exists, so without these the rejection
+            # arrives with no breakdown -- which is what happened on
+            # 2026-08-06 run 7 and left that stop unexplained.
+            precompute_ms: float | None = None
+            reanchor_ms: float | None = None
+            prime_frame_1_ms: float | None = None
             try:
                 plan = prepare_buffered_execution_plan(
                     trajectory,
@@ -193,6 +227,14 @@ class BufferedActionExecutionCore:
                 )
                 stage = "fresh_reanchor_heartbeat"
                 heartbeat = self._transport.heartbeat()
+                fresh_heartbeat_host_time = time.monotonic()
+                # Everything from here until the prime-2 heartbeat is spent
+                # out of the 220 ms lead that this heartbeat just bought.
+                # precompute_ms sits *before* the heartbeat and therefore
+                # cannot consume it -- so when the lead collapses the cause
+                # has to be in this window, and the window has never been
+                # broken down. Time its two parts separately.
+                reanchor_started = time.monotonic()
                 plan = reanchor_buffered_execution_plan(
                     plan,
                     current_tick_ms=heartbeat.last_heartbeat_ms,
@@ -202,9 +244,16 @@ class BufferedActionExecutionCore:
                 self._plan = plan
                 self._scheduler = scheduler
                 self._driver = driver
+                reanchor_ms = round(
+                    (time.monotonic() - reanchor_started) * 1000.0, 3
+                )
                 stage = "prime_frame_1"
+                prime_started = time.monotonic()
                 first = driver.service_once(
                     current_tick_ms=heartbeat.last_heartbeat_ms
+                )
+                prime_frame_1_ms = round(
+                    (time.monotonic() - prime_started) * 1000.0, 3
                 )
                 if first is None:
                     raise ExecutionError("startup prime frame 1 was not produced")
@@ -213,6 +262,24 @@ class BufferedActionExecutionCore:
                 prime_heartbeat = None
                 first_sample_lead_ms = None
                 prime_heartbeat_gates = 0
+                # A tight heartbeat-only retry loop does not reliably reach
+                # STARTUP_PRIME_MINIMUM_ELAPSED_MS: on real hardware each
+                # heartbeat round trip is only a few ms, so gates alone can
+                # exhaust STARTUP_MAXIMUM_HEARTBEAT_GATES while still short of
+                # the elapsed time the second batch needs to fall under the
+                # firmware's maximum lead (2026-08-07 physical run: 8 gates,
+                # still short). Sleep host-side toward that target first; the
+                # gate loop below then only has to absorb clock jitter.
+                stage = "prime_frame_2_wait"
+                elapsed_since_reanchor_s = (
+                    time.monotonic() - fresh_heartbeat_host_time
+                )
+                remaining_wait_s = (
+                    STARTUP_PRIME_MINIMUM_ELAPSED_MS / 1000.0
+                    - elapsed_since_reanchor_s
+                )
+                if remaining_wait_s > 0.0:
+                    time.sleep(remaining_wait_s)
                 for gate_index in range(1, STARTUP_MAXIMUM_HEARTBEAT_GATES + 1):
                     stage = f"prime_frame_2_heartbeat_{gate_index}"
                     prime_heartbeat = self._transport.heartbeat()
@@ -262,6 +329,8 @@ class BufferedActionExecutionCore:
                     )
                 self._startup_diagnostics = (
                     f"precompute_ms={precompute_ms:.3f} "
+                    f"reanchor_ms={reanchor_ms:.3f} "
+                    f"prime_frame_1_ms={prime_frame_1_ms:.3f} "
                     f"fresh_tick={heartbeat.last_heartbeat_ms} "
                     f"prime_tick={prime_heartbeat.last_heartbeat_ms} "
                     f"first_sample_lead_ms={first_sample_lead_ms} "
@@ -273,9 +342,20 @@ class BufferedActionExecutionCore:
                 )
                 return plan
             except Exception as error:
-                diagnostics = self._startup_diagnostics or (
-                    "precompute_ms="
-                    f"{(time.monotonic() - precompute_started) * 1000.0:.3f}"
+                diagnostics = self._startup_diagnostics or " ".join(
+                    f"{name}={value:.3f}"
+                    for name, value in (
+                        (
+                            "precompute_ms",
+                            precompute_ms
+                            if precompute_ms is not None
+                            else (time.monotonic() - precompute_started)
+                            * 1000.0,
+                        ),
+                        ("reanchor_ms", reanchor_ms),
+                        ("prime_frame_1_ms", prime_frame_1_ms),
+                    )
+                    if value is not None
                 )
                 self._clear_active()
                 self._fail_closed()
@@ -427,10 +507,12 @@ class BufferedActionExecutionCore:
             )
         )
         started_at = time.monotonic()
-        deadline = time.monotonic() + self._post_settle_timeout_s
+        deadline = started_at + self._post_settle_timeout_s
+        absolute_deadline = started_at + self._post_settle_maximum_timeout_s
         consecutive = 0
         maximum = 0
         last_error = 0
+        previous_last_error: int | None = None
         observations = 0
         heartbeat_gates = 0
         error_trace: list[tuple[int, ...]] = []
@@ -529,6 +611,22 @@ class BufferedActionExecutionCore:
             else:
                 consecutive = 0
                 maximum = 0
+                # Still outside tolerance. A strictly improving worst-axis
+                # error means the arm is genuinely catching up, not stuck --
+                # buy it one more base timeout window, capped at the
+                # absolute ceiling. Anything else (stalled or worsening)
+                # gets no extension, so a true plateau still fails at the
+                # original POST_SETTLE_TIMEOUT_S boundary.
+                if (
+                    previous_last_error is not None
+                    and last_error < previous_last_error
+                    and deadline < absolute_deadline
+                ):
+                    deadline = min(
+                        deadline + self._post_settle_timeout_s,
+                        absolute_deadline,
+                    )
+            previous_last_error = last_error
             time.sleep(self._post_settle_poll_interval_s)
         else:
             raise ExecutionError(
