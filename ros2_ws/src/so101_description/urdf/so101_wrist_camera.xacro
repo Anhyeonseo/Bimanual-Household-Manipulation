@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Eye-in-hand wrist camera optical frame, parented off the frozen
+  wrist_camera_mount_center_link (see so101_arm_macro.xacro and
+  tests/test_wrist_camera_mount_contract.py). camera_xyz/camera_optical_rpy
+  are CAD-nominal placeholders, not a measured calibration: W1/W3 of
+  docs/checklists/WRIST_CAMERA_EYE_IN_HAND.md replace them with intrinsic
+  and eye-in-hand solve output. Do not treat the defaults as ground truth.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro
+    name="so101_wrist_camera"
+    params="prefix parent camera_xyz:='0 0 0' camera_optical_rpy:='0 0 0'">
+    <!-- Camera body geometry was not supplied; this remains a fixed frame. -->
+    <link name="${prefix}wrist_camera_link"/>
+    <joint name="${prefix}wrist_camera_mount_joint" type="fixed">
+      <origin xyz="${camera_xyz}" rpy="0 0 0"/>
+      <parent link="${parent}"/>
+      <child link="${prefix}wrist_camera_link"/>
+    </joint>
+
+    <link name="${prefix}wrist_camera_optical_frame"/>
+    <joint name="${prefix}wrist_camera_optical_joint" type="fixed">
+      <origin xyz="0 0 0" rpy="${camera_optical_rpy}"/>
+      <parent link="${prefix}wrist_camera_link"/>
+      <child link="${prefix}wrist_camera_optical_frame"/>
+    </joint>
+  </xacro:macro>
+</robot>

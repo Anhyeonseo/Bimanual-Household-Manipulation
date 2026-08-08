@@ -8,10 +8,23 @@
   <xacro:arg name="use_overhead_webcam_mount" default="false"/>
   <xacro:arg name="top_camera_xyz" default="0 0.2344404 0"/>
   <xacro:arg name="top_camera_optical_rpy" default="1.5707963267948966 0 0"/>
+  <!--
+    Eye-in-hand calibration, W3, 2026-08-09. cv2.calibrateHandEye (TSAI) on
+    session artifacts/wrist_camera/eye_in_hand_session_v2, 8 training + 2
+    validation captures, planar ArUco GridBoard fixed to the table:
+    EYE_IN_HAND_VALIDATED_MOTION_STILL_NOT_AUTHORIZED, training RMS 6.81 mm,
+    validation RMS 8.18 mm (see docs/checklists/WRIST_CAMERA_EYE_IN_HAND.md
+    W3 for the derived, track-specific acceptance thresholds). Decomposed
+    from the solved gripper_to_camera into this mount-center-relative
+    xyz/rpy pair; re-derive if the camera, lens, or mount moves.
+  -->
+  <xacro:arg name="wrist_camera_xyz" default="0.01437087 -0.00675864 0.01616744"/>
+  <xacro:arg name="wrist_camera_optical_rpy" default="-0.02242196 0.03092788 3.02135163"/>
 
   <xacro:include filename="so101_arm_macro.xacro"/>
   <xacro:include filename="so101_ros2_control.xacro"/>
   <xacro:include filename="so101_overhead_webcam_mount.xacro"/>
+  <xacro:include filename="so101_wrist_camera.xacro"/>
 
   <material name="3d_printed">
     <color rgba="1.0 0.82 0.12 1.0"/>
@@ -38,6 +51,15 @@
     mount_rpy="$(arg mount_rpy)"
     use_wrist_camera_mount="$(arg use_wrist_camera_mount)"
   />
+
+  <xacro:if value="$(arg use_wrist_camera_mount)">
+    <xacro:so101_wrist_camera
+      prefix="$(arg arm_slot)_"
+      parent="$(arg arm_slot)_wrist_camera_mount_center_link"
+      camera_xyz="$(arg wrist_camera_xyz)"
+      camera_optical_rpy="$(arg wrist_camera_optical_rpy)"
+    />
+  </xacro:if>
 
   <xacro:if value="$(arg use_mock_hardware)">
     <xacro:so101_mock_ros2_control

@@ -56,7 +56,7 @@ Raspberry Pi 5 4GB에서 다음 작업을 동시에 수행하되 제어와 안�
 적용 기술:
 
 - 카메라 내부 보정(intrinsic calibration)
-- eye-in-hand calibration으로 `left_tool0 → left_wrist_camera` 고정 transform 추정
+- eye-in-hand calibration으로 `left_gripper_frame_link → left_wrist_camera_optical_frame` 고정 transform 추정
 - 필요한 영역만 자른 영상(ROI)과 작은 특징 검출기 사용
 - 영상 기반 Visual Servo 또는 크기가 제한된 Cartesian 좌표 보정
 - frame이 오래됐거나 신뢰도가 낮거나 timeout이 발생하면 즉시 중단

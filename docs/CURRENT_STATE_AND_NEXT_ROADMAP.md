@@ -48,6 +48,11 @@
   동시 30분 자원 gate를 통과했다.
 - 손목 카메라 eye-in-hand와 최종 visual correction은 미완료다.
 - 오른팔과 양팔 동작은 formal gate를 아직 통과하지 않았다.
+- `tests/` 일부가 `artifacts/`(gitignore 대상, stage7 route/plan 캡처 등)를
+  직접 읽어서 fresh clone에서는 실패한다(2026-08-07 PR #31 머지 후 확인,
+  PR 이전 커밋도 동일해 이번 PR과는 무관한 기존 문제). 그 시험들이 쓰는
+  파일이 작으면 git에 커밋하고, 크면 파일 있을 때만 도는 별도 카테고리로
+  분리해 없으면 skip 되게 해야 한다.
 - 실제 Isaac 정책의 ONNX 입력·출력, control_dt와 Pi 5 실행시간은 아직
   deployment contract로 동결하지 않았다.
 
