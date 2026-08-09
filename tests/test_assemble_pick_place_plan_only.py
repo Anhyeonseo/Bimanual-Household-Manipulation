@@ -122,7 +122,7 @@ def test_assemble_is_non_executable_contiguous_and_returns_q0(tmp_path):
     assert result["motion_authorized"] is False
     assert result["robot_target_available"] is False
     assert result["automatic_execution_permitted"] is False
-    assert result["calibration_hash"] == "0xB317C672"
+    assert result["calibration_hash"] == "0x2D90167E"
     assert result["arm_segment_count"] == 7
     assert result["command_step_count"] == 9
     assert [step["phase"] for step in result["steps"] if step["kind"] == "gripper"] == [

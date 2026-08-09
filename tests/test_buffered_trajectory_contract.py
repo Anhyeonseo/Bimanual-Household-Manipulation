@@ -216,7 +216,7 @@ def test_machine_contract_is_physically_commissioned_and_fail_closed() -> None:
             "80f14845bab532de3217fcee7a9c4c2b0b5cf4241b65023844d6ba7d615de087"
         ),
         "firmware_version": "0x00022100",
-        "calibration_hash": "0xB317C672",
+        "calibration_hash": "0x2D90167E",
         "duration_ms": 1200,
         "sample_count": 61,
         "action_send_count": 1,
@@ -235,7 +235,7 @@ def test_joint_limit_margin_route_is_deployed_and_unauthorized() -> None:
 
     assert contract["servo_uart_receive_candidate"] == {
         "status": "LOCAL_JOINT_LIMIT_MARGIN_DEPLOYED",
-        "firmware_version": "0x00022C00",
+        "firmware_version": "0x00022F00",
         "previous_candidate_firmware_version": "0x00022B00",
         "previous_deployed_firmware_version": "0x00022B00",
         "baud": 1_000_000,
@@ -444,7 +444,7 @@ def test_g474_identity_advertises_separate_validation_and_execution_routes() -> 
         / "binary_control.c"
     ).read_text(encoding="utf-8")
 
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022C00)" in config
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022F00)" in config
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in config
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in config
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in config

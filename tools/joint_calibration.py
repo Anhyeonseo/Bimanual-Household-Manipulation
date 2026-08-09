@@ -57,13 +57,14 @@ def calibration_hash(calibration: dict[str, Any]) -> int:
     for joint in calibration["joints"]:
         serialized.extend(
             struct.pack(
-                "<BHHHbB",
+                "<BHHHbBB",
                 joint["id"],
                 joint["zero_raw"],
                 joint["minimum_raw"],
                 joint["maximum_raw"],
                 joint["positive_raw_direction"],
                 joint["p_gain"],
+                joint["d_gain"],
             )
         )
     return crc32c(bytes(serialized))

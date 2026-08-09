@@ -41,7 +41,7 @@ def function_body(source: str, signature: str) -> str:
 
 
 def test_identity_requires_position_read_failure_diagnostics() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022C00)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022F00)" in CONFIG
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
     assert "POSITION_READ_FAILURE_DIAGNOSTICS_CAPABILITY = 0x00000100" in IDENTITY
     assert "SERVO_BUS_RECOVERY_DIAGNOSTICS_CAPABILITY = 0x00000200" in IDENTITY
@@ -97,7 +97,7 @@ def test_position_read_failure_wire_payload_reports_axis_and_streak() -> None:
         1,
         100,
         4,
-        0xB317C672,
+        0x2D90167E,
         5000,
     )
     state = parse_state(base + struct.pack("<BBBB", 3, 2, 3, 0))

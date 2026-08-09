@@ -35,7 +35,7 @@ class FakeExecutionTransport:
         self.drain_error = None
         self.accepted_status = 0
         self.accepted_sample_count = 1
-        self.accepted_calibration_hash = 0xB317C672
+        self.accepted_calibration_hash = 0x2D90167E
 
     def send_setpoint(self, positions_urad, duration_ms):
         if self.send_error is not None:
@@ -86,8 +86,8 @@ class SingleArmActionExecutionTests(unittest.TestCase):
 
     @staticmethod
     def hello(
-        calibration_hash=0xB317C672,
-        firmware_version=0x00022C00,
+        calibration_hash=0x2D90167E,
+        firmware_version=0x00022F00,
         protocol_version=1,
         joint_count=6,
         capabilities=0x00000FFF,

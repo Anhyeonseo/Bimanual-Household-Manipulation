@@ -30,7 +30,7 @@ POLICY_PATH = (
 def capture(lead_ms: int, *, outage_ms: float = 80.064074) -> dict:
     return build_capture_document(
         firmware_version=0x00021900,
-        calibration_hash=0xB317C672,
+        calibration_hash=0x2D90167E,
         capabilities=0x000007FF,
         requested_samples=1_000,
         interval_ms=20,

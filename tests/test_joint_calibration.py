@@ -20,7 +20,7 @@ class JointCalibrationTests(unittest.TestCase):
         )
 
     def test_hash_matches_verified_firmware(self) -> None:
-        self.assertEqual(calibration_hash(self.calibration), 0xB317C672)
+        self.assertEqual(calibration_hash(self.calibration), 0x2D90167E)
 
     def test_stage7_joint_gains_keep_only_elbow_at_p28_candidate(self) -> None:
         self.assertEqual(
@@ -30,11 +30,29 @@ class JointCalibrationTests(unittest.TestCase):
             },
             {
                 "BASE": 16,
-                "SHOULDER": 32,
-                "ELBOW": 28,
+                "SHOULDER": 64,
+                "ELBOW": 56,
                 "WRIST_FLEX": 16,
                 "WRIST_ROLL": 16,
                 "GRIPPER": 16,
+            },
+        )
+
+    def test_d_gain_restores_pre_p_gain_bump_ratio_on_shoulder_and_elbow(
+        self,
+    ) -> None:
+        self.assertEqual(
+            {
+                joint["name"]: joint["d_gain"]
+                for joint in self.calibration["joints"]
+            },
+            {
+                "BASE": 32,
+                "SHOULDER": 64,
+                "ELBOW": 64,
+                "WRIST_FLEX": 32,
+                "WRIST_ROLL": 32,
+                "GRIPPER": 32,
             },
         )
 
@@ -65,13 +83,13 @@ class JointCalibrationTests(unittest.TestCase):
         authoritative_ranges = [
             (joint["id"], joint["name"], joint["zero_raw"],
              joint["minimum_raw"], joint["maximum_raw"],
-             joint["p_gain"], joint["positive_raw_direction"])
+             joint["p_gain"], joint["d_gain"], joint["positive_raw_direction"])
             for joint in self.calibration["joints"]
         ]
         bridge_ranges = [
             (joint["id"], joint["name"], joint["zero_raw"],
              joint["minimum_raw"], joint["maximum_raw"],
-             joint["p_gain"], joint["positive_raw_direction"])
+             joint["p_gain"], joint["d_gain"], joint["positive_raw_direction"])
             for joint in bridge["joints"]
         ]
         self.assertEqual(bridge_ranges, authoritative_ranges)
@@ -81,11 +99,11 @@ class JointCalibrationTests(unittest.TestCase):
         ).read_text()
         firmware_ranges = [
             (int(servo_id), name, int(zero), int(minimum), int(maximum),
-             int(p_gain), int(direction))
-            for servo_id, name, zero, minimum, maximum, p_gain, direction in
+             int(p_gain), int(d_gain), int(direction))
+            for servo_id, name, zero, minimum, maximum, p_gain, d_gain, direction in
             re.findall(
                 r"\{(\d+)U,\s*\"([^\"]+)\",\s*1U,\s*"
-                r"(\d+)U,\s*(\d+)U,\s*(\d+)U,\s*(\d+)U,\s*(-?1),",
+                r"(\d+)U,\s*(\d+)U,\s*(\d+)U,\s*(\d+)U,\s*(\d+)U,\s*(-?1),",
                 firmware,
             )
         ]

@@ -247,7 +247,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--object-z", required=True, type=float)
     parser.add_argument("--yaw", required=True, type=float)
     parser.add_argument("--pregrasp-offset", type=float, default=0.10)
-    parser.add_argument("--grasp-offset", type=float, default=0.025)
+    parser.add_argument(
+        "--grasp-offset",
+        type=float,
+        required=True,
+        help=(
+            "no default on purpose — this value drifts with convergence "
+            "and calibration changes. Read the current measured value from "
+            "ros2_ws/src/single_arm_bridge/config/buffered_trajectory_contract.json "
+            "(tcp_contact_offsets.pick_grasp_offset_m / place_grasp_offset_m) "
+            "before calling this tool; do not hardcode a caller-side default "
+            "either, or it will go stale the same way the old 0.025 default did"
+        ),
+    )
     parser.add_argument(
         "--position-tolerance",
         type=float,

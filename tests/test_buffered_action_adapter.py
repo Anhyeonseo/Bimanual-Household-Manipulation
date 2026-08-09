@@ -156,7 +156,7 @@ def extended_result(
     queued: int,
     accepted: int,
     applied: int,
-    calibration_hash: int = 0xB317C672,
+    calibration_hash: int = 0x2D90167E,
     detail: int = 0,
 ) -> MotionResult:
     return MotionResult(

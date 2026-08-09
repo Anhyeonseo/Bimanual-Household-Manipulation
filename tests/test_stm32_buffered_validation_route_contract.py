@@ -41,7 +41,7 @@ def function_body(source: str, signature: str) -> str:
 
 def hello(
     *,
-    firmware_version: int = 0x00022C00,
+    firmware_version: int = 0x00022F00,
     capabilities: int = 0x00000FFF,
 ) -> Hello:
     return Hello(
@@ -49,19 +49,19 @@ def hello(
         joint_count=6,
         stop_latched=False,
         firmware_version=firmware_version,
-        calibration_hash=0xB317C672,
+        calibration_hash=0x2D90167E,
         capabilities=capabilities,
         rejected_frame_count=0,
     )
 
 
 def test_identity_and_capability_are_fail_closed() -> None:
-    validate_hardware_identity(hello(), 0xB317C672)
+    validate_hardware_identity(hello(), 0x2D90167E)
 
     with pytest.raises(HardwareIdentityError, match="firmware version mismatch"):
         validate_hardware_identity(
             hello(firmware_version=0x00021800),
-            0xB317C672,
+            0x2D90167E,
         )
     with pytest.raises(
         HardwareIdentityError,
@@ -69,7 +69,7 @@ def test_identity_and_capability_are_fail_closed() -> None:
     ):
         validate_hardware_identity(
             hello(capabilities=0x000003FF),
-            0xB317C672,
+            0x2D90167E,
         )
     with pytest.raises(
         HardwareIdentityError,
@@ -77,12 +77,12 @@ def test_identity_and_capability_are_fail_closed() -> None:
     ):
         validate_hardware_identity(
             hello(capabilities=0x000007FF),
-            0xB317C672,
+            0x2D90167E,
         )
 
 
 def test_capability_is_removed_when_route_initialization_fails() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022C00)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022F00)" in CONFIG
     assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in CONFIG
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in CONFIG

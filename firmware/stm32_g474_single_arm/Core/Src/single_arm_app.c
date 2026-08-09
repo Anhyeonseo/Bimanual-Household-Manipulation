@@ -645,6 +645,7 @@ void SingleArmApp_Process(void)
 	                          servo_joints[joint_index].id,
 	                          servo_joints[joint_index].torque_limit,
 	                          servo_joints[joint_index].p_gain,
+	                          servo_joints[joint_index].d_gain,
 	                          &configured_position
     	                      ) == HAL_OK)
     	                  {

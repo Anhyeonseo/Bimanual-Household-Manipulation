@@ -1,7 +1,7 @@
 """보정 교체가 저장된 자세의 의미를 바꾸지 않았음을 기계로 증명한다.
 
 2026-08-06 에 `BASE minimum_raw` 와 `WRIST_FLEX maximum_raw` 를 넓히면서
-calibration hash 가 `0x8AD27897` 에서 `0xB317C672` 로 바뀌었다. 그 해시는
+calibration hash 가 `0x8AD27897` 에서 `0xB32257F4` 로 바뀌었다. 그 해시는
 collision-checked artifact 22개에 박혀 있고, 도구들은 불일치를 fail-closed 로
 거부한다 — 옳은 동작이다.
 
@@ -53,8 +53,8 @@ def document():
 
 
 def test_current_hash_is_the_reviewed_value(document) -> None:
-    assert calibration_hash(load_calibration(AUTHORITATIVE)) == 0xB317C672
-    assert calibration_hash(load_calibration(PACKAGED)) == 0xB317C672
+    assert calibration_hash(load_calibration(AUTHORITATIVE)) == 0x2D90167E
+    assert calibration_hash(load_calibration(PACKAGED)) == 0x2D90167E
 
 
 def test_supersession_history_is_recorded(document) -> None:
@@ -108,12 +108,38 @@ def test_p_gain_changes_are_declared_rather_than_silent(document) -> None:
     """p_gain 은 해시에 들어가지만 자세의 의미와는 무관하다.
 
     그래도 조용히 바뀌면 안 된다. 바뀌었다면 그것이 이번 교체의 이유여야 한다.
+
+    history 는 최신이 먼저 오는 순서다. 각 entry 는 "그 다음 상태"(더 최신 쪽,
+    즉 배열에서 하나 앞 entry 이거나 없으면 현재 document)와만 비교한다 —
+    체인이 두 단계 이상 길어지면 각 entry 가 자신이 대체된 그 순간의 변경만
+    책임지고, 그 뒤에 다시 바뀐 값까지 설명할 의무는 없다.
     """
-    for entry in document["superseded_calibrations"]:
-        for old, new in zip(entry["joints"], document["joints"], strict=True):
+    history = document["superseded_calibrations"]
+    for index, entry in enumerate(history):
+        next_state = history[index - 1]["joints"] if index > 0 else document["joints"]
+        for old, new in zip(entry["joints"], next_state, strict=True):
             if old["p_gain"] != new["p_gain"]:
                 assert "p_gain" in entry["reason"], (
                     f"{new['name']} p_gain 이 바뀌었는데 이유에 적혀 있지 않다"
+                )
+
+
+def test_d_gain_changes_are_declared_rather_than_silent(document) -> None:
+    """d_gain 은 p_gain 과 같은 이유로 해시에 들어간다(조용히 바뀌면 안 된다).
+
+    d_gain 은 이번 교체에서 처음 관절별 필드가 됐다 — 그 이전 history entry 들의
+    joints 스냅샷에는 d_gain 이 없다. 두 쪽 다 d_gain 을 가진 쌍(현재는 최신
+    entry 뿐)만 비교한다.
+    """
+    history = document["superseded_calibrations"]
+    for index, entry in enumerate(history):
+        next_state = history[index - 1]["joints"] if index > 0 else document["joints"]
+        for old, new in zip(entry["joints"], next_state, strict=True):
+            if "d_gain" not in old or "d_gain" not in new:
+                continue
+            if old["d_gain"] != new["d_gain"]:
+                assert "d_gain" in entry["reason"], (
+                    f"{new['name']} d_gain 이 바뀌었는데 이유에 적혀 있지 않다"
                 )
 
 

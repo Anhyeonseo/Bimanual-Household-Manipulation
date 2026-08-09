@@ -63,7 +63,7 @@ if ROS_AVAILABLE:
                         self.auto_detail,
                         sequence,
                         1200,
-                        0xB317C672,
+                        0x2D90167E,
                     )
                 )
             return MotionResult(
@@ -73,7 +73,7 @@ if ROS_AVAILABLE:
                 0,
                 sequence,
                 1200,
-                0xB317C672,
+                0x2D90167E,
             )
 
         def drain_motion_results(self):
@@ -149,8 +149,8 @@ class FollowJointTrajectoryRosIntegrationTests(unittest.TestCase):
             1,
             6,
             False,
-            0x00022C00,
-            0xB317C672,
+            0x00022F00,
+            0x2D90167E,
             0x00000FFF,
             0,
         )
