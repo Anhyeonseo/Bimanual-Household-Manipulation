@@ -139,7 +139,7 @@ static actuator_joint_calibration_t Host_JointCalibration(
 
 static uint32_t Host_CalibrationHash(void)
 {
-    uint8_t calibration_bytes[54] = {0U};
+    uint8_t calibration_bytes[60] = {0U};
     uint16_t offset = 0U;
 
     for (uint8_t i = 0U; i < servo_joint_count; i++)
@@ -161,6 +161,7 @@ static uint32_t Host_CalibrationHash(void)
             (uint8_t)((joint->max_position >> 8U) & 0xFFU);
         calibration_bytes[offset++] = (uint8_t)joint->test_direction;
         calibration_bytes[offset++] = joint->p_gain;
+        calibration_bytes[offset++] = joint->d_gain;
     }
 
     return actuator_crc32c(calibration_bytes, offset);

@@ -11,7 +11,8 @@
       "minimum_raw": 1988,
       "maximum_raw": 2610,
       "positive_raw_direction": 1,
-      "p_gain": 16
+      "p_gain": 16,
+      "d_gain": 32
     },
     {
       "id": 2,
@@ -20,7 +21,8 @@
       "minimum_raw": 1988,
       "maximum_raw": 3766,
       "positive_raw_direction": 1,
-      "p_gain": 32
+      "p_gain": 64,
+      "d_gain": 64
     },
     {
       "id": 3,
@@ -29,7 +31,8 @@
       "minimum_raw": 627,
       "maximum_raw": 2258,
       "positive_raw_direction": -1,
-      "p_gain": 28
+      "p_gain": 56,
+      "d_gain": 64
     },
     {
       "id": 4,
@@ -38,7 +41,8 @@
       "minimum_raw": 1194,
       "maximum_raw": 2108,
       "positive_raw_direction": -1,
-      "p_gain": 16
+      "p_gain": 16,
+      "d_gain": 32
     },
     {
       "id": 5,
@@ -47,7 +51,8 @@
       "minimum_raw": 1874,
       "maximum_raw": 2219,
       "positive_raw_direction": 1,
-      "p_gain": 16
+      "p_gain": 16,
+      "d_gain": 32
     },
     {
       "id": 6,
@@ -56,7 +61,8 @@
       "minimum_raw": 1866,
       "maximum_raw": 2048,
       "positive_raw_direction": -1,
-      "p_gain": 16
+      "p_gain": 16,
+      "d_gain": 32
     }
   ]
 }

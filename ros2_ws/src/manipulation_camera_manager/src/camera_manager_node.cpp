@@ -50,6 +50,7 @@ struct DecodeRuntime {
 
   RollingStatistics frame_age_ms;
   RollingStatistics decode_time_ms;
+  std::string frame_id;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr publisher;
   std::chrono::steady_clock::time_point next_decode_at{};
   std::uint64_t last_generation{0};
@@ -123,6 +124,8 @@ class CameraManagerNode final : public rclcpp::Node {
 
       auto runtime = std::make_unique<DecodeRuntime>(
           static_cast<std::size_t>(statistics_capacity));
+      runtime->frame_id = declare_parameter<std::string>(
+          name + ".frame_id", name + "_optical_frame");
       runtime->publisher = create_publisher<sensor_msgs::msg::Image>(
           "camera/" + name + "/image_raw",
           rclcpp::SensorDataQoS().keep_last(1));
@@ -269,7 +272,7 @@ class CameraManagerNode final : public rclcpp::Node {
             sampled_at - frame->captured_at);
         message.header.stamp =
             now() - rclcpp::Duration::from_nanoseconds(age_ns.count());
-        message.header.frame_id = camera->Config().name + "_optical_frame";
+        message.header.frame_id = runtime.frame_id;
         message.height = decoded.height;
         message.width = decoded.width;
         message.encoding = "rgb8";

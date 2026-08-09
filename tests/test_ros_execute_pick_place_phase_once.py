@@ -47,7 +47,7 @@ def valid_diagnostics() -> dict:
     return {
         "protocol_version": 1,
         "joint_count": 6,
-        "calibration_hash": "0xB317C672",
+        "calibration_hash": "0x2D90167E",
         "joints": [
             {
                 "name": name,
@@ -69,7 +69,7 @@ def valid_diagnostics() -> dict:
 def parse_diagnostics(document: dict, contact=True, open_=False):
     return MODULE.parse_diagnostics_message(
         json.dumps(document),
-        "0xB317C672",
+        "0x2D90167E",
         contact,
         open_,
         1963,

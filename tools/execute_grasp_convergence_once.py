@@ -167,10 +167,9 @@ def plan_and_execute_leg(
             "--plan-only",
             "--calibration",
             str(calibration_path),
-            "--start",
-            ",".join(f"{value:.12f}" for value in start_rad),
-            "--target-joints",
-            ",".join(f"{value:.12f}" for value in target_rad),
+            "--start=" + ",".join(f"{value:.12f}" for value in start_rad),
+            "--target-joints="
+            + ",".join(f"{value:.12f}" for value in target_rad),
             "--output",
             str(segments),
         ],

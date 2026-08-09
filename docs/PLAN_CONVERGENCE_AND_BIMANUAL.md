@@ -251,8 +251,10 @@ leg 를 더하므로 Action 수도 늘어난다. **양팔 진입 전 필수** �
 기록: `docs/test-results/2026-08-06-a5-repeatability-pilot.md`
 
 ### C3 — 손목 카메라 (외부수용 층)
-- W0 optical frame → W1 내부 파라미터 → W3 eye-in-hand → W4 bounded correction
+- W0 optical frame → W1 내부 파라미터 → W2 캡처 세션 → W3 eye-in-hand →
+  W4 bounded correction
 - **C1 이 끝난 뒤에 해야** 실패 원인이 갈린다
+- 실행 체크리스트: `docs/checklists/WRIST_CAMERA_EYE_IN_HAND.md`
 
 ### C4 — 한 팔 최종 산출물
 - 인식 → 수렴 → 손목 보정 → 파지 → 배치 전 구간

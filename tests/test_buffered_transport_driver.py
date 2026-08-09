@@ -70,7 +70,7 @@ def result_for(command, *, sequence: int, state: int, applied: int = 0):
         detail=0,
         request_sequence=sequence,
         apply_tick_ms=command.first_apply_tick_ms,
-        calibration_hash=0xB317C672,
+        calibration_hash=0x2D90167E,
         executor_state=state,
         terminal_reason=BufferedTerminalReason.NONE.value,
         safe_stop_required=False,
@@ -188,7 +188,7 @@ def test_legacy_16_byte_result_is_rejected_without_second_exchange() -> None:
                 detail=0,
                 request_sequence=300,
                 apply_tick_ms=command.first_apply_tick_ms,
-                calibration_hash=0xB317C672,
+                calibration_hash=0x2D90167E,
             ),
         )
 
@@ -212,7 +212,7 @@ def test_terminal_before_pending_ack_aborts_and_does_not_exchange_again() -> Non
         detail=0,
         request_sequence=400,
         apply_tick_ms=plan.samples[0].apply_tick_ms,
-        calibration_hash=0xB317C672,
+        calibration_hash=0x2D90167E,
         executor_state=BufferedExecutorState.ABORTED.value,
         terminal_reason=BufferedTerminalReason.CONNECTION_LOSS.value,
         safe_stop_required=True,

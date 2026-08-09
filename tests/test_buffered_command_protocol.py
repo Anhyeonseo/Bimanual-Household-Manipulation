@@ -57,7 +57,7 @@ def test_candidate_flags_require_candidate_and_reject_unknown_bits() -> None:
 
 def test_legacy_setpoint_status_remains_supported() -> None:
     result = parse_setpoint_status(
-        struct.pack("<BBBBIII", 0, 1, 3, 0, 42, 1_500, 0xB317C672)
+        struct.pack("<BBBBIII", 0, 1, 3, 0, 42, 1_500, 0x2D90167E)
     )
     assert result.request_sequence == 42
     assert result.executor_state is None
@@ -66,7 +66,7 @@ def test_legacy_setpoint_status_remains_supported() -> None:
 
 def test_extended_setpoint_status_exposes_buffer_diagnostics() -> None:
     payload = struct.pack(
-        "<BBBBIII" "BBBBHHII", 6, 2, 3, 9, 42, 1_500, 0xB317C672,
+        "<BBBBIII" "BBBBHHII", 6, 2, 3, 9, 42, 1_500, 0x2D90167E,
         4, 3, 1, 7, 5, 8, 12, 10,
     )
     result = parse_setpoint_status(payload)

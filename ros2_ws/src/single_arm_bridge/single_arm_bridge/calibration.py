@@ -22,6 +22,7 @@ class JointCalibration:
     maximum_raw: int
     direction: int
     p_gain: int
+    d_gain: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,6 +134,7 @@ def load_calibration(path: str | Path) -> ArmCalibration:
             maximum_raw=item["maximum_raw"],
             direction=item["positive_raw_direction"],
             p_gain=item["p_gain"],
+            d_gain=item["d_gain"],
         )
         for item in document["joints"]
     )
@@ -148,5 +150,6 @@ def load_calibration(path: str | Path) -> ArmCalibration:
             + joint.maximum_raw.to_bytes(2, "little")
             + (joint.direction & 0xFF).to_bytes(1, "little")
             + joint.p_gain.to_bytes(1, "little")
+            + joint.d_gain.to_bytes(1, "little")
         )
     return ArmCalibration(document["arm_slot"], joints, crc32c(bytes(serialized)))

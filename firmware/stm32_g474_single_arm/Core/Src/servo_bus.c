@@ -128,14 +128,14 @@ static ServoMotionSafetyDiagnostics servo_motion_safety_diagnostics = {
 };
 
 const ServoJointConfig servo_joints[SINGLE_ARM_JOINT_COUNT] = {
-    {1U, "BASE",        1U, 2048U, 1988U, 2610U, 16U,  1,  34U,  600U, 400U},
-    {2U, "SHOULDER",    1U, 2048U, 1988U, 3766U, 32U,  1,  34U, 1200U,
+    {1U, "BASE",        1U, 2048U, 1988U, 2610U, 16U, 32U,  1,  34U,  600U, 400U},
+    {2U, "SHOULDER",    1U, 2048U, 1988U, 3766U, 64U, 64U,  1,  34U, 1200U,
         SERVO_SHOULDER_TORQUE_LIMIT_RAW},
-    {3U, "ELBOW",       1U, 2048U, 627U, 2258U, 28U, -1,  34U, 1000U,
+    {3U, "ELBOW",       1U, 2048U, 627U, 2258U, 56U, 64U, -1,  34U, 1000U,
         SERVO_ELBOW_TORQUE_LIMIT_RAW},
-    {4U, "WRIST_FLEX",  1U, 2048U, 1194U, 2108U, 16U, -1,  34U,  800U, 400U},
-    {5U, "WRIST_ROLL",  1U, 2048U, 1874U, 2219U, 16U,  1,  34U,  500U, 250U},
-    {6U, "GRIPPER",     1U, 2048U, 1866U, 2048U, 16U, -1,  34U,  800U, 150U}
+    {4U, "WRIST_FLEX",  1U, 2048U, 1194U, 2108U, 16U, 32U, -1,  34U,  800U, 400U},
+    {5U, "WRIST_ROLL",  1U, 2048U, 1874U, 2219U, 16U, 32U,  1,  34U,  500U, 250U},
+    {6U, "GRIPPER",     1U, 2048U, 1866U, 2048U, 16U, 32U, -1,  34U,  800U, 150U}
 };
 
 const uint8_t servo_joint_count = SINGLE_ARM_JOINT_COUNT;
@@ -1589,6 +1589,7 @@ HAL_StatusTypeDef Servo_ConfigureForTrajectory(
     uint8_t servo_id,
     uint16_t torque_limit,
     uint8_t p_gain,
+    uint8_t d_gain,
     uint16_t *initial_position
 )
 {
@@ -1608,7 +1609,7 @@ HAL_StatusTypeDef Servo_ConfigureForTrajectory(
     /* 주소 순서: P, D, I */
     uint8_t pid_data[3] = {
         p_gain,
-        32U,
+        d_gain,
         0U
     };
 
@@ -1657,7 +1658,7 @@ HAL_StatusTypeDef Servo_ConfigureForTrajectory(
             pid_readback
         ) != HAL_OK) ||
         (pid_readback[0] != p_gain) ||
-        (pid_readback[1] != 32U) ||
+        (pid_readback[1] != d_gain) ||
         (pid_readback[2] != 0U) ||
         (Servo_ReadData(
             servo_id,
@@ -1819,6 +1820,7 @@ HAL_StatusTypeDef Servo_ConfigureAllForTrajectory(
                 servo_joints[i].id,
                 servo_joints[i].torque_limit,
                 servo_joints[i].p_gain,
+                servo_joints[i].d_gain,
                 &initial_positions[i]
             ) != HAL_OK)
         {

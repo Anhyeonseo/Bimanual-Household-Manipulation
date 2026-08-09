@@ -17,6 +17,7 @@ typedef struct
     uint16_t min_position;
     uint16_t max_position;
     uint8_t p_gain;
+    uint8_t d_gain;
     int8_t test_direction;
     uint16_t test_delta;
     uint32_t duration_ms;
@@ -175,6 +176,7 @@ HAL_StatusTypeDef Servo_ConfigureForTrajectory(
     uint8_t servo_id,
     uint16_t torque_limit,
     uint8_t p_gain,
+    uint8_t d_gain,
     uint16_t *initial_position
 );
 void Servo_PositionSweepBegin(ServoPositionSweep *sweep);

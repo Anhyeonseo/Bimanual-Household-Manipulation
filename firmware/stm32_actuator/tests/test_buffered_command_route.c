@@ -123,7 +123,7 @@ static void test_route_runs_and_encodes_status(void) {
     CHECK(route.executor.diagnostics.state == ACTUATOR_BUFFERED_SUCCEEDED);
     CHECK(actuator_buffered_status_encode(
         status, sizeof(status), &status_length, 6u, 2u, 3u, 4u, 42u, 20u,
-        UINT32_C(0xB317C672), &route.executor.diagnostics, true));
+        UINT32_C(0x2D90167E), &route.executor.diagnostics, true));
     CHECK(status_length == ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE &&
           status[16] == ACTUATOR_BUFFERED_SUCCEEDED);
     CHECK(read_u16_le(&status[22]) == 2u);
@@ -201,7 +201,7 @@ static void test_lateness_histogram_and_worst_sample_index(void) {
 
     CHECK(actuator_buffered_status_encode(
         status, sizeof(status), &status_length, 6u, 4u, 3u, 3u, 42u, 38u,
-        UINT32_C(0xB317C672), d, true));
+        UINT32_C(0x2D90167E), d, true));
     CHECK(status_length == ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE);
     CHECK(read_u32_le(&status[32]) == 1u);
     CHECK(read_u32_le(&status[36]) == 0u);
@@ -219,7 +219,7 @@ static void test_lateness_histogram_and_worst_sample_index(void) {
     memset(status, 0xEE, sizeof(status));
     CHECK(actuator_buffered_status_encode(
         status, sizeof(status), &status_length, 0u, 4u, 3u, 0u, 42u, 38u,
-        UINT32_C(0xB317C672), d, false));
+        UINT32_C(0x2D90167E), d, false));
     CHECK(status_length == ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE);
     CHECK(read_u32_le(&status[24]) == d->accepted_samples);
     CHECK(read_u32_le(&status[28]) == d->applied_samples);
@@ -235,12 +235,12 @@ static void test_status_encode_rejects_short_capacity(void) {
     /* terminal 형식은 32바이트 버퍼로 인코딩할 수 없다. */
     CHECK(!actuator_buffered_status_encode(
         status, ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE, &status_length,
-        6u, 0u, 0u, 0u, 1u, 1u, UINT32_C(0xB317C672), &diagnostics, true));
+        6u, 0u, 0u, 0u, 1u, 1u, UINT32_C(0x2D90167E), &diagnostics, true));
     CHECK(status_length == 0u);
     /* 같은 버퍼로 acknowledgement 형식은 인코딩된다. */
     CHECK(actuator_buffered_status_encode(
         status, ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE, &status_length,
-        0u, 0u, 0u, 0u, 1u, 1u, UINT32_C(0xB317C672), &diagnostics, false));
+        0u, 0u, 0u, 0u, 1u, 1u, UINT32_C(0x2D90167E), &diagnostics, false));
     CHECK(status_length == ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE);
 }
 

@@ -45,18 +45,30 @@ Raspberry Pi 5 4GB에서 다음 작업을 동시에 수행하되 제어와 안�
 
 ### Left wrist 카메라 — 왼팔 생산 기준선의 근접 정렬
 
+> **2026-08-09 개정 — 아래 "주요 역할" 중 미세 위치 보정 항목은 실측으로
+> 기각됐다.** W0–W4 완료 후 손목 보정의 실현 가능한 정확도가
+> `XY 평균 3.37 / 최대 6.42 mm` 이고 헛보정을 억제하려면 보정 하한이 `8 mm`
+> 여야 함이 실측됐다. C2 에서 파지는 잔차 `10.17 mm` 에서 성립했으므로 이
+> 대역으로는 정상 파지를 개선할 수 없다. 손목 카메라의 실제 역할은
+> **손끝 국소 검증(파지 여부·겹 수)과 국소 기하 측정(edge 각도 → wrist_roll)**
+> 이다. 상세와 근거: `docs/checklists/WRIST_CAMERA_EYE_IN_HAND.md` W4,
+> 최종 목표(수건 접기) 기준 재정리: `docs/PLAN_TOWEL_FOLDING_PERCEPTION.md`.
+
 주요 역할:
 
-- pre-grasp 이후 그리퍼와 펜의 상대 오차 계산
-- 마지막 수 cm 구간에서 중심과 yaw 오차 보정
-- gripper를 닫기 직전에 물체가 있는지 확인
-- 들어 올린 뒤 물체가 gripper와 함께 움직이는지 확인
-- 펜꽂이 접근 시 입구 중심과 삽입 방향 미세 보정
+- ~~pre-grasp 이후 그리퍼와 펜의 상대 오차 계산~~ (기각 — 위 개정 참고)
+- ~~마지막 수 cm 구간에서 중심과 yaw 오차 보정~~ (위치는 기각. yaw 는 손목
+  카메라가 아니라 상단 yaw 를 `solve_wrist_roll()` 에 배선하는 문제였다)
+- gripper를 닫기 직전에 물체가 있는지 확인 **(유효 — 핵심 역할)**
+- 들어 올린 뒤 물체가 gripper와 함께 움직이는지 확인 **(유효 — 핵심 역할)**
+- 수건: 한 겹 vs 여러 겹 파지 구분, 잡은 모서리의 조 대비 기울기
+- 펜꽂이 접근 시 입구 중심과 삽입 방향 미세 보정 (미검증 — 위 개정과 같은
+  정확도 한계가 적용된다)
 
 적용 기술:
 
 - 카메라 내부 보정(intrinsic calibration)
-- eye-in-hand calibration으로 `left_tool0 → left_wrist_camera` 고정 transform 추정
+- eye-in-hand calibration으로 `left_gripper_frame_link → left_wrist_camera_optical_frame` 고정 transform 추정
 - 필요한 영역만 자른 영상(ROI)과 작은 특징 검출기 사용
 - 영상 기반 Visual Servo 또는 크기가 제한된 Cartesian 좌표 보정
 - frame이 오래됐거나 신뢰도가 낮거나 timeout이 발생하면 즉시 중단

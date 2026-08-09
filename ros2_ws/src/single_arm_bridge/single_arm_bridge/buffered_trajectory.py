@@ -172,7 +172,7 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
     )
     if uart_candidate != {
         "status": "LOCAL_JOINT_LIMIT_MARGIN_DEPLOYED",
-        "firmware_version": "0x00022C00",
+        "firmware_version": "0x00022F00",
         "previous_candidate_firmware_version": "0x00022B00",
         "previous_deployed_firmware_version": "0x00022B00",
         "baud": 1_000_000,
@@ -707,7 +707,7 @@ def validate_buffered_trajectory_contract(document: dict[str, Any]) -> None:
             "80f14845bab532de3217fcee7a9c4c2b0b5cf4241b65023844d6ba7d615de087"
         ),
         "firmware_version": "0x00022100",
-        "calibration_hash": "0xB317C672",
+        "calibration_hash": "0x2D90167E",
         "duration_ms": 1200,
         "sample_count": 61,
         "action_send_count": 1,

@@ -204,7 +204,7 @@ def move_to(
             "--source-plan", str(endpoint),
             "--target-name", target_name,
             "--calibration", str(calibration_path),
-            "--start", ",".join(f"{v:.12f}" for v in start),
+            "--start=" + ",".join(f"{v:.12f}" for v in start),
             "--output", str(segments),
         ],
         f"{tag}: segments",

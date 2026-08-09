@@ -1,0 +1,66 @@
+# SO101 left wrist (wrist_a) eye-in-hand camera intrinsic calibration.
+#
+# Captured: 2026-08-09
+# Resolution/format: 640x480 MJPEG
+# Pattern: 10x7 physical chessboard (9x6 inner corners), 0.025 m squares
+#   (so101_camera_intrinsic_checkerboard_9x6_25mm.pdf, printed actual size)
+# Camera fixed (arm parked, torque held), checkerboard moved by hand.
+# wrist_a confirmed as the LEFT wrist port by direct v4l2 single-frame visual
+# check on both wrist_a/wrist_b device paths (see
+# docs/checklists/WRIST_CAMERA_EYE_IN_HAND.md unresolved-item 3).
+# The gripper fingers permanently occlude part of the frame (fixed relative
+# geometry to the mount); the interactive tool's Y-coverage bar could not
+# fill past that occlusion. Not a defect: that region is equally unusable in
+# deployment, since the fingers occlude it there too.
+#
+# Captured with `ros2 run camera_calibration cameracalibrator --size 9x6
+# --square 0.025 --no-service-check` (no set_camera_info service exists on
+# camera_manager, so only SAVE was used, not COMMIT). SAVE only writes the
+# raw capture images, not per-view reprojection statistics, so the numbers
+# below were recomputed directly from the 44 saved images with
+# cv2.calibrateCamera (9x6 corners, cv2.cornerSubPix refinement), then one
+# outlier view (per-view RMS 4.057 px) was dropped and recalibrated once.
+# Samples: 44 captured, 43 retained after reprojection outlier rejection
+# Reprojection: RMS 0.5666 px, per-view mean 0.5153 px,
+#               median 0.4128 px, p95 1.0039 px, max 1.3371 px
+#
+# projection_matrix uses cv2.getOptimalNewCameraMatrix(alpha=0.0), matching
+# the ROS camera_calibration tool's own convention.
+#
+# Do not reuse this file if the wrist_a camera, resolution, focus, or lens
+# changes. Camera mount movement does not invalidate intrinsics, but it does
+# invalidate the separate eye-in-hand extrinsic calibration (W3).
+
+image_width: 640
+image_height: 480
+camera_name: so101_wrist_a
+
+camera_matrix:
+  rows: 3
+  cols: 3
+  data:
+    [551.295086, 0.0, 308.537618,
+     0.0, 554.338316, 271.705501,
+     0.0, 0.0, 1.0]
+
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [-0.455737, 0.262450, -0.001489, -0.001472, -0.083915]
+
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data:
+    [1.0, 0.0, 0.0,
+     0.0, 1.0, 0.0,
+     0.0, 0.0, 1.0]
+
+projection_matrix:
+  rows: 3
+  cols: 4
+  data:
+    [455.445068, 0.0, 301.372458, 0.0,
+     0.0, 500.002258, 277.023583, 0.0,
+     0.0, 0.0, 1.0, 0.0]
