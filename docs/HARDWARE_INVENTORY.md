@@ -26,8 +26,9 @@
 | 장착 서보 | STS3215 12V × 12 | 확정 |  |
 | 예비 서보 | STS3215 12V × 2 | 확정 |  |
 | 서보 ID | 각 버스 1~6 | 측정 필요 | 관절 매핑 확인 필요 |
-| 관절 원점/방향 | 단일 시험 팔 home raw 2048 | 확정 | 양팔 통합 전 왼팔 별도 확인 |
-| Raw 위치 범위 | 단일 시험 팔의 보수적 범위 적용 | 확정 | 양팔 통합 전 왼팔 별도 확인 |
+| 왼팔 관절 원점/방향 | 프로젝트 q0 raw 2048 기준 | 확정 | 2026-07-26 실기 재정렬 기록 |
+| 오른팔 관절 원점/방향 | 팔별 `zero_raw[6]` 독립 측정 | 측정 필요 | 왼팔 raw 값을 복사하지 않음 |
+| Raw 위치 범위 | 팔별 READ_ONLY→단일 관절 순서로 독립 확인 | 측정 필요 | 좌우 동일값을 가정하지 않음 |
 | Feedback 항목 | position/speed/load/voltage 확인 | 확정 | 단일 시험 팔 ID 1~6 실기 검증 |
 
 ## 전원과 서보 버스
@@ -37,7 +38,7 @@
 | 왼팔 전원 | 12V 10A | 확정 | 실제 출력 전압 측정 필요 |
 | 오른팔 전원 | 12V 10A | 확정 | 실제 출력 전압 측정 필요 |
 | 서보 전원 분리 | 좌우 독립 | 확정 |  |
-| 서보 adapter | Waveshare Bus Servo Adapter (A) × 2 | 확정 | UART/USB 지원형 |
+| 서보 bus driver | Waveshare Bus Servo Adapter (A) × 2 | 확정 | 왼팔 L ×1, 오른팔 R ×1; UART 논리측↔12 V servo bus 경계 |
 | 서보 bus | 좌우 독립 | 확정 | ID 중복 허용, arm namespace 필수 |
 | 물리 E-stop | 없음 | 미정 | 자동 작업 전 추가 권장, 양팔 단계 전 필수 검토 |
 | 분기 퓨즈 | 확인 안 됨 | 측정 필요 | 배선 사진과 정격 기록 필요 |
@@ -51,7 +52,7 @@
 | 상위 제어기 연결 | On-board ST-LINK VCP | 확정 | 현재 COM3 실기 검증, Pi 연결 시 udev 식별값 확인 필요 |
 | 실행 구조 | STM32 HAL 기반 main loop | 확정 | 현재 FreeRTOS 미사용 |
 | 현재 서보 연결 | USART1 단일 bus | 확정 | STS3215 ID 1~6 실기 검증 |
-| 양팔 확장 연결 | 팔별 독립 UART 또는 보드 분리 | 미정 | 양팔 하드웨어 확정 후 결정 |
+| 양팔 확장 연결 | 우팔 UART4 PC10/CN7-1 TX→driver R RX, PC11/CN7-2 RX←driver R TX | 확정 | 좌우 driver 각 1개; 공통 GND와 3.3 V IO 호환 실측 필요; 12 V bus의 MCU 핀 직접 연결 금지 |
 | 현재 펌웨어 | binary protocol v1 / `0x00020700` | 확정 | 실기 smoke·동작·SAFE_STOP·load/current·실제 위치 feedback 통과 |
 
 ## 카메라

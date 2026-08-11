@@ -22,6 +22,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "single_arm_app.h"
+#include "f0_metrics.h"
+#include "timebase.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,6 +46,7 @@
 UART_HandleTypeDef hlpuart1;
 UART_HandleTypeDef huart1;
 DMA_HandleTypeDef hdma_usart1_rx;
+DMA_HandleTypeDef hdma_lpuart1_tx;
 
 /* USER CODE BEGIN PV */
 
@@ -87,6 +90,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
+  Timebase_Init();
 
   /* USER CODE END SysInit */
 
@@ -107,7 +111,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    F0Metrics_LoopBegin();
     SingleArmApp_Process();
+    F0Metrics_LoopEnd();
     /* USER CODE END 3 */
   }
 }
@@ -124,6 +130,8 @@ static void MX_DMA_Init(void)
 
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 2U, 0U);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 5U, 0U);
+  HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
 }
 
 void SystemClock_Config(void)

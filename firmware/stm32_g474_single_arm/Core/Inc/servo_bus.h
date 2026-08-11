@@ -107,6 +107,16 @@ typedef struct
     uint8_t attempt;
 } ServoPositionSweep;
 
+/* Position-only H2.0 telemetry. Load/current stays in the later F4 work. */
+typedef struct
+{
+    uint16_t maximum_error_raw[SINGLE_ARM_JOINT_COUNT];
+    uint32_t requested_samples;
+    uint32_t completed_samples;
+    uint32_t failed_samples;
+    uint32_t maximum_reply_latency_ms;
+} ServoInMotionTelemetrySnapshot;
+
 extern const ServoJointConfig servo_joints[SINGLE_ARM_JOINT_COUNT];
 extern const uint8_t servo_joint_count;
 extern uint8_t servo_last_all_read_failed_id;
@@ -187,6 +197,20 @@ HAL_StatusTypeDef Servo_ReadAllPositions(
 HAL_StatusTypeDef Servo_SyncWritePositions(
     const uint16_t positions[SINGLE_ARM_JOINT_COUNT]
 );
+void Servo_InMotionTelemetryBegin(void);
+void Servo_InMotionTelemetryEnd(void);
+uint8_t Servo_InMotionTelemetryPending(void);
+HAL_StatusTypeDef Servo_InMotionTelemetryStart(
+    uint8_t joint_index,
+    uint32_t started_at_ms
+);
+HAL_StatusTypeDef Servo_InMotionTelemetryPoll(
+    uint32_t now_ms,
+    const uint16_t commanded_positions[SINGLE_ARM_JOINT_COUNT]
+);
+void Servo_InMotionTelemetryOnTxComplete(UART_HandleTypeDef *uart);
+const ServoInMotionTelemetrySnapshot *
+Servo_InMotionTelemetryGetSnapshot(void);
 HAL_StatusTypeDef Servo_ConfigureAllForTrajectory(
     uint16_t initial_positions[SINGLE_ARM_JOINT_COUNT]
 );

@@ -1,7 +1,10 @@
 #include "binary_control.h"
 
+#include "f0_metrics.h"
+#include "host_uart_tx.h"
 #include "single_arm_config.h"
 #include "servo_bus.h"
+#include "timebase.h"
 #include "actuator_core/buffered_command_route.h"
 #include "actuator_core/calibration.h"
 #include "actuator_core/crc32c.h"
@@ -12,20 +15,15 @@
 #include <stddef.h>
 #include <string.h>
 
-/*
- * A buffered refill is acknowledged from inside the same cooperative loop that
- * steps the executor, and Host_SendBinaryFrame holds that loop for the whole
- * transmit. An apply tick landing inside the transmit is therefore serviced
- * late by exactly its duration, which is what a 2026-08-06 q0 return hit: the
- * apply-lateness distribution had grown the acknowledgement from 32 to 60
- * payload bytes, 4.688 ms to 7.118 ms, and the first sample missed.
- *
- * The distribution now rides on terminal frames only. This bound keeps the
- * acknowledgement path from silently growing back past the allowance.
- */
-#if HOST_BINARY_FRAME_TRANSMIT_MS(ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE) > \
-    HOST_BUFFERED_EXECUTION_MAXIMUM_APPLY_LATENESS_MS
-#error "Buffered acknowledgement transmit exceeds the apply lateness allowance"
+/* F0 metrics stay terminal-only; F2 restores the 60-byte lateness profile to
+ * refill acknowledgements without charging its wire time to the control loop. */
+#define HOST_F0_TERMINAL_METRICS_SIZE 16U
+#define HOST_H2_TERMINAL_TELEMETRY_SIZE 28U
+
+#if (ACTUATOR_BUFFERED_STATUS_LATENESS_SIZE + \
+     HOST_F0_TERMINAL_METRICS_SIZE + \
+     HOST_H2_TERMINAL_TELEMETRY_SIZE) > ACTUATOR_PROTOCOL_MAX_PAYLOAD
+#error "Terminal telemetry exceeds the actuator protocol payload"
 #endif
 
 typedef struct
@@ -50,6 +48,7 @@ typedef struct
 {
     uint8_t active;
     uint8_t last_step_valid;
+    uint8_t next_telemetry_joint;
     uint32_t request_sequence;
     uint32_t anchor_tick;
     uint32_t last_step_tick;
@@ -69,12 +68,10 @@ static uint8_t host_binary_servos_configured = 0U;
 /*
  * Host frame transmit accounting.
  *
- * Host_SendBinaryFrame issues one blocking HAL_UART_Transmit with a 100 ms
- * timeout and every call site discarded the result, so a truncated frame left
- * no trace anywhere. A 2026-08-06 buffered run split one 42-byte
- * STATE_FEEDBACK across a gap longer than the host's 120 ms read timeout,
- * which desynchronised the host stream and lost the response. The MCU already
- * knows when that happens; it was throwing the knowledge away.
+ * F2 copies every encoded response into a bounded DMA queue. The wire still
+ * preserves frame order, but the cooperative control loop is no longer held
+ * for the full UART duration. Queue/DMA failures are latched and fail closed
+ * on the next service iteration.
  */
 static uint16_t host_tx_failure_count = 0U;
 static uint16_t host_tx_timeout_count = 0U;
@@ -277,13 +274,12 @@ static HAL_StatusTypeDef Host_SendBinaryFrame(
     }
 
     uint32_t started = HAL_GetTick();
-    HAL_StatusTypeDef status = HAL_UART_Transmit(
-        binary_host_uart,
-        encoded,
-        (uint16_t)encoded_length,
-        100U
+    uint32_t started_us = Timebase_NowUs();
+    HAL_StatusTypeDef status = HostUartTx_Enqueue(
+        encoded, (uint16_t)encoded_length
     );
     uint32_t elapsed = (uint32_t)(HAL_GetTick() - started);
+    F0Metrics_ObserveHostTx(Timebase_ElapsedUs(started_us));
 
     if (elapsed > (uint32_t)host_tx_maximum_ms)
     {
@@ -814,14 +810,10 @@ static void Host_SendBinaryBufferedSetpointStatus(
     response.sequence = request_sequence;
     response.sender_time_ms = HAL_GetTick();
     /*
-     * The apply-lateness distribution rides on terminal frames only.
-     * Host_SendBinaryFrame blocks the cooperative loop for the whole transmit,
-     * and that loop is what steps the executor, so every byte of an
-     * acknowledgement is charged to apply lateness. Carrying the distribution
-     * on refill acknowledgements pushed one transmit from 4.688 ms to
-     * 7.118 ms at 115200 baud and broke the 5 ms allowance on the first
-     * sample of a 2026-08-06 q0 return. Terminal frames are sent after
-     * execution has already stopped, so no apply tick can be waiting on them.
+     * F2 validates the original 60-byte refill response under the DMA queue.
+     * It used to be terminal-only because a blocking UART transmit consumed
+     * the entire apply-lateness budget. The queue preserves wire order while
+     * letting the cooperative loop return immediately after enqueue.
      */
     if (!actuator_buffered_status_encode(
             response.payload,
@@ -835,7 +827,7 @@ static void Host_SendBinaryBufferedSetpointStatus(
             first_apply_tick,
             Host_CalibrationHash(),
             diagnostics,
-            (status_code == HOST_BUFFERED_STATUS_TERMINAL)
+            true
         ))
     {
         Host_SendBinarySetpointStatus(
@@ -846,6 +838,51 @@ static void Host_SendBinaryBufferedSetpointStatus(
             detail
         );
         return;
+    }
+    if (status_code == HOST_BUFFERED_STATUS_TERMINAL)
+    {
+        F0MetricsSnapshot snapshot = F0Metrics_Snapshot();
+        Host_WriteU32Le(
+            &response.payload[payload_length], snapshot.loop_period_max_us
+        );
+        Host_WriteU32Le(
+            &response.payload[payload_length + 4U], snapshot.loop_work_max_us
+        );
+        Host_WriteU32Le(
+            &response.payload[payload_length + 8U],
+            snapshot.servo_sync_write_max_us
+        );
+        Host_WriteU32Le(
+            &response.payload[payload_length + 12U], snapshot.host_tx_max_us
+        );
+        payload_length += HOST_F0_TERMINAL_METRICS_SIZE;
+
+        const ServoInMotionTelemetrySnapshot *telemetry =
+            Servo_InMotionTelemetryGetSnapshot();
+        for (uint8_t joint = 0U; joint < servo_joint_count; joint++)
+        {
+            Host_WriteU16Le(
+                &response.payload[payload_length + (joint * 2U)],
+                telemetry->maximum_error_raw[joint]
+            );
+        }
+        Host_WriteU32Le(
+            &response.payload[payload_length + 12U],
+            telemetry->requested_samples
+        );
+        Host_WriteU32Le(
+            &response.payload[payload_length + 16U],
+            telemetry->completed_samples
+        );
+        Host_WriteU32Le(
+            &response.payload[payload_length + 20U],
+            telemetry->failed_samples
+        );
+        Host_WriteU32Le(
+            &response.payload[payload_length + 24U],
+            telemetry->maximum_reply_latency_ms
+        );
+        payload_length += HOST_H2_TERMINAL_TELEMETRY_SIZE;
     }
     response.payload_length = (uint16_t)payload_length;
     (void)Host_SendBinaryFrame(&response);
@@ -1445,6 +1482,7 @@ static void Host_FinalizeBufferedExecution(uint8_t detail)
         apply_tick,
         detail
     );
+    Servo_InMotionTelemetryEnd();
     Host_ResetBufferedExecution();
 }
 
@@ -1518,6 +1556,12 @@ static void Host_ExecuteBufferedCandidate(
         ((request->flags & ACTUATOR_BUFFERED_FLAG_BEGIN) != 0U) ? 1U : 0U;
     const uint8_t start =
         ((request->flags & ACTUATOR_BUFFERED_FLAG_START) != 0U) ? 1U : 0U;
+
+    if ((begin != 0U) &&
+        ((request->flags & ACTUATOR_BUFFERED_FLAG_VALIDATION_ONLY) == 0U))
+    {
+        F0Metrics_Reset();
+    }
 
     if (request->payload_length >= ACTUATOR_BUFFERED_WIRE_HEADER_SIZE)
     {
@@ -1607,24 +1651,16 @@ static void Host_ExecuteBufferedCandidate(
                             ACTUATOR_BUFFERED_COMMAND_BAD_STATE;
                         reset_after_response = 1U;
                     }
-                    /*
-                     * Buffered execution deliberately does not arm
-                     * motion-safety polling. The executor owns the servo bus
-                     * on a 5 ms sync-write cadence, and every servo read now
-                     * pays ServoBus_PrepareTransaction, which waits up to
-                     * SERVO_BUS_IDLE_HIGH_TIMEOUT_MS for an idle-high line.
-                     * A 16 ms poll slot cannot absorb a 79 ms worst case, so
-                     * the reads back up and starve host UART processing. That
-                     * starves the heartbeat too, which is fed on processing
-                     * rather than on receipt, so the MCU stops answering and
-                     * stops feeding its own 500 ms watchdog at the same time.
-                     * A 2026-08-06 q0 return aborted this way at startup.
-                     *
-                     * This also restores an existing invariant: every
-                     * host-requested servo read is already refused while
-                     * buffered execution is active. Internal polling was the
-                     * only exception.
-                     */
+                    else
+                    {
+                        /*
+                         * H2.0 uses one nonblocking position query after a
+                         * sync-write, never the legacy blocking read/poll
+                         * path. A pending query at the next output slot is a
+                         * fail-closed tracking error, not a delayed write.
+                         */
+                        Servo_InMotionTelemetryBegin();
+                    }
                 }
                 if (reset_after_response == 0U)
                 {
@@ -1726,28 +1762,49 @@ static void Host_ServiceBufferedExecution(void)
             write_due = 1U;
         }
 
+        for (uint8_t joint = 0U;
+             joint < servo_joint_count;
+             joint++)
+        {
+            const actuator_joint_calibration_t calibration =
+                Host_JointCalibration(joint);
+            if (actuator_urad_to_raw(
+                    &calibration,
+                    output_positions_urad[joint],
+                    &output_positions_raw[joint]
+                ) != ACTUATOR_CALIBRATION_OK)
+            {
+                Host_AbortBufferedExecution(
+                    ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
+                    servo_joints[joint].id
+                );
+                return;
+            }
+        }
+
+        HAL_StatusTypeDef telemetry_status = Servo_InMotionTelemetryPoll(
+            now, output_positions_raw
+        );
+        if (telemetry_status == HAL_ERROR || telemetry_status == HAL_TIMEOUT)
+        {
+            Host_AbortBufferedExecution(
+                ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
+                0U
+            );
+            return;
+        }
+        if ((write_due != 0U) &&
+            (Servo_InMotionTelemetryPending() != 0U))
+        {
+            Host_AbortBufferedExecution(
+                ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
+                0U
+            );
+            return;
+        }
+
         if (write_due != 0U)
         {
-            for (uint8_t joint = 0U;
-                 joint < servo_joint_count;
-                 joint++)
-            {
-                const actuator_joint_calibration_t calibration =
-                    Host_JointCalibration(joint);
-                if (actuator_urad_to_raw(
-                        &calibration,
-                        output_positions_urad[joint],
-                        &output_positions_raw[joint]
-                    ) != ACTUATOR_CALIBRATION_OK)
-                {
-                    Host_AbortBufferedExecution(
-                        ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
-                        servo_joints[joint].id
-                    );
-                    return;
-                }
-            }
-
             if (Servo_SyncWritePositions(output_positions_raw) != HAL_OK)
             {
                 Host_AbortBufferedExecution(
@@ -1755,6 +1812,25 @@ static void Host_ServiceBufferedExecution(void)
                     0U
                 );
                 return;
+            }
+
+            if ((diagnostics == NULL) ||
+                (diagnostics->state != ACTUATOR_BUFFERED_SUCCEEDED))
+            {
+                if (Servo_InMotionTelemetryStart(
+                        host_binary_buffered_motion.next_telemetry_joint,
+                        now
+                    ) != HAL_OK)
+                {
+                    Host_AbortBufferedExecution(
+                        ACTUATOR_BUFFERED_REASON_TRACKING_ERROR,
+                        0U
+                    );
+                    return;
+                }
+                host_binary_buffered_motion.next_telemetry_joint =
+                    (uint8_t)((host_binary_buffered_motion.
+                        next_telemetry_joint + 1U) % servo_joint_count);
             }
         }
 
@@ -1814,7 +1890,10 @@ static uint8_t Host_BinaryClearStopIsSafe(void)
     return 0U;
 }
 
-static void Host_HandleBinaryFrame(const actuator_frame_t *request)
+static void Host_HandleBinaryFrame(
+    const actuator_frame_t *request,
+    uint32_t received_at_ms
+)
 {
     if (request == NULL)
     {
@@ -1837,7 +1916,7 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
         case ACTUATOR_MSG_HEARTBEAT:
             if (request->payload_length == 0U)
             {
-                host_binary_last_heartbeat_ms = HAL_GetTick();
+                host_binary_last_heartbeat_ms = received_at_ms;
                 host_binary_heartbeat_count++;
                 actuator_safety_on_heartbeat(
                     &host_binary_safety,
@@ -2094,7 +2173,7 @@ static void Host_HandleBinaryFrame(const actuator_frame_t *request)
     }
 }
 
-static void Host_ProcessBinaryByte(uint8_t byte)
+static void Host_ProcessBinaryByte(uint8_t byte, uint32_t received_at_ms)
 {
     actuator_frame_t request;
     actuator_protocol_result_t result =
@@ -2106,7 +2185,7 @@ static void Host_ProcessBinaryByte(uint8_t byte)
 
     if (result == ACTUATOR_PROTOCOL_OK)
     {
-        Host_HandleBinaryFrame(&request);
+        Host_HandleBinaryFrame(&request, received_at_ms);
     }
     else if (result != ACTUATOR_PROTOCOL_NO_FRAME)
     {
@@ -2119,6 +2198,7 @@ static void Host_ProcessBinaryByte(uint8_t byte)
 void BinaryControl_Init(UART_HandleTypeDef *host_uart)
 {
     binary_host_uart = host_uart;
+    HostUartTx_Init(host_uart);
     host_stop_latched = 0U;
     host_binary_heartbeat_count = 0U;
     host_binary_rejected_frame_count = 0U;
@@ -2152,6 +2232,21 @@ void BinaryControl_Init(UART_HandleTypeDef *host_uart)
 
 void BinaryControl_Service(void)
 {
+    if (HostUartTx_TakeFault() != 0U)
+    {
+        /* No response is trustworthy after a DMA/queue fault. Latch HOLD
+         * before parsing or applying another host command. */
+        host_stop_latched = 1U;
+        Host_AbortBufferedExecution(
+            ACTUATOR_BUFFERED_REASON_CONNECTION_LOSS,
+            0U
+        );
+        if (actuator_safety_accepts_setpoint(&host_binary_safety))
+        {
+            (void)actuator_safety_request_hold(&host_binary_safety);
+        }
+    }
+
     if ((host_binary_mode != 0U) &&
         (host_binary_heartbeat_count != 0U) &&
         (host_binary_safety.state == ACTUATOR_STATE_ACTIVE) &&
@@ -2183,9 +2278,9 @@ uint8_t BinaryControl_IsBinaryMode(void)
     return host_binary_mode;
 }
 
-void BinaryControl_ProcessByte(uint8_t byte)
+void BinaryControl_ProcessByte(uint8_t byte, uint32_t received_at_ms)
 {
-    Host_ProcessBinaryByte(byte);
+    Host_ProcessBinaryByte(byte, received_at_ms);
 }
 
 void BinaryControl_HandleHostUartError(void)

@@ -60,6 +60,7 @@
 extern UART_HandleTypeDef hlpuart1;
 extern UART_HandleTypeDef huart1;
 extern DMA_HandleTypeDef hdma_usart1_rx;
+extern DMA_HandleTypeDef hdma_lpuart1_tx;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -210,6 +211,11 @@ void LPUART1_IRQHandler(void)
 void DMA1_Channel1_IRQHandler(void)
 {
   HAL_DMA_IRQHandler(&hdma_usart1_rx);
+}
+
+void DMA1_Channel2_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_lpuart1_tx);
 }
 
 void USART1_IRQHandler(void)

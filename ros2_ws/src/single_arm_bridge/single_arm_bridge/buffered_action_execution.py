@@ -118,6 +118,44 @@ def format_apply_lateness_profile(result: Any) -> str:
     return f"lateness_buckets={buckets} lateness_worst_sample={worst_text}"
 
 
+def format_f0_metrics(result: Any) -> str:
+    """Render the F0 terminal-only timing snapshot without making it a gate."""
+    values = (
+        getattr(result, "f0_loop_period_max_us", None),
+        getattr(result, "f0_loop_work_max_us", None),
+        getattr(result, "f0_servo_sync_write_max_us", None),
+        getattr(result, "f0_host_tx_max_us", None),
+    )
+    if any(value is None for value in values):
+        return "f0_metrics=unavailable"
+    loop_period, loop_work, servo_write, host_tx = (int(value) for value in values)
+    return (
+        f"f0_loop_period_max_us={loop_period} "
+        f"f0_loop_work_max_us={loop_work} "
+        f"f0_servo_sync_write_max_us={servo_write} "
+        f"f0_host_tx_max_us={host_tx}"
+    )
+
+
+def format_h2_telemetry(result: Any) -> str:
+    """Render H2.0 position-only in-motion telemetry when firmware supplies it."""
+    maximum = getattr(result, "h2_tracking_error_max_raw", None)
+    requested = getattr(result, "h2_telemetry_requested_samples", None)
+    completed = getattr(result, "h2_telemetry_completed_samples", None)
+    failed = getattr(result, "h2_telemetry_failed_samples", None)
+    latency = getattr(result, "h2_telemetry_maximum_reply_latency_ms", None)
+    if maximum is None or any(value is None for value in (requested, completed, failed, latency)):
+        return "h2_telemetry=unavailable"
+    maximum_text = ",".join(str(int(value)) for value in maximum)
+    return (
+        f"h2_tracking_error_max_raw={maximum_text} "
+        f"h2_telemetry_requested={int(requested)} "
+        f"h2_telemetry_completed={int(completed)} "
+        f"h2_telemetry_failed={int(failed)} "
+        f"h2_telemetry_reply_latency_max_ms={int(latency)}"
+    )
+
+
 def _tick_has_reached(current_tick_ms: int, apply_tick_ms: int, margin_ms: int) -> bool:
     elapsed = (current_tick_ms - apply_tick_ms) & UINT32_MAX
     return margin_ms <= elapsed <= UINT32_HALF_RANGE
@@ -479,6 +517,8 @@ class BufferedActionExecutionCore:
             )
         startup = self._startup_diagnostics or "startup=unavailable"
         lateness = format_apply_lateness_profile(result)
+        f0_metrics = format_f0_metrics(result)
+        h2_telemetry = format_h2_telemetry(result)
         self._clear_active()
         return ExecutionOutcome(
             TerminalState.SUCCEEDED,
@@ -488,7 +528,8 @@ class BufferedActionExecutionCore:
             "buffered trajectory completed; "
             f"maximum_apply_lateness_ms={result.detail} "
             f"post_settle_max_error_raw={settle.max_error_raw}; "
-            f"{startup}; {lateness}; {settle.terminal_summary()}",
+            f"{startup}; {lateness}; {f0_metrics}; {h2_telemetry}; "
+            f"{settle.terminal_summary()}",
         )
 
     def _verify_post_settle(

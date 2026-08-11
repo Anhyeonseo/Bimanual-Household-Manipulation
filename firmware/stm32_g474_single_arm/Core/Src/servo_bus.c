@@ -1,4 +1,6 @@
 #include "servo_bus.h"
+#include "f0_metrics.h"
+#include "timebase.h"
 #include "servo_response_parser.h"
 #include "servo_rx_window.h"
 
@@ -14,6 +16,13 @@
 #define SERVO_BUS_IDLE_HIGH_TIMEOUT_MS UINT32_C(20)
 #define SERVO_BUS_RECEIVER_ACK_TIMEOUT_MS UINT32_C(2)
 #define SERVO_BUS_WRITE_REPLY_SETTLE_MS UINT32_C(2)
+/*
+ * 2026-08-12 H2.0 physical evidence recorded one clean-recovery telemetry
+ * timeout at 2 ms, with no UART/DMA fault.  Four millisecond ticks leave one
+ * complete tick before the fixed next 5 ms sync-write slot.  The scheduler
+ * still aborts rather than delaying that slot if the reply is pending.
+ */
+#define SERVO_IN_MOTION_TELEMETRY_TIMEOUT_MS UINT32_C(4)
 
 static UART_HandleTypeDef *servo_uart_handle = NULL;
 static ServoStopRequestedFn servo_stop_requested = NULL;
@@ -28,6 +37,28 @@ static uint8_t servo_transaction_active = 0U;
 static ServoBusDiagnostics servo_bus_diagnostics = {0};
 static ServoBusHealth servo_bus_health = {0};
 
+typedef enum
+{
+    SERVO_IN_MOTION_TELEMETRY_IDLE = 0,
+    SERVO_IN_MOTION_TELEMETRY_TX_PENDING = 1,
+    SERVO_IN_MOTION_TELEMETRY_WAIT_REPLY = 2
+} ServoInMotionTelemetryState;
+
+typedef struct
+{
+    ServoInMotionTelemetryState state;
+    uint8_t enabled;
+    uint8_t joint_index;
+    uint8_t servo_id;
+    uint8_t tx_completed;
+    uint32_t started_at_ms;
+    uint8_t request[8];
+    ServoRxWindow window;
+} ServoInMotionTelemetry;
+
+static ServoInMotionTelemetry servo_in_motion_telemetry = {0};
+static ServoInMotionTelemetrySnapshot servo_in_motion_snapshot = {0};
+
 static uint32_t ServoBus_CurrentUartErrorCode(void);
 static void ServoBus_ClearHardwareRxState(void);
 static HAL_StatusTypeDef ServoBus_HardResyncReceiver(void);
@@ -39,6 +70,12 @@ static void ServoBus_RecordFailure(
     ServoBusFailureReason reason,
     uint8_t servo_id,
     HAL_StatusTypeDef hal_status,
+    uint8_t servo_status,
+    uint16_t discarded_bytes
+);
+static HAL_StatusTypeDef ServoInMotionTelemetry_Fail(
+    ServoBusFailureReason reason,
+    HAL_StatusTypeDef status,
     uint8_t servo_status,
     uint16_t discarded_bytes
 );
@@ -175,6 +212,8 @@ void ServoBus_Init(
         0,
         sizeof(servo_motion_safety_diagnostics)
     );
+    memset(&servo_in_motion_telemetry, 0, sizeof(servo_in_motion_telemetry));
+    memset(&servo_in_motion_snapshot, 0, sizeof(servo_in_motion_snapshot));
 }
 
 const ServoBusDiagnostics *ServoBus_GetDiagnostics(void)
@@ -712,6 +751,276 @@ static uint8_t Servo_Checksum(
     }
 
     return (uint8_t)(~sum);
+}
+
+void Servo_InMotionTelemetryBegin(void)
+{
+    memset(&servo_in_motion_telemetry, 0, sizeof(servo_in_motion_telemetry));
+    memset(&servo_in_motion_snapshot, 0, sizeof(servo_in_motion_snapshot));
+    servo_in_motion_telemetry.enabled = 1U;
+}
+
+void Servo_InMotionTelemetryEnd(void)
+{
+    if (servo_in_motion_telemetry.enabled != 0U)
+    {
+        if (servo_uart_handle != NULL)
+        {
+            (void)HAL_UART_AbortTransmit(servo_uart_handle);
+        }
+        if (ServoBus_DmaHardwareActive() != 0U)
+        {
+            (void)ServoBus_DisarmReceiver();
+        }
+    }
+    memset(&servo_in_motion_telemetry, 0, sizeof(servo_in_motion_telemetry));
+}
+
+uint8_t Servo_InMotionTelemetryPending(void)
+{
+    return (servo_in_motion_telemetry.state !=
+            SERVO_IN_MOTION_TELEMETRY_IDLE) ? 1U : 0U;
+}
+
+const ServoInMotionTelemetrySnapshot *
+Servo_InMotionTelemetryGetSnapshot(void)
+{
+    return &servo_in_motion_snapshot;
+}
+
+HAL_StatusTypeDef Servo_InMotionTelemetryStart(
+    uint8_t joint_index,
+    uint32_t started_at_ms
+)
+{
+    if ((servo_in_motion_telemetry.enabled == 0U) ||
+        (servo_in_motion_telemetry.state !=
+            SERVO_IN_MOTION_TELEMETRY_IDLE) ||
+        (joint_index >= servo_joint_count))
+    {
+        return HAL_BUSY;
+    }
+
+    const uint8_t servo_id = servo_joints[joint_index].id;
+    uint32_t transaction_start_absolute = 0U;
+    if (ServoBus_PrepareTransaction(servo_id, &transaction_start_absolute) !=
+        HAL_OK)
+    {
+        servo_in_motion_snapshot.failed_samples++;
+        return HAL_ERROR;
+    }
+
+    ServoInMotionTelemetry *telemetry = &servo_in_motion_telemetry;
+    telemetry->joint_index = joint_index;
+    telemetry->servo_id = servo_id;
+    telemetry->started_at_ms = started_at_ms;
+    telemetry->tx_completed = 0U;
+    telemetry->request[0] = 0xFFU;
+    telemetry->request[1] = 0xFFU;
+    telemetry->request[2] = servo_id;
+    telemetry->request[3] = 0x04U;
+    telemetry->request[4] = 0x02U;
+    telemetry->request[5] = 56U;
+    telemetry->request[6] = 2U;
+    telemetry->request[7] = Servo_Checksum(telemetry->request, 6U);
+    ServoRxWindow_Init(
+        &telemetry->window,
+        servo_id,
+        2U,
+        transaction_start_absolute
+    );
+
+    HAL_StatusTypeDef status = HAL_UART_Transmit_IT(
+        servo_uart_handle,
+        telemetry->request,
+        sizeof(telemetry->request)
+    );
+    if (status != HAL_OK)
+    {
+        return ServoInMotionTelemetry_Fail(
+            SERVO_BUS_FAILURE_TX, status, 0U, 0U
+        );
+    }
+
+    telemetry->state = SERVO_IN_MOTION_TELEMETRY_TX_PENDING;
+    servo_in_motion_snapshot.requested_samples++;
+    return HAL_OK;
+}
+
+void Servo_InMotionTelemetryOnTxComplete(UART_HandleTypeDef *uart)
+{
+    if ((uart == servo_uart_handle) &&
+        (servo_in_motion_telemetry.state ==
+            SERVO_IN_MOTION_TELEMETRY_TX_PENDING))
+    {
+        servo_in_motion_telemetry.tx_completed = 1U;
+    }
+}
+
+static HAL_StatusTypeDef ServoInMotionTelemetry_Fail(
+    ServoBusFailureReason reason,
+    HAL_StatusTypeDef status,
+    uint8_t servo_status,
+    uint16_t discarded_bytes
+)
+{
+    ServoInMotionTelemetry *telemetry = &servo_in_motion_telemetry;
+    ServoBus_RecordFailure(
+        reason,
+        telemetry->servo_id,
+        status,
+        servo_status,
+        discarded_bytes
+    );
+    servo_in_motion_snapshot.failed_samples++;
+    telemetry->state = SERVO_IN_MOTION_TELEMETRY_IDLE;
+    (void)ServoBus_Recover();
+    return status;
+}
+
+HAL_StatusTypeDef Servo_InMotionTelemetryPoll(
+    uint32_t now_ms,
+    const uint16_t commanded_positions[SINGLE_ARM_JOINT_COUNT]
+)
+{
+    ServoInMotionTelemetry *telemetry = &servo_in_motion_telemetry;
+    if ((telemetry->enabled == 0U) ||
+        (telemetry->state == SERVO_IN_MOTION_TELEMETRY_IDLE))
+    {
+        return HAL_OK;
+    }
+    if (commanded_positions == NULL)
+    {
+        return ServoInMotionTelemetry_Fail(
+            SERVO_BUS_FAILURE_RECOVERY, HAL_ERROR, 0U, 0U
+        );
+    }
+
+    uint32_t callback_errors = servo_uart_async_errors;
+    uint32_t polled_errors = ServoBus_CurrentUartErrorCode();
+    uint32_t uart_errors = callback_errors | polled_errors;
+    uint32_t dma_error = servo_dma_async_error;
+    if (servo_uart_handle->hdmarx != NULL)
+    {
+        dma_error |= servo_uart_handle->hdmarx->ErrorCode;
+    }
+    if (uart_errors != HAL_UART_ERROR_NONE)
+    {
+        ServoBus_CountUartErrors(polled_errors & ~callback_errors);
+        servo_uart_async_errors = 0U;
+        servo_uart_handle->ErrorCode = HAL_UART_ERROR_NONE;
+        return ServoInMotionTelemetry_Fail(
+            SERVO_BUS_FAILURE_UART,
+            HAL_ERROR,
+            0U,
+            telemetry->window.parser.discarded_bytes
+        );
+    }
+    if (dma_error != HAL_DMA_ERROR_NONE)
+    {
+        return ServoInMotionTelemetry_Fail(
+            SERVO_BUS_FAILURE_DMA,
+            HAL_ERROR,
+            0U,
+            telemetry->window.parser.discarded_bytes
+        );
+    }
+
+    if ((telemetry->state == SERVO_IN_MOTION_TELEMETRY_TX_PENDING) &&
+        (telemetry->tx_completed != 0U))
+    {
+        telemetry->state = SERVO_IN_MOTION_TELEMETRY_WAIT_REPLY;
+    }
+
+    if (telemetry->state == SERVO_IN_MOTION_TELEMETRY_WAIT_REPLY)
+    {
+        uint8_t position_data[2] = {0U};
+        ServoRxWindowResult result = ServoRxWindow_Consume(
+            &telemetry->window,
+            servo_dma_rx_ring,
+            SERVO_BUS_DMA_RING_CAPACITY,
+            ServoBus_ProducerAbsolute(),
+            position_data,
+            sizeof(position_data)
+        );
+        if (result == SERVO_RX_WINDOW_FRAME_READY)
+        {
+            uint16_t actual = (uint16_t)(
+                (uint16_t)position_data[0] |
+                ((uint16_t)position_data[1] << 8U)
+            );
+            uint16_t commanded = commanded_positions[telemetry->joint_index];
+            uint16_t error = (actual > commanded) ?
+                (uint16_t)(actual - commanded) :
+                (uint16_t)(commanded - actual);
+            if (error > servo_in_motion_snapshot.maximum_error_raw[
+                    telemetry->joint_index])
+            {
+                servo_in_motion_snapshot.maximum_error_raw[
+                    telemetry->joint_index] = error;
+            }
+            uint32_t latency_ms = now_ms - telemetry->started_at_ms;
+            if (latency_ms >
+                servo_in_motion_snapshot.maximum_reply_latency_ms)
+            {
+                servo_in_motion_snapshot.maximum_reply_latency_ms = latency_ms;
+            }
+            servo_in_motion_snapshot.completed_samples++;
+            servo_bus_diagnostics.discarded_bytes =
+                telemetry->window.parser.discarded_bytes;
+            servo_bus_diagnostics.received_bytes =
+                telemetry->window.consumed_bytes;
+            servo_bus_health.success_count++;
+            servo_bus_health.discarded_bytes +=
+                telemetry->window.parser.discarded_bytes;
+            servo_transaction_active = 0U;
+            telemetry->state = SERVO_IN_MOTION_TELEMETRY_IDLE;
+            return HAL_OK;
+        }
+        if (result == SERVO_RX_WINDOW_STATUS_ERROR)
+        {
+            return ServoInMotionTelemetry_Fail(
+                SERVO_BUS_FAILURE_STATUS,
+                HAL_ERROR,
+                telemetry->window.parser.servo_status,
+                telemetry->window.parser.discarded_bytes
+            );
+        }
+        if (result == SERVO_RX_WINDOW_OVERFLOW)
+        {
+            servo_bus_health.overflow_count++;
+            return ServoInMotionTelemetry_Fail(
+                SERVO_BUS_FAILURE_RX_OVERFLOW,
+                HAL_ERROR,
+                0U,
+                telemetry->window.parser.discarded_bytes
+            );
+        }
+    }
+
+    if (ServoRxWindow_DeadlineExpired(
+            telemetry->started_at_ms,
+            now_ms,
+            SERVO_IN_MOTION_TELEMETRY_TIMEOUT_MS
+        ) != 0U)
+    {
+        servo_bus_health.timeout_count++;
+        ServoBusFailureReason reason = SERVO_BUS_FAILURE_RX_TIMEOUT;
+        if (telemetry->window.parser.last_reject !=
+            SERVO_RESPONSE_REJECT_NONE)
+        {
+            reason = ServoBus_MapRejectReason(
+                telemetry->window.parser.last_reject
+            );
+        }
+        return ServoInMotionTelemetry_Fail(
+            reason,
+            HAL_TIMEOUT,
+            0U,
+            telemetry->window.parser.discarded_bytes
+        );
+    }
+    return HAL_BUSY;
 }
 
 HAL_StatusTypeDef Servo_ReadPosition(
@@ -1797,12 +2106,15 @@ HAL_StatusTypeDef Servo_SyncWritePositions(
     );
     packet_index++;
 
-    return HAL_UART_Transmit(
+    uint32_t started_us = Timebase_NowUs();
+    HAL_StatusTypeDef status = HAL_UART_Transmit(
         servo_uart_handle,
         packet,
         packet_index,
         100U
     );
+    F0Metrics_ObserveServoSyncWrite(Timebase_ElapsedUs(started_us));
+    return status;
 }
 
 HAL_StatusTypeDef Servo_ConfigureAllForTrajectory(

@@ -8,8 +8,12 @@
 #define ENABLE_SERVO_CENTERING_COMMAND 0U
 #define ENABLE_BOOT_ID1_AUTOCONFIG 0U
 
-#define HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022F00)
-#define HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)
+#define HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023400)
+#define HOST_BINARY_CAPABILITIES UINT32_C(0x0000FFFF)
+#define HOST_F0_METRICS_CAPABILITY UINT32_C(0x00001000)
+#define HOST_F2_ASYNC_HOST_TX_CAPABILITY UINT32_C(0x00002000)
+#define HOST_F1_HEARTBEAT_RX_TIMESTAMP_CAPABILITY UINT32_C(0x00004000)
+#define HOST_H2_IN_MOTION_TELEMETRY_CAPABILITY UINT32_C(0x00008000)
 #define HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)
 #define HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)
 #define HOST_BINARY_HEARTBEAT_TIMEOUT_MS UINT32_C(500)
@@ -19,11 +23,9 @@
  * LPUART1 host link. Mirrors hlpuart1.Init.BaudRate in main.c, which
  * tests/test_stm32_status_frame_transmit_budget.py keeps in agreement.
  *
- * This is not documentation. Host_SendBinaryFrame transmits by a blocking
- * call on the same cooperative loop that steps the buffered executor, so the
- * encoded length of a response divided by this rate is charged directly to
- * apply lateness. HOST_BINARY_FRAME_TRANSMIT_MS below turns that into a
- * build-time bound, enforced by an #error in binary_control.c.
+ * F2 sends encoded responses through a bounded DMA queue. Wire duration still
+ * limits host response latency, but it is no longer charged to the cooperative
+ * control loop's apply lateness.
  */
 #define HOST_BINARY_UART_BAUD UINT32_C(115200)
 

@@ -41,8 +41,8 @@ def function_body(source: str, signature: str) -> str:
 
 
 def test_identity_requires_position_read_failure_diagnostics() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022F00)" in CONFIG
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023400)" in CONFIG
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x0000FFFF)" in CONFIG
     assert "POSITION_READ_FAILURE_DIAGNOSTICS_CAPABILITY = 0x00000100" in IDENTITY
     assert "SERVO_BUS_RECOVERY_DIAGNOSTICS_CAPABILITY = 0x00000200" in IDENTITY
     assert "position read failure diagnostics capability is missing" in IDENTITY

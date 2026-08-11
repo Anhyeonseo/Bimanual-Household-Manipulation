@@ -47,6 +47,11 @@ TERMINAL_DIAGNOSTICS=precompute_ms=412.318 reanchor_ms=18.402 \
 prime_frame_1_ms=5.110 fresh_tick=100523 \
 prime_tick=100587 first_sample_lead_ms=136 prime_heartbeat_gates=1 \
 prime_frames=2 accepted=16 applied=0 queued=16; lateness_buckets=1746/5/0/0; \
+f0_loop_period_max_us=5210 f0_loop_work_max_us=4988 \
+f0_servo_sync_write_max_us=311 f0_host_tx_max_us=4721; \
+h2_tracking_error_max_raw=1,2,3,4,5,6 h2_telemetry_requested=61 \
+h2_telemetry_completed=61 h2_telemetry_failed=0 \
+h2_telemetry_reply_latency_max_ms=3; \
 post_settle_error_raw=[2, 6, 3, 1, 0, 0]
 TARGET_MAX_ERROR_RAD=0.003100
 AUTOMATIC_RETRY_COUNT=0
@@ -130,6 +135,139 @@ def test_the_motion_quality_numbers_come_along_for_free() -> None:
     record = TELEMETRY.parse_leg_telemetry(SUCCESS_OUTPUT)
     assert record["maximum_apply_lateness_ms"] == 3
     assert record["post_settle_max_error_raw"] == 6
+
+
+def test_f0_terminal_timing_is_preserved_in_the_leg_record() -> None:
+    record = TELEMETRY.parse_leg_telemetry(SUCCESS_OUTPUT)
+    assert record["f0_loop_period_max_us"] == 5210
+    assert record["f0_loop_work_max_us"] == 4988
+    assert record["f0_servo_sync_write_max_us"] == 311
+    assert record["f0_host_tx_max_us"] == 4721
+    summary = TELEMETRY.summarise_leg_telemetry([
+        {"ordinal": 1, "ok": True, **record},
+        {"ordinal": 2, "ok": True, **record},
+    ])
+    assert summary["f0_loop_period_max_us"]["maximum"] == 5210
+
+
+def test_h2_terminal_telemetry_becomes_an_envelope_only_when_complete() -> None:
+    record = TELEMETRY.parse_leg_telemetry(SUCCESS_OUTPUT)
+    assert record["h2_tracking_error_max_raw"] == (1, 2, 3, 4, 5, 6)
+    assert record["h2_telemetry_requested_samples"] == 61
+    assert record["h2_telemetry_completed_samples"] == 61
+    assert record["h2_telemetry_failed_samples"] == 0
+    summary = TELEMETRY.summarise_leg_telemetry([
+        {"ordinal": 1, "ok": True, **record},
+        {
+            "ordinal": 2,
+            "ok": True,
+            "h2_tracking_error_max_raw": (9, 8, 7, 6, 5, 4),
+            "h2_telemetry_requested_samples": 60,
+            "h2_telemetry_completed_samples": 59,
+            "h2_telemetry_failed_samples": 1,
+        },
+    ])
+    assert summary["h2_tracking_envelope"] == {
+        "valid_leg_count": 1,
+        "requested_completed_samples": 61,
+        "maximum_error_raw": [1, 2, 3, 4, 5, 6],
+        "source_ordinals": [1],
+    }
+
+
+# ---------------------------------------------------------------------------
+# H1 leg 사이 dead time — 다음 leg 동작 시간을 섞지 않는다
+# ---------------------------------------------------------------------------
+
+
+def timed_leg(
+    tag: str,
+    *,
+    fresh: int,
+    prime: int,
+    lead: int,
+    duration: int,
+    ok: bool = True,
+) -> dict:
+    return {
+        "tag": tag,
+        "ok": ok,
+        "fresh_tick_ms": fresh,
+        "prime_tick_ms": prime,
+        "first_sample_lead_ms": lead,
+        "duration_ms": duration,
+    }
+
+
+def test_transition_dead_time_reproduces_the_firmware_tick_definition() -> None:
+    previous = timed_leg(
+        "pregrasp", fresh=1000, prime=1060, lead=100, duration=26000
+    )
+    current = timed_leg(
+        "grasp", fresh=31298, prime=31360, lead=95, duration=4000
+    )
+    # 31298 - (1060 + 100 + 26000) = 4138. current의 4000 ms 동작은
+    # 이 값에 들어가면 안 된다.
+    assert TELEMETRY.transition_dead_time_ms(previous, current) == 4138
+
+
+def test_transition_dead_time_handles_uint32_tick_wrap() -> None:
+    previous = timed_leg(
+        "pregrasp",
+        fresh=0xFFFFFF00,
+        prime=0xFFFFFF20,
+        lead=0x20,
+        duration=0x80,
+    )
+    current = timed_leg(
+        "grasp", fresh=0x00000140, prime=0x00000180, lead=20, duration=100
+    )
+    assert TELEMETRY.transition_dead_time_ms(previous, current) == 0x180
+
+
+def test_transition_dead_time_rejects_backward_or_reset_clock() -> None:
+    previous = timed_leg(
+        "pregrasp", fresh=1000, prime=1100, lead=100, duration=1000
+    )
+    current = timed_leg(
+        "grasp", fresh=1500, prime=1600, lead=100, duration=500
+    )
+    with pytest.raises(ValueError, match="not forward"):
+        TELEMETRY.transition_dead_time_ms(previous, current)
+
+
+def test_transition_collection_accepts_resident_and_legacy_tag_names() -> None:
+    legs = [
+        timed_leg("pick_pregrasp", fresh=1000, prime=1060, lead=100, duration=1000),
+        timed_leg("pick_grasp", fresh=2360, prime=2420, lead=100, duration=500),
+    ]
+    values = TELEMETRY.collect_transition_dead_times(
+        legs,
+        previous_tags=("pregrasp", "pick_pregrasp"),
+        current_tags=("grasp", "pick_grasp"),
+    )
+    assert values == [200]
+
+
+def test_failed_or_incomplete_legs_do_not_become_gate_samples() -> None:
+    failed = timed_leg(
+        "pregrasp", fresh=1000, prime=1060, lead=100, duration=1000, ok=False
+    )
+    current = timed_leg("grasp", fresh=2360, prime=2420, lead=100, duration=500)
+    incomplete = {"tag": "pregrasp", "ok": True, "duration_ms": 1000}
+    assert TELEMETRY.collect_transition_dead_times(
+        [failed, current], ("pregrasp",), ("grasp",)
+    ) == []
+    assert TELEMETRY.collect_transition_dead_times(
+        [incomplete, current], ("pregrasp",), ("grasp",)
+    ) == []
+
+
+def test_transition_summary_uses_the_standard_even_sample_median() -> None:
+    summary = TELEMETRY.summarise_transition_dead_times([3848, 4096, 4178, 4311])
+    assert summary is not None
+    assert summary["count"] == 4
+    assert summary["median_ms"] == pytest.approx((4096 + 4178) / 2)
 
 
 # ---------------------------------------------------------------------------
@@ -310,3 +448,13 @@ def test_the_trend_fits_on_a_terminal() -> None:
     assert "PRECOMPUTE_MS=" in body
     assert "FIRST_SAMPLE_LEAD_MS=" in body
     assert "LEAD_MARGIN_MS" in body
+
+
+def test_complete_h2_telemetry_is_visible_in_the_terminal_summary() -> None:
+    record = TELEMETRY.parse_leg_telemetry(SUCCESS_OUTPUT)
+    summary = TELEMETRY.summarise_leg_telemetry([
+        {"ordinal": 1, "ok": True, **record},
+    ])
+    body = "\n".join(TELEMETRY.format_leg_trend(summary))
+    assert "H2_TRACKING_ENVELOPE_RAW=1,2,3,4,5,6" in body
+    assert "legs=1 samples=61 telemetry_failures=0" in body

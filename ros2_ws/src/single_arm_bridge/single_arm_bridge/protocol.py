@@ -23,6 +23,10 @@ SETPOINT_STATUS = struct.Struct("<BBBBIII")
 SETPOINT_STATUS_EXTENDED = struct.Struct("<BBBBHHII")
 # 6개 lateness bucket + 최대가 갱신된 applied sample index (1-based, 0=미갱신)
 SETPOINT_STATUS_LATENESS = struct.Struct("<7I")
+# F0 (0x00023000): terminal-only loop and blocking-I/O maxima, in microseconds.
+SETPOINT_STATUS_F0_METRICS = struct.Struct("<4I")
+# H2.0/H2.1 (0x00023300/0x00023400): position-only in-motion telemetry.
+SETPOINT_STATUS_H2_TELEMETRY = struct.Struct("<6H4I")
 BUFFERED_SETPOINT_HEADER = struct.Struct("<IBBH")
 BUFFERED_SETPOINT_SAMPLE = struct.Struct("<I12i")
 BUFFERED_SETPOINT_MAX_SAMPLES = 9
@@ -145,6 +149,15 @@ class MotionResult:
     # 최대값 하나로는 드문 spike 와 계통적 지연을 구분할 수 없다.
     apply_lateness_histogram: tuple[int, ...] | None = None
     maximum_apply_lateness_sample_index: int | None = None
+    f0_loop_period_max_us: int | None = None
+    f0_loop_work_max_us: int | None = None
+    f0_servo_sync_write_max_us: int | None = None
+    f0_host_tx_max_us: int | None = None
+    h2_tracking_error_max_raw: tuple[int, ...] | None = None
+    h2_telemetry_requested_samples: int | None = None
+    h2_telemetry_completed_samples: int | None = None
+    h2_telemetry_failed_samples: int | None = None
+    h2_telemetry_maximum_reply_latency_ms: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -488,7 +501,11 @@ def validate_buffered_setpoint_flags(flags: int) -> BufferedSetpointFlags:
 def parse_setpoint_status(payload: bytes) -> MotionResult:
     extended_size = SETPOINT_STATUS.size + SETPOINT_STATUS_EXTENDED.size
     lateness_size = extended_size + SETPOINT_STATUS_LATENESS.size
-    if len(payload) not in (SETPOINT_STATUS.size, extended_size, lateness_size):
+    f0_size = lateness_size + SETPOINT_STATUS_F0_METRICS.size
+    h2_size = f0_size + SETPOINT_STATUS_H2_TELEMETRY.size
+    if len(payload) not in (
+        SETPOINT_STATUS.size, extended_size, lateness_size, f0_size, h2_size
+    ):
         raise ProtocolError("invalid SETPOINT_STATUS length")
     base = SETPOINT_STATUS.unpack_from(payload)
     if len(payload) == SETPOINT_STATUS.size:
@@ -496,10 +513,16 @@ def parse_setpoint_status(payload: bytes) -> MotionResult:
     extended = SETPOINT_STATUS_EXTENDED.unpack_from(payload, SETPOINT_STATUS.size)
     histogram: tuple[int, ...] | None = None
     worst_index: int | None = None
-    if len(payload) == lateness_size:
+    f0_metrics: tuple[int, ...] | None = None
+    if len(payload) in (lateness_size, f0_size, h2_size):
         lateness = SETPOINT_STATUS_LATENESS.unpack_from(payload, extended_size)
         histogram = tuple(lateness[:6])
         worst_index = lateness[6]
+    if len(payload) in (f0_size, h2_size):
+        f0_metrics = SETPOINT_STATUS_F0_METRICS.unpack_from(payload, lateness_size)
+    h2_telemetry: tuple[int, ...] | None = None
+    if len(payload) == h2_size:
+        h2_telemetry = SETPOINT_STATUS_H2_TELEMETRY.unpack_from(payload, f0_size)
     return MotionResult(
         *base,
         executor_state=extended[0], terminal_reason=extended[1],
@@ -508,6 +531,25 @@ def parse_setpoint_status(payload: bytes) -> MotionResult:
         accepted_samples=extended[6], applied_samples=extended[7],
         apply_lateness_histogram=histogram,
         maximum_apply_lateness_sample_index=worst_index,
+        f0_loop_period_max_us=None if f0_metrics is None else f0_metrics[0],
+        f0_loop_work_max_us=None if f0_metrics is None else f0_metrics[1],
+        f0_servo_sync_write_max_us=None if f0_metrics is None else f0_metrics[2],
+        f0_host_tx_max_us=None if f0_metrics is None else f0_metrics[3],
+        h2_tracking_error_max_raw=(
+            None if h2_telemetry is None else tuple(h2_telemetry[:6])
+        ),
+        h2_telemetry_requested_samples=(
+            None if h2_telemetry is None else h2_telemetry[6]
+        ),
+        h2_telemetry_completed_samples=(
+            None if h2_telemetry is None else h2_telemetry[7]
+        ),
+        h2_telemetry_failed_samples=(
+            None if h2_telemetry is None else h2_telemetry[8]
+        ),
+        h2_telemetry_maximum_reply_latency_ms=(
+            None if h2_telemetry is None else h2_telemetry[9]
+        ),
     )
 
 

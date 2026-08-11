@@ -235,6 +235,7 @@ def plan_segment(
     code = int(response.error_code.val)
     trajectory = response.trajectory.joint_trajectory
     points = trajectory.points
+    trajectory_names = tuple(trajectory.joint_names)
     result = {
         "index": index,
         "expected_start_positions_rad": list(start),
@@ -246,12 +247,25 @@ def plan_segment(
         "moveit_error_code": code,
         "planning_time_s": float(response.planning_time),
         "trajectory_point_count": len(points),
+        # Keep the exact MoveIt-returned joint waypoints.  A later robust
+        # collision audit must not substitute straight-line interpolation for
+        # a path that MoveIt planned around an obstacle.
+        "trajectory_joint_names": list(trajectory_names),
+        "trajectory_positions_rad": [list(point.positions) for point in points],
         "success": code == MoveItErrorCodes.SUCCESS and bool(points),
     }
     result["joint_goal_tolerance_rad"] = JOINT_GOAL_TOLERANCE_RAD
     bound = JOINT_GOAL_TOLERANCE_RAD * JOINT_GOAL_RESIDUAL_MARGIN
     result["joint_goal_residual_bound_rad"] = bound
     if points:
+        if trajectory_names != ARM_JOINTS or any(
+            len(point.positions) != len(ARM_JOINTS) for point in points
+        ):
+            result["success"] = False
+            result["trajectory_shape_error"] = (
+                "MoveIt trajectory joint names or point widths are inconsistent"
+            )
+            return result
         final = list(points[-1].positions)
         result["planned_final_positions_rad"] = final
         final_time = points[-1].time_from_start
