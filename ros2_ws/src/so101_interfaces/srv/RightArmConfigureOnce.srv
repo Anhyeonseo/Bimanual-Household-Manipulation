@@ -1,0 +1,18 @@
+# R2.1 writes the current left-arm operational configuration to one right-arm
+# servo while torque is off. The 0x00023A01 hotfix never writes Goal_Position
+# and explicitly writes/readbacks Torque_Enable=0. confirmation must be exact.
+uint8 servo_id
+string confirmation
+---
+bool accepted
+uint8 status_code
+uint8 torque_enabled
+uint8 p_gain
+uint8 d_gain
+uint8 i_gain
+uint8 operating_mode
+uint16 present_position_raw
+uint16 goal_position_raw
+uint16 goal_speed_raw
+uint16 torque_limit_raw
+string diagnostic

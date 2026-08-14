@@ -47,6 +47,7 @@ leg)를 한 줄에 놓고 기울기를 재면 회차 추세가 아니라 leg 종
 from __future__ import annotations
 
 import re
+import statistics
 
 
 # 진단 문자열이 성공 경로와 실패 경로에서 다른 이름을 쓴다.
@@ -69,6 +70,23 @@ _INTEGER_FIELDS = {
     "queued": "queued_samples",
     "maximum_apply_lateness_ms": "maximum_apply_lateness_ms",
     "post_settle_max_error_raw": "post_settle_max_error_raw",
+    # F0 terminal-only timing snapshot.  These are measurements, not limits.
+    "f0_loop_period_max_us": "f0_loop_period_max_us",
+    "f0_loop_work_max_us": "f0_loop_work_max_us",
+    "f0_servo_sync_write_max_us": "f0_servo_sync_write_max_us",
+    "f0_host_tx_max_us": "f0_host_tx_max_us",
+    # F3.0 observation-only TIM6 control-clock metrics.
+    "f3_control_tick_period_max_us": "f3_control_tick_period_max_us",
+    "f3_control_tick_jitter_max_us": "f3_control_tick_jitter_max_us",
+    "f3_control_tick_work_max_us": "f3_control_tick_work_max_us",
+    "f3_control_tick_count": "f3_control_tick_count",
+    # H2.0 terminal-only position telemetry.  The per-joint vector has a
+    # separate strict parser below because comma-separated values must never
+    # be mistaken for six independent scalar fields.
+    "h2_telemetry_requested": "h2_telemetry_requested_samples",
+    "h2_telemetry_completed": "h2_telemetry_completed_samples",
+    "h2_telemetry_failed": "h2_telemetry_failed_samples",
+    "h2_telemetry_reply_latency_max_ms": "h2_telemetry_reply_latency_max_ms",
     "PLAN_DURATION_MS": "duration_ms",
     "PLAN_SAMPLE_COUNT": "sample_count",
 }
@@ -90,6 +108,9 @@ _FIELD_PATTERN = re.compile(
         sorted({*_INTEGER_FIELDS, *_FLOAT_FIELDS}, key=len, reverse=True)
     ) + r")=(-?\d+(?:\.\d+)?)"
 )
+_H2_TRACKING_VECTOR_PATTERN = re.compile(
+    r"(?<![\w.])h2_tracking_error_max_raw=(\d+(?:,\d+){5})(?![\w.])"
+)
 
 # 이 두 값이 실행기의 startup 게이트다. 여유를 계산하려면 여기에서도
 # 알아야 하는데, bridge package 를 import 하면 이 모듈이 ROS overlay 에
@@ -99,7 +120,73 @@ HOST_LEAD_GATE_CEILING_MS = 220
 FIRMWARE_LEAD_FLOOR_MS = 60
 
 
-def parse_leg_telemetry(text: str) -> dict[str, float | int]:
+def transition_dead_time_ms(previous: dict, current: dict) -> int:
+    """두 성공 leg 사이의 firmware 기준 비동작 시간을 계산한다.
+
+    이전 leg의 첫 sample 적용 예정 시각은 ``prime_tick +
+    first_sample_lead_ms``다. 여기에 계획 duration을 더한 시각부터 다음 leg가
+    fresh heartbeat를 받은 시각까지가, 2026-08-07 기준 evidence에서 사용한
+    leg 사이 간격이다. host monotonic 완료 시각끼리 빼면 다음 leg의 실제
+    동작 시간까지 섞이므로 같은 지표가 아니다.
+    """
+    if not previous.get("ok", True) or not current.get("ok", True):
+        raise ValueError("transition dead time requires two successful legs")
+    required_previous = ("prime_tick_ms", "first_sample_lead_ms", "duration_ms")
+    missing = [field for field in required_previous if field not in previous]
+    if "fresh_tick_ms" not in current:
+        missing.append("next.fresh_tick_ms")
+    if missing:
+        raise ValueError(
+            "transition dead time telemetry is incomplete: " + ", ".join(missing)
+        )
+    previous_end = (
+        int(previous["prime_tick_ms"])
+        + int(previous["first_sample_lead_ms"])
+        + int(previous["duration_ms"])
+    ) & 0xFFFFFFFF
+    dead_time = (int(current["fresh_tick_ms"]) - previous_end) & 0xFFFFFFFF
+    # uint32 tick wrap는 허용하되, 반 바퀴 이상이면 clock reset/잘못된
+    # artifact로 보고 gate 표본에서 제외한다.
+    if dead_time >= 0x80000000:
+        raise ValueError("transition dead time is not forward in firmware time")
+    return dead_time
+
+
+def collect_transition_dead_times(
+    legs: list[dict],
+    previous_tags: tuple[str, ...],
+    current_tags: tuple[str, ...],
+) -> list[int]:
+    """인접한 지정 leg 쌍에서 재현 가능한 dead-time 표본만 수집한다."""
+    values: list[int] = []
+    for previous, current in zip(legs[:-1], legs[1:], strict=True):
+        if previous.get("tag") not in previous_tags:
+            continue
+        if current.get("tag") not in current_tags:
+            continue
+        try:
+            values.append(transition_dead_time_ms(previous, current))
+        except ValueError:
+            # 실패 leg와 진단이 덜 남은 leg는 gate 표본으로 조용히 만들지
+            # 않는다. 호출자가 count를 보고 표본 부족으로 판정한다.
+            continue
+    return values
+
+
+def summarise_transition_dead_times(values: list[int]) -> dict | None:
+    """표준 median을 사용하는 transition dead-time 요약."""
+    if not values:
+        return None
+    return {
+        "count": len(values),
+        "values_ms": values,
+        "minimum_ms": min(values),
+        "median_ms": statistics.median(values),
+        "maximum_ms": max(values),
+    }
+
+
+def parse_leg_telemetry(text: str) -> dict[str, object]:
     """실행기 출력 한 덩어리에서 startup 진단 수치를 뽑는다.
 
     성공 출력과 실패 출력을 가리지 않는다 — 실패 경로도 같은 진단 문자열을
@@ -108,7 +195,7 @@ def parse_leg_telemetry(text: str) -> dict[str, float | int]:
     같은 이름이 여러 번 나오면 **마지막 것**을 쓴다. 실행기가 요약을 두 번
     찍는 자리가 있고, 뒤엣것이 terminal 에 가깝다.
     """
-    record: dict[str, float | int] = {}
+    record: dict[str, object] = {}
     for name, raw in _FIELD_PATTERN.findall(text):
         if name in _FLOAT_FIELDS:
             record[_FLOAT_FIELDS[name]] = float(raw)
@@ -118,6 +205,14 @@ def parse_leg_telemetry(text: str) -> dict[str, float | int]:
             if name in ("lead_ms", "heartbeat_gates") and key in record:
                 continue
             record[key] = int(float(raw))
+
+    # A terminal message is sometimes repeated in a wrapper error.  Matching
+    # the last vector keeps the same terminal-nearest convention as scalars.
+    h2_vectors = _H2_TRACKING_VECTOR_PATTERN.findall(text)
+    if h2_vectors:
+        record["h2_tracking_error_max_raw"] = tuple(
+            int(value) for value in h2_vectors[-1].split(",")
+        )
 
     # 파생값 하나. fresh heartbeat 이 사 온 220 ms 를 실제로 갉아먹는 구간의
     # 합이다. `precompute_ms` 는 그 heartbeat **앞**에서 끝나므로 아무리
@@ -193,6 +288,13 @@ def summarise_leg_telemetry(legs: list[dict]) -> dict:
         "prime_frame_1_ms",
         "lead_consuming_ms",
         "first_sample_lead_ms",
+        "f0_loop_period_max_us",
+        "f0_loop_work_max_us",
+        "f0_servo_sync_write_max_us",
+        "f0_host_tx_max_us",
+        "f3_control_tick_period_max_us",
+        "f3_control_tick_jitter_max_us",
+        "f3_control_tick_work_max_us",
     ):
         series = _series(ordered, field)
         if series is not None:
@@ -211,6 +313,40 @@ def summarise_leg_telemetry(legs: list[dict]) -> dict:
             "minimum_observed_ms": min(leads),
             "minimum_host_margin_ms": min(leads) - HOST_LEAD_GATE_FLOOR_MS,
             "minimum_firmware_margin_ms": min(leads) - FIRMWARE_LEAD_FLOOR_MS,
+        }
+
+    # H2's collision-envelope input is valid only when a leg completed every
+    # requested in-motion sample without failure.  Incomplete telemetry is
+    # retained in the raw leg record but must not silently shrink an envelope.
+    h2_records = []
+    for leg in ordered:
+        values = leg.get("h2_tracking_error_max_raw")
+        requested = leg.get("h2_telemetry_requested_samples")
+        completed = leg.get("h2_telemetry_completed_samples")
+        failed = leg.get("h2_telemetry_failed_samples")
+        if (
+            isinstance(values, tuple)
+            and len(values) == 6
+            and all(isinstance(value, int) and value >= 0 for value in values)
+            and isinstance(requested, int)
+            and requested > 0
+            and completed == requested
+            and failed == 0
+        ):
+            h2_records.append((leg, values, requested))
+    if h2_records:
+        summary["h2_tracking_envelope"] = {
+            "valid_leg_count": len(h2_records),
+            "requested_completed_samples": sum(
+                requested for _, _, requested in h2_records
+            ),
+            "maximum_error_raw": [
+                max(values[index] for _, values, _ in h2_records)
+                for index in range(6)
+            ],
+            "source_ordinals": [
+                int(leg["ordinal"]) for leg, _, _ in h2_records
+            ],
         }
 
     # precompute 는 sample 수에 비례한다. 회차 추세를 보려면 그 비례분을
@@ -266,6 +402,13 @@ def format_leg_trend(summary: dict) -> list[str]:
         ("prime_frame_1_ms", "PRIME_FRAME_1_MS"),
         ("lead_consuming_ms", "LEAD_CONSUMING_MS"),
         ("first_sample_lead_ms", "FIRST_SAMPLE_LEAD_MS"),
+        ("f0_loop_period_max_us", "F0_LOOP_PERIOD_MAX_US"),
+        ("f0_loop_work_max_us", "F0_LOOP_WORK_MAX_US"),
+        ("f0_servo_sync_write_max_us", "F0_SERVO_SYNC_WRITE_MAX_US"),
+        ("f0_host_tx_max_us", "F0_HOST_TX_MAX_US"),
+        ("f3_control_tick_period_max_us", "F3_CONTROL_TICK_PERIOD_MAX_US"),
+        ("f3_control_tick_jitter_max_us", "F3_CONTROL_TICK_JITTER_MAX_US"),
+        ("f3_control_tick_work_max_us", "F3_CONTROL_TICK_WORK_MAX_US"),
     ):
         series = summary.get(field)
         if not series:
@@ -286,6 +429,15 @@ def format_leg_trend(summary: dict) -> list[str]:
             f"LEAD_MARGIN_MS host={gate['minimum_host_margin_ms']:+d} "
             f"firmware={gate['minimum_firmware_margin_ms']:+d}  "
             f"(관측 최소 lead {gate['minimum_observed_ms']} ms)"
+        )
+    h2_envelope = summary.get("h2_tracking_envelope")
+    if h2_envelope:
+        maximum = ",".join(str(value) for value in h2_envelope["maximum_error_raw"])
+        lines.append(
+            "H2_TRACKING_ENVELOPE_RAW="
+            f"{maximum}  legs={h2_envelope['valid_leg_count']} "
+            f"samples={h2_envelope['requested_completed_samples']} "
+            "telemetry_failures=0"
         )
     for tag, entry in (summary.get("by_tag") or {}).items():
         parts = []

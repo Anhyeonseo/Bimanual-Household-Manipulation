@@ -79,11 +79,63 @@ def test_identity_and_capability_are_fail_closed() -> None:
             hello(capabilities=0x000007FF),
             0x2D90167E,
         )
+    validate_hardware_identity(
+        hello(firmware_version=0x00023200, capabilities=0x00007FFF),
+        0x2D90167E,
+    )
+    validate_hardware_identity(
+        hello(firmware_version=0x00023400, capabilities=0x0000FFFF),
+        0x2D90167E,
+    )
+    validate_hardware_identity(
+        hello(firmware_version=0x00023500, capabilities=0x0001FFFF),
+        0x2D90167E,
+    )
+    validate_hardware_identity(
+        hello(firmware_version=0x00023501, capabilities=0x0001FFFF),
+        0x2D90167E,
+    )
+    validate_hardware_identity(
+        hello(firmware_version=0x00023600, capabilities=0x0003FFFF),
+        0x2D90167E,
+    )
+    with pytest.raises(
+        HardwareIdentityError,
+        match="in-motion telemetry capability is missing",
+    ):
+        validate_hardware_identity(
+            hello(firmware_version=0x00023400, capabilities=0x00007FFF),
+            0x2D90167E,
+        )
+    with pytest.raises(
+        HardwareIdentityError,
+        match="F3 control-tick metrics capability is missing",
+    ):
+        validate_hardware_identity(
+            hello(firmware_version=0x00023500, capabilities=0x0000FFFF),
+            0x2D90167E,
+        )
+    with pytest.raises(
+        HardwareIdentityError,
+        match="right-arm read-only discovery capability is missing",
+    ):
+        validate_hardware_identity(
+            hello(firmware_version=0x00023600, capabilities=0x0001FFFF),
+            0x2D90167E,
+        )
+    with pytest.raises(
+        HardwareIdentityError,
+        match="heartbeat RX timestamp capability is missing",
+    ):
+        validate_hardware_identity(
+            hello(firmware_version=0x00023200, capabilities=0x00003FFF),
+            0x2D90167E,
+        )
 
 
 def test_capability_is_removed_when_route_initialization_fails() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022F00)" in CONFIG
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023B00)" in CONFIG
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x007FFFFF)" in CONFIG
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in CONFIG
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in CONFIG
 
@@ -123,7 +175,7 @@ def test_candidate_validation_is_available_while_physically_disabled() -> None:
 def test_dispatch_separates_candidate_from_legacy_motion() -> None:
     handler = function_body(
         BINARY,
-        "static void Host_HandleBinaryFrame(const actuator_frame_t *request)",
+        "static void Host_HandleBinaryFrame(",
     )
     start = handler.index("case ACTUATOR_MSG_SETPOINT_BATCH:")
     end = handler.index("case ACTUATOR_MSG_SAFE_STOP:", start)

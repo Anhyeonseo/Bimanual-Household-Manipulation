@@ -3,4 +3,10 @@ single_arm_bridge:
     serial_device: auto
     baud_rate: 115200
     feedback_rate_hz: 5.0
+    bimanual_feedback_rate_hz: 2.0
     allow_motion: false
+    allow_right_arm_jog: false
+    publish_bimanual_read_only: false
+    left_arm_power_off_confirmed: false
+    require_right_arm_j2_base_limits: false
+    require_bimanual_operational_limits: false

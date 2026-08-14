@@ -1,0 +1,12 @@
+# R1.1 migration primitive. The bridge holds the selected servo at its
+# freshly read position before enabling torque. confirmation must be exact.
+uint8 servo_id
+string confirmation
+---
+bool accepted
+uint8 status_code
+uint8 torque_enabled
+uint16 present_position_raw
+uint16 held_goal_position_raw
+uint16 observed_position_raw
+string diagnostic

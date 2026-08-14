@@ -22,6 +22,7 @@
 #include "stm32g4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "control_tick.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -60,6 +61,15 @@
 extern UART_HandleTypeDef hlpuart1;
 extern UART_HandleTypeDef huart1;
 extern DMA_HandleTypeDef hdma_usart1_rx;
+extern DMA_HandleTypeDef hdma_lpuart1_tx;
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+extern UART_HandleTypeDef huart4;
+extern DMA_HandleTypeDef hdma_usart1_tx;
+extern DMA_HandleTypeDef hdma_uart4_tx;
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+extern DMA_HandleTypeDef hdma_uart4_rx;
+#endif
+#endif
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -212,9 +222,47 @@ void DMA1_Channel1_IRQHandler(void)
   HAL_DMA_IRQHandler(&hdma_usart1_rx);
 }
 
+void DMA1_Channel2_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_lpuart1_tx);
+}
+
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+void DMA1_Channel3_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_usart1_tx);
+}
+
+void DMA1_Channel4_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_uart4_tx);
+}
+
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+void DMA1_Channel5_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_uart4_rx);
+}
+#endif
+
+void UART4_IRQHandler(void)
+{
+  HAL_UART_IRQHandler(&huart4);
+}
+#endif
+
 void USART1_IRQHandler(void)
 {
   HAL_UART_IRQHandler(&huart1);
+}
+
+void TIM6_DAC_IRQHandler(void)
+{
+  if ((TIM6->SR & TIM_SR_UIF) != 0U)
+  {
+    TIM6->SR &= ~TIM_SR_UIF;
+    ControlTick_OnInterrupt();
+  }
 }
 
 /* USER CODE END 1 */

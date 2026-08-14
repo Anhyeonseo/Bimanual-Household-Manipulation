@@ -1,0 +1,13 @@
+# R1 migration primitive. The bridge rejects all but one servo ID and a
+# signed +/-8..20 raw delta. confirmation must be the documented exact phrase.
+uint8 servo_id
+int16 delta_raw
+string confirmation
+---
+bool accepted
+uint8 status_code
+uint8 torque_enabled
+uint16 start_position_raw
+uint16 target_position_raw
+uint16 observed_position_raw
+string diagnostic

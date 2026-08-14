@@ -22,6 +22,7 @@ The node is intentionally fail-closed:
   must match;
 - `motion_authorized` and `robot_target_available` are always `false`;
 - the output is an observation in `top_board`, never a robot/base target.
+- the output carries the detected center and source image size in raw pixels; arm routing uses these pixels directly rather than inferring image left/right from board axes.
 
 `exclusion_rectangles_px` contains flattened `x,y,width,height` groups in raw
 image pixels. The current lower-left rectangle masks only the fixed left-arm

@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "record_kind": "physical_right_arm_q0",
+  "arm_slot": "right",
+  "created_at_utc": "2026-08-11T18:12:05.426350+00:00",
+  "definition": "Physical pose established by STS3215 one-key centering; all six servos were verified at raw 2048 after a right-arm power cycle. The five arm joints map to ROS/MoveIt q=0.",
+  "servo_ids": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "target_raw": 2048,
+  "settle_tolerance_raw": 10,
+  "raw_after_power_cycle": [
+    2048,
+    2048,
+    2048,
+    2048,
+    2048,
+    2048
+  ],
+  "arm_joint_positions_rad": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "gripper_raw": 2048,
+  "next_required_calibration": "Confirm ID-to-joint mapping, positive directions, conservative raw limits, and right-arm URDF visual registration before enabling planned motion."
+}

@@ -47,6 +47,7 @@ def main() -> int:
             f"joints={hello.joint_count} "
             f"firmware=0x{hello.firmware_version:08X} "
             f"calibration=0x{hello.calibration_hash:08X} "
+            f"capabilities=0x{hello.capabilities:08X} "
             f"stop_latched={int(hello.stop_latched)}"
         )
         print(

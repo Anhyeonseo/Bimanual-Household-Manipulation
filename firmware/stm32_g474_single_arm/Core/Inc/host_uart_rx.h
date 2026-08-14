@@ -14,7 +14,12 @@
 
 void HostUartRx_Init(UART_HandleTypeDef *host_uart);
 HAL_StatusTypeDef HostUartRx_Start(void);
-uint8_t HostUartRx_Pop(uint8_t *byte);
+/*
+ * Pop one byte and the ISR tick at which it reached the host UART. The
+ * timestamp is paired with the byte in the same ring slot so parser backlog
+ * cannot turn an old frame into a fresh heartbeat.
+ */
+uint8_t HostUartRx_Pop(uint8_t *byte, uint32_t *received_at_ms);
 uint8_t HostUartRx_TakeFault(void);
 uint16_t HostUartRx_Count(void);
 

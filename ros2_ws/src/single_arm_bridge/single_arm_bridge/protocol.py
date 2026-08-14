@@ -23,6 +23,18 @@ SETPOINT_STATUS = struct.Struct("<BBBBIII")
 SETPOINT_STATUS_EXTENDED = struct.Struct("<BBBBHHII")
 # 6개 lateness bucket + 최대가 갱신된 applied sample index (1-based, 0=미갱신)
 SETPOINT_STATUS_LATENESS = struct.Struct("<7I")
+# F0 (0x00023000): terminal-only loop and blocking-I/O maxima, in microseconds.
+SETPOINT_STATUS_F0_METRICS = struct.Struct("<4I")
+# H2.0/H2.1 (0x00023300/0x00023400): position-only in-motion telemetry.
+SETPOINT_STATUS_H2_TELEMETRY = struct.Struct("<6H4I")
+# F3.0 (0x00023500): observation-only 5 ms TIM6 control-clock metrics.
+SETPOINT_STATUS_F3_CONTROL_TICK_METRICS = struct.Struct("<4I")
+RIGHT_ARM_DISCOVERY = struct.Struct("<BBBB6H6B2xII")
+RIGHT_ARM_JOG_ONCE = struct.Struct("<BBBB3H2x")
+RIGHT_ARM_TORQUE_ENABLE_ONCE = struct.Struct("<BBBB3H2x")
+RIGHT_ARM_CONFIGURE_ONCE = struct.Struct("<8B4H")
+RIGHT_ARM_CONFIGURATION = struct.Struct("<BBBBI6B7H2B2H2BH4B6x")
+RIGHT_ARM_DISABLE = struct.Struct("<BBBB")
 BUFFERED_SETPOINT_HEADER = struct.Struct("<IBBH")
 BUFFERED_SETPOINT_SAMPLE = struct.Struct("<I12i")
 BUFFERED_SETPOINT_MAX_SAMPLES = 9
@@ -48,9 +60,21 @@ class MessageType(IntEnum):
     CLEAR_FAULT = 22
     SETPOINT_BATCH = 32
     SETPOINT_STATUS = 33
+    RIGHT_ARM_JOG_ONCE_REQUEST = 34
+    RIGHT_ARM_JOG_ONCE_RESPONSE = 35
+    RIGHT_ARM_TORQUE_ENABLE_ONCE_REQUEST = 36
+    RIGHT_ARM_TORQUE_ENABLE_ONCE_RESPONSE = 37
+    RIGHT_ARM_CONFIGURE_ONCE_REQUEST = 38
+    RIGHT_ARM_CONFIGURE_ONCE_RESPONSE = 39
     GET_STATE = 48
     STATE_FEEDBACK = 49
     DIAGNOSTICS = 51
+    RIGHT_ARM_DISCOVERY_REQUEST = 52
+    RIGHT_ARM_DISCOVERY_RESPONSE = 53
+    RIGHT_ARM_CONFIGURATION_REQUEST = 54
+    RIGHT_ARM_CONFIGURATION_RESPONSE = 55
+    RIGHT_ARM_DISABLE_REQUEST = 56
+    RIGHT_ARM_DISABLE_RESPONSE = 57
 
 
 class BufferedSetpointFlags(IntFlag):
@@ -145,6 +169,19 @@ class MotionResult:
     # 최대값 하나로는 드문 spike 와 계통적 지연을 구분할 수 없다.
     apply_lateness_histogram: tuple[int, ...] | None = None
     maximum_apply_lateness_sample_index: int | None = None
+    f0_loop_period_max_us: int | None = None
+    f0_loop_work_max_us: int | None = None
+    f0_servo_sync_write_max_us: int | None = None
+    f0_host_tx_max_us: int | None = None
+    h2_tracking_error_max_raw: tuple[int, ...] | None = None
+    h2_telemetry_requested_samples: int | None = None
+    h2_telemetry_completed_samples: int | None = None
+    h2_telemetry_failed_samples: int | None = None
+    h2_telemetry_maximum_reply_latency_ms: int | None = None
+    f3_control_tick_period_max_us: int | None = None
+    f3_control_tick_jitter_max_us: int | None = None
+    f3_control_tick_work_max_us: int | None = None
+    f3_control_tick_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,6 +270,232 @@ class ServoDiagnostics:
     joint_count: int
     calibration_hash: int
     joints: tuple[ServoDiagnostic, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RightArmDiscovery:
+    status_code: int
+    joint_count: int
+    present_mask: int
+    positions_raw: tuple[int, ...]
+    read_statuses: tuple[int, ...]
+    transaction_count: int
+    failure_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class RightArmJogOnce:
+    status_code: int
+    servo_id: int
+    delta_raw: int
+    torque_enabled: int
+    start_position_raw: int
+    target_position_raw: int
+    observed_position_raw: int
+
+
+@dataclass(frozen=True, slots=True)
+class RightArmTorqueEnableOnce:
+    status_code: int
+    servo_id: int
+    torque_enabled: int
+    present_position_raw: int
+    held_goal_position_raw: int
+    observed_position_raw: int
+
+
+@dataclass(frozen=True, slots=True)
+class RightArmConfigureOnce:
+    status_code: int
+    servo_id: int
+    torque_enabled: int
+    p_gain: int
+    d_gain: int
+    i_gain: int
+    operating_mode: int
+    present_position_raw: int
+    goal_position_raw: int
+    goal_speed_raw: int
+    torque_limit_raw: int
+
+
+@dataclass(frozen=True, slots=True)
+class RightArmConfiguration:
+    status_code: int
+    servo_id: int
+    read_status: int
+    successful_block_mask: int
+    sample_time_ms: int
+    torque_enabled: int
+    p_gain: int
+    d_gain: int
+    i_gain: int
+    voltage_raw: int
+    temperature_c: int
+    position_raw: int
+    speed_raw: int
+    load_raw: int
+    current_raw: int
+    runtime_torque_limit_raw: int
+    goal_position_raw: int
+    model_number: int
+    firmware_major_version: int
+    firmware_minor_version: int
+    maximum_torque_limit_raw: int
+    minimum_startup_force_raw: int
+    cw_dead_zone_raw: int
+    ccw_dead_zone_raw: int
+    protection_current_raw: int
+    operating_mode: int
+    protective_torque_raw: int
+    protection_time_raw: int
+    overload_torque_raw: int
+
+
+@dataclass(frozen=True, slots=True)
+class RightArmDisable:
+    status_code: int
+    joint_count: int
+    torque_enabled_mask: int
+    failure_count: int
+
+
+def parse_right_arm_discovery(payload: bytes) -> RightArmDiscovery:
+    if len(payload) != RIGHT_ARM_DISCOVERY.size:
+        raise ProtocolError("invalid RIGHT_ARM_DISCOVERY_RESPONSE length")
+    values = RIGHT_ARM_DISCOVERY.unpack(payload)
+    status_code, joint_count, present_mask, _reserved = values[:4]
+    if joint_count != 6 or _reserved != 0:
+        raise ProtocolError("invalid RIGHT_ARM_DISCOVERY_RESPONSE identity")
+    return RightArmDiscovery(
+        status_code=status_code,
+        joint_count=joint_count,
+        present_mask=present_mask,
+        positions_raw=tuple(values[4:10]),
+        read_statuses=tuple(values[10:16]),
+        transaction_count=values[16],
+        failure_count=values[17],
+    )
+
+
+def parse_right_arm_jog_once(payload: bytes) -> RightArmJogOnce:
+    if len(payload) != RIGHT_ARM_JOG_ONCE.size:
+        raise ProtocolError("invalid RIGHT_ARM_JOG_ONCE_RESPONSE length")
+    status, servo_id, delta_byte, torque, start, target, observed = (
+        RIGHT_ARM_JOG_ONCE.unpack(payload)
+    )
+    if not 1 <= servo_id <= 6:
+        raise ProtocolError("invalid RIGHT_ARM_JOG_ONCE_RESPONSE servo ID")
+    return RightArmJogOnce(
+        status_code=status,
+        servo_id=servo_id,
+        delta_raw=struct.unpack("<b", bytes((delta_byte,)))[0],
+        torque_enabled=torque,
+        start_position_raw=start,
+        target_position_raw=target,
+        observed_position_raw=observed,
+    )
+
+
+def parse_right_arm_torque_enable_once(
+    payload: bytes,
+) -> RightArmTorqueEnableOnce:
+    if len(payload) != RIGHT_ARM_TORQUE_ENABLE_ONCE.size:
+        raise ProtocolError(
+            "invalid RIGHT_ARM_TORQUE_ENABLE_ONCE_RESPONSE length"
+        )
+    status, servo_id, torque, reserved, present, held_goal, observed = (
+        RIGHT_ARM_TORQUE_ENABLE_ONCE.unpack(payload)
+    )
+    if not 1 <= servo_id <= 6 or reserved != 0:
+        raise ProtocolError(
+            "invalid RIGHT_ARM_TORQUE_ENABLE_ONCE_RESPONSE identity"
+        )
+    return RightArmTorqueEnableOnce(
+        status_code=status,
+        servo_id=servo_id,
+        torque_enabled=torque,
+        present_position_raw=present,
+        held_goal_position_raw=held_goal,
+        observed_position_raw=observed,
+    )
+
+
+def parse_right_arm_configure_once(payload: bytes) -> RightArmConfigureOnce:
+    if len(payload) != RIGHT_ARM_CONFIGURE_ONCE.size:
+        raise ProtocolError("invalid RIGHT_ARM_CONFIGURE_ONCE_RESPONSE length")
+    values = RIGHT_ARM_CONFIGURE_ONCE.unpack(payload)
+    if not 1 <= values[1] <= 6 or values[7] != 0:
+        raise ProtocolError("invalid RIGHT_ARM_CONFIGURE_ONCE_RESPONSE identity")
+    return RightArmConfigureOnce(
+        status_code=values[0],
+        servo_id=values[1],
+        torque_enabled=values[2],
+        p_gain=values[3],
+        d_gain=values[4],
+        i_gain=values[5],
+        operating_mode=values[6],
+        present_position_raw=values[8],
+        goal_position_raw=values[9],
+        goal_speed_raw=values[10],
+        torque_limit_raw=values[11],
+    )
+
+def parse_right_arm_configuration(payload: bytes) -> RightArmConfiguration:
+    if len(payload) != RIGHT_ARM_CONFIGURATION.size:
+        raise ProtocolError("invalid RIGHT_ARM_CONFIGURATION_RESPONSE length")
+    values = RIGHT_ARM_CONFIGURATION.unpack(payload)
+    if not 1 <= values[1] <= 6:
+        raise ProtocolError("invalid RIGHT_ARM_CONFIGURATION_RESPONSE servo ID")
+    return RightArmConfiguration(
+        status_code=values[0],
+        servo_id=values[1],
+        read_status=values[2],
+        successful_block_mask=values[3],
+        sample_time_ms=values[4],
+        torque_enabled=values[5],
+        p_gain=values[6],
+        d_gain=values[7],
+        i_gain=values[8],
+        voltage_raw=values[9],
+        temperature_c=values[10],
+        position_raw=values[11],
+        speed_raw=values[12],
+        load_raw=values[13],
+        current_raw=values[14],
+        runtime_torque_limit_raw=values[15],
+        goal_position_raw=values[16],
+        model_number=values[17],
+        firmware_major_version=values[18],
+        firmware_minor_version=values[19],
+        maximum_torque_limit_raw=values[20],
+        minimum_startup_force_raw=values[21],
+        cw_dead_zone_raw=values[22],
+        ccw_dead_zone_raw=values[23],
+        protection_current_raw=values[24],
+        operating_mode=values[25],
+        protective_torque_raw=values[26],
+        protection_time_raw=values[27],
+        overload_torque_raw=values[28],
+    )
+
+
+def parse_right_arm_disable(payload: bytes) -> RightArmDisable:
+    if len(payload) != RIGHT_ARM_DISABLE.size:
+        raise ProtocolError("invalid RIGHT_ARM_DISABLE_RESPONSE length")
+    status, joint_count, torque_enabled_mask, failure_count = (
+        RIGHT_ARM_DISABLE.unpack(payload)
+    )
+    if joint_count != 6 or torque_enabled_mask & ~0x3F:
+        raise ProtocolError("invalid RIGHT_ARM_DISABLE_RESPONSE identity")
+    if failure_count > joint_count:
+        raise ProtocolError("invalid RIGHT_ARM_DISABLE_RESPONSE failure count")
+    return RightArmDisable(
+        status_code=status,
+        joint_count=joint_count,
+        torque_enabled_mask=torque_enabled_mask,
+        failure_count=failure_count,
+    )
 
 
 def crc32c(data: bytes) -> int:
@@ -488,7 +751,12 @@ def validate_buffered_setpoint_flags(flags: int) -> BufferedSetpointFlags:
 def parse_setpoint_status(payload: bytes) -> MotionResult:
     extended_size = SETPOINT_STATUS.size + SETPOINT_STATUS_EXTENDED.size
     lateness_size = extended_size + SETPOINT_STATUS_LATENESS.size
-    if len(payload) not in (SETPOINT_STATUS.size, extended_size, lateness_size):
+    f0_size = lateness_size + SETPOINT_STATUS_F0_METRICS.size
+    h2_size = f0_size + SETPOINT_STATUS_H2_TELEMETRY.size
+    f3_size = h2_size + SETPOINT_STATUS_F3_CONTROL_TICK_METRICS.size
+    if len(payload) not in (
+        SETPOINT_STATUS.size, extended_size, lateness_size, f0_size, h2_size, f3_size
+    ):
         raise ProtocolError("invalid SETPOINT_STATUS length")
     base = SETPOINT_STATUS.unpack_from(payload)
     if len(payload) == SETPOINT_STATUS.size:
@@ -496,10 +764,21 @@ def parse_setpoint_status(payload: bytes) -> MotionResult:
     extended = SETPOINT_STATUS_EXTENDED.unpack_from(payload, SETPOINT_STATUS.size)
     histogram: tuple[int, ...] | None = None
     worst_index: int | None = None
-    if len(payload) == lateness_size:
+    f0_metrics: tuple[int, ...] | None = None
+    if len(payload) in (lateness_size, f0_size, h2_size, f3_size):
         lateness = SETPOINT_STATUS_LATENESS.unpack_from(payload, extended_size)
         histogram = tuple(lateness[:6])
         worst_index = lateness[6]
+    if len(payload) in (f0_size, h2_size, f3_size):
+        f0_metrics = SETPOINT_STATUS_F0_METRICS.unpack_from(payload, lateness_size)
+    h2_telemetry: tuple[int, ...] | None = None
+    if len(payload) in (h2_size, f3_size):
+        h2_telemetry = SETPOINT_STATUS_H2_TELEMETRY.unpack_from(payload, f0_size)
+    f3_control_tick: tuple[int, ...] | None = None
+    if len(payload) == f3_size:
+        f3_control_tick = SETPOINT_STATUS_F3_CONTROL_TICK_METRICS.unpack_from(
+            payload, h2_size
+        )
     return MotionResult(
         *base,
         executor_state=extended[0], terminal_reason=extended[1],
@@ -508,6 +787,37 @@ def parse_setpoint_status(payload: bytes) -> MotionResult:
         accepted_samples=extended[6], applied_samples=extended[7],
         apply_lateness_histogram=histogram,
         maximum_apply_lateness_sample_index=worst_index,
+        f0_loop_period_max_us=None if f0_metrics is None else f0_metrics[0],
+        f0_loop_work_max_us=None if f0_metrics is None else f0_metrics[1],
+        f0_servo_sync_write_max_us=None if f0_metrics is None else f0_metrics[2],
+        f0_host_tx_max_us=None if f0_metrics is None else f0_metrics[3],
+        h2_tracking_error_max_raw=(
+            None if h2_telemetry is None else tuple(h2_telemetry[:6])
+        ),
+        h2_telemetry_requested_samples=(
+            None if h2_telemetry is None else h2_telemetry[6]
+        ),
+        h2_telemetry_completed_samples=(
+            None if h2_telemetry is None else h2_telemetry[7]
+        ),
+        h2_telemetry_failed_samples=(
+            None if h2_telemetry is None else h2_telemetry[8]
+        ),
+        h2_telemetry_maximum_reply_latency_ms=(
+            None if h2_telemetry is None else h2_telemetry[9]
+        ),
+        f3_control_tick_period_max_us=(
+            None if f3_control_tick is None else f3_control_tick[0]
+        ),
+        f3_control_tick_jitter_max_us=(
+            None if f3_control_tick is None else f3_control_tick[1]
+        ),
+        f3_control_tick_work_max_us=(
+            None if f3_control_tick is None else f3_control_tick[2]
+        ),
+        f3_control_tick_count=(
+            None if f3_control_tick is None else f3_control_tick[3]
+        ),
     )
 
 

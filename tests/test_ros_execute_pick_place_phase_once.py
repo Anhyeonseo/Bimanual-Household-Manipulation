@@ -33,13 +33,26 @@ MANIFEST_SHA256 = (
 )
 
 
-def load(phase: str):
+def load(
+    phase: str,
+    manifest: Path = MANIFEST,
+    manifest_sha256: str = MANIFEST_SHA256,
+):
     return MODULE.load_phase(
-        MANIFEST,
-        MANIFEST_SHA256,
+        manifest,
+        manifest_sha256,
         phase,
         CALIBRATION,
     )
+
+
+def current_calibration_manifest(tmp_path: Path) -> tuple[Path, str]:
+    """역사 artifact를 수정하지 않고 현재 hash의 합성 loader fixture를 만든다."""
+    document = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    document["calibration_hash"] = "0x2D90167E"
+    path = tmp_path / "current-calibration-manifest.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    return path, MODULE.sha256_file(path)
 
 
 def valid_diagnostics() -> dict:
@@ -77,8 +90,15 @@ def parse_diagnostics(document: dict, contact=True, open_=False):
     )
 
 
-def test_real_manifest_is_hash_pinned_and_each_phase_is_bounded() -> None:
-    phases = [load(name) for name in MODULE.PHASE_ORDER]
+def test_historical_manifest_fails_closed_and_current_fixture_is_bounded(
+    tmp_path: Path,
+) -> None:
+    # 7월 artifact는 보존한다. 현재 calibration으로 실행하려 하면 거부돼야 한다.
+    with pytest.raises(ValueError, match="calibration hashes differ"):
+        load("q0_to_pick_pregrasp")
+
+    manifest, digest = current_calibration_manifest(tmp_path)
+    phases = [load(name, manifest, digest) for name in MODULE.PHASE_ORDER]
     assert [phase.name for phase in phases] == list(MODULE.PHASE_ORDER)
     assert phases[0].expected_arm_start == (0.0,) * 5
     assert phases[-1].expected_arm_end == (0.0,) * 5
@@ -89,7 +109,7 @@ def test_real_manifest_is_hash_pinned_and_each_phase_is_bounded() -> None:
     assert all(phase.maximum_joint_step_rad == 0.18 for phase in phases)
 
     with pytest.raises(ValueError, match="manifest sha256 mismatch"):
-        MODULE.load_phase(MANIFEST, "0" * 64, "pick_close", CALIBRATION)
+        MODULE.load_phase(manifest, "0" * 64, "pick_close", CALIBRATION)
 
 
 def test_manifest_source_tamper_and_phase_gate_tamper_fail_closed(
@@ -104,6 +124,9 @@ def test_manifest_source_tamper_and_phase_gate_tamper_fail_closed(
         MODULE.load_phase(path, digest, "pick_close", CALIBRATION)
 
     document = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    # 이 시험의 관심사는 phase 연속성이다. 현재 calibration hash의 합성
+    # fixture로 만들어 hash gate 다음의 discontinuity gate까지 도달시킨다.
+    document["calibration_hash"] = "0x2D90167E"
     document["steps"][13]["start_positions_rad"][0] += 0.01
     path.write_text(json.dumps(document), encoding="utf-8")
     digest = MODULE.sha256_file(path)
@@ -158,8 +181,11 @@ def test_start_final_and_actual_step_gates_are_strict() -> None:
         MODULE.validate_gripper_position(0.13, 0.06)
 
 
-def test_arm_phase_resume_is_checkpoint_pinned_and_fail_closed() -> None:
-    phase = load("q0_to_pick_pregrasp")
+def test_arm_phase_resume_is_checkpoint_pinned_and_fail_closed(
+    tmp_path: Path,
+) -> None:
+    manifest, digest = current_calibration_manifest(tmp_path)
+    phase = load("q0_to_pick_pregrasp", manifest, digest)
     resumed = MODULE.resume_arm_phase(phase, 1)
     assert resumed.steps == phase.steps[1:]
     assert resumed.expected_arm_start == tuple(
@@ -173,7 +199,7 @@ def test_arm_phase_resume_is_checkpoint_pinned_and_fail_closed() -> None:
     with pytest.raises(ValueError, match="leave at least one"):
         MODULE.resume_arm_phase(phase, len(phase.steps))
     with pytest.raises(ValueError, match="arm-only"):
-        MODULE.resume_arm_phase(load("pick_close"), 1)
+        MODULE.resume_arm_phase(load("pick_close", manifest, digest), 1)
 
 
 def test_diagnostics_require_identity_torque_settings_voltage_and_temperature() -> None:

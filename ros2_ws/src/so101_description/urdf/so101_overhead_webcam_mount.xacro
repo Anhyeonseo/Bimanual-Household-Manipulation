@@ -11,13 +11,13 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
   <xacro:macro
-    name="so101_overhead_webcam_mount"
-    params="prefix parent camera_xyz:='0 0.2344404 0' camera_optical_rpy:='1.5707963267948966 0 0'">
+    name="so101_overhead_webcam_arm_base"
+    params="prefix parent mount_xyz:='0 0 0' mount_rpy:='0 0 0'">
     <xacro:property name="half_pi" value="1.5707963267948966"/>
 
     <!--
       The plate is aligned to the SO-101 base footprint grooves, not merely
-      centered on workcell_base_link. After the user-confirmed 180-degree
+      centered on its parent frame. After the user-confirmed 180-degree
       correction, raw STL axes map as (x,y,z)->(x,-z,y).
     -->
     <link name="${prefix}arm_base_link">
@@ -38,17 +38,22 @@
       </collision>
     </link>
     <joint name="${prefix}arm_base_joint" type="fixed">
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="${mount_xyz}" rpy="${mount_rpy}"/>
       <parent link="${parent}"/>
       <child link="${prefix}arm_base_link"/>
     </joint>
+  </xacro:macro>
+
+  <xacro:macro
+    name="so101_overhead_webcam_tower"
+    params="prefix parent camera_xyz:='0 0.2344404 0' camera_optical_rpy:='1.5707963267948966 0 0'">
+    <xacro:property name="half_pi" value="1.5707963267948966"/>
 
     <!--
       User-confirmed side insertion: rotate the complete bottom+top assembly
-      180 degrees, then place its 37.4 mm edge in the left region seen from the
-      arm_base physical right side. The exact arm raw interval
-      x=-93.9209137..-56.5209137 mm matches the bottom raw x=0..37.4 mm edge.
-      Both floor bottoms remain at z=-5 mm.
+      180 degrees, then place its 37.4 mm edge in the arm-base groove. The
+      exact base raw interval x=-93.9209137..-56.5209137 mm matches the
+      bottom raw x=0..37.4 mm edge. Both floor bottoms remain at z=-5 mm.
     -->
     <link name="${prefix}cam_mount_bottom_link">
       <visual>
@@ -69,7 +74,7 @@
     </link>
     <joint name="${prefix}cam_mount_bottom_joint" type="fixed">
       <origin xyz="0.0137353073 -0.1525445687 -0.005" rpy="${half_pi} 0 3.141592653589793"/>
-      <parent link="${prefix}arm_base_link"/>
+      <parent link="${parent}"/>
       <child link="${prefix}cam_mount_bottom_link"/>
     </joint>
 
@@ -115,5 +120,20 @@
       <parent link="${prefix}camera_link"/>
       <child link="${prefix}camera_optical_frame"/>
     </joint>
+  </xacro:macro>
+
+  <xacro:macro
+    name="so101_overhead_webcam_mount"
+    params="prefix parent camera_xyz:='0 0.2344404 0' camera_optical_rpy:='1.5707963267948966 0 0'">
+    <xacro:so101_overhead_webcam_arm_base
+      prefix="${prefix}"
+      parent="${parent}"
+    />
+    <xacro:so101_overhead_webcam_tower
+      prefix="${prefix}"
+      parent="${prefix}arm_base_link"
+      camera_xyz="${camera_xyz}"
+      camera_optical_rpy="${camera_optical_rpy}"
+    />
   </xacro:macro>
 </robot>

@@ -1,4 +1,11 @@
 #include "host_uart_rx.h"
+#include "host_uart_tx.h"
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+#include "bimanual_servo_dispatch.h"
+#endif
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+#include "right_servo_bus.h"
+#endif
 #include "servo_bus.h"
 
 #include <stddef.h>
@@ -11,6 +18,7 @@
 static UART_HandleTypeDef *host_rx_uart = NULL;
 static uint8_t host_rx_interrupt_byte = 0U;
 static uint8_t host_rx_ring[HOST_UART_RX_RING_CAPACITY] = {0U};
+static uint32_t host_rx_received_at_ms[HOST_UART_RX_RING_CAPACITY] = {0U};
 static volatile uint16_t host_rx_head = 0U;
 static volatile uint16_t host_rx_tail = 0U;
 static volatile uint8_t host_rx_fault = 0U;
@@ -72,14 +80,17 @@ HAL_StatusTypeDef HostUartRx_Start(void)
     return HAL_OK;
 }
 
-uint8_t HostUartRx_Pop(uint8_t *byte)
+uint8_t HostUartRx_Pop(uint8_t *byte, uint32_t *received_at_ms)
 {
-    if ((byte == NULL) || (host_rx_tail == host_rx_head))
+    if ((byte == NULL) ||
+        (received_at_ms == NULL) ||
+        (host_rx_tail == host_rx_head))
     {
         return 0U;
     }
 
     *byte = host_rx_ring[host_rx_tail];
+    *received_at_ms = host_rx_received_at_ms[host_rx_tail];
     host_rx_tail = HostUartRx_Next(host_rx_tail);
     return 1U;
 }
@@ -127,7 +138,12 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     }
     else
     {
+        /*
+         * Capture before publishing head. For a complete COBS frame the
+         * delimiter byte's slot is its fully-received timestamp.
+         */
         host_rx_ring[host_rx_head] = host_rx_interrupt_byte;
+        host_rx_received_at_ms[host_rx_head] = HAL_GetTick();
         host_rx_head = next;
     }
 
@@ -136,7 +152,14 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+    BimanualServoDispatch_OnUartError(huart);
+#endif
     ServoBus_HandleUartError(huart);
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+    RightServoBus_InMotionTelemetryOnUartError(huart);
+#endif
+    HostUartTx_OnError(huart);
     if ((huart != host_rx_uart) || (host_rx_started == 0U))
     {
         return;

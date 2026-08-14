@@ -24,11 +24,22 @@
 
     {"id": 32, "name": "SETPOINT_BATCH", "direction": "HOST_TO_MCU", "category": "motion", "ack_required": false},
     {"id": 33, "name": "SETPOINT_STATUS", "direction": "MCU_TO_HOST", "category": "motion", "ack_required": false},
+    {"id": 34, "name": "RIGHT_ARM_JOG_ONCE_REQUEST", "direction": "HOST_TO_MCU", "category": "motion", "ack_required": true},
+    {"id": 35, "name": "RIGHT_ARM_JOG_ONCE_RESPONSE", "direction": "MCU_TO_HOST", "category": "motion", "ack_required": false},
+    {"id": 36, "name": "RIGHT_ARM_TORQUE_ENABLE_ONCE_REQUEST", "direction": "HOST_TO_MCU", "category": "motion", "ack_required": true},
+    {"id": 37, "name": "RIGHT_ARM_TORQUE_ENABLE_ONCE_RESPONSE", "direction": "MCU_TO_HOST", "category": "motion", "ack_required": false},
+    {"id": 38, "name": "RIGHT_ARM_CONFIGURE_ONCE_REQUEST", "direction": "HOST_TO_MCU", "category": "motion", "ack_required": true},
+    {"id": 39, "name": "RIGHT_ARM_CONFIGURE_ONCE_RESPONSE", "direction": "MCU_TO_HOST", "category": "motion", "ack_required": false},
 
     {"id": 48, "name": "GET_STATE", "direction": "HOST_TO_MCU", "category": "feedback", "ack_required": true},
     {"id": 49, "name": "STATE_FEEDBACK", "direction": "MCU_TO_HOST", "category": "feedback", "ack_required": false},
     {"id": 50, "name": "FAULT_REPORT", "direction": "MCU_TO_HOST", "category": "feedback", "ack_required": false},
-    {"id": 51, "name": "DIAGNOSTICS", "direction": "MCU_TO_HOST", "category": "feedback", "ack_required": false}
+    {"id": 51, "name": "DIAGNOSTICS", "direction": "MCU_TO_HOST", "category": "feedback", "ack_required": false},
+    {"id": 52, "name": "RIGHT_ARM_DISCOVERY_REQUEST", "direction": "HOST_TO_MCU", "category": "feedback", "ack_required": true},
+    {"id": 53, "name": "RIGHT_ARM_DISCOVERY_RESPONSE", "direction": "MCU_TO_HOST", "category": "feedback", "ack_required": false},
+    {"id": 54, "name": "RIGHT_ARM_CONFIGURATION_REQUEST", "direction": "HOST_TO_MCU", "category": "feedback", "ack_required": true},
+    {"id": 55, "name": "RIGHT_ARM_CONFIGURATION_RESPONSE", "direction": "MCU_TO_HOST", "category": "feedback", "ack_required": false},
+    {"id": 56, "name": "RIGHT_ARM_DISABLE_REQUEST", "direction": "HOST_TO_MCU", "category": "feedback", "ack_required": true},
+    {"id": 57, "name": "RIGHT_ARM_DISABLE_RESPONSE", "direction": "MCU_TO_HOST", "category": "feedback", "ack_required": false}
   ]
 }
-

@@ -1,0 +1,86 @@
+# J1-L arm-only candidate. This file is deliberately not loaded by any launch.
+# Source: config/bimanual_j1_operational_limits.approved.json
+# SHA256: ab5a352cac757e87242986e4018b7d89e2302789795bf1e36896648abedf34ff
+# Grippers are excluded until their aperture/contact mapping is approved.
+default_velocity_scaling_factor: 0.5
+default_acceleration_scaling_factor: 0.5
+
+joint_limits:
+  left_base_joint:
+    has_position_limits: true
+    min_position: -1.535515
+    max_position: 1.425068
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  left_shoulder_joint:
+    has_position_limits: true
+    min_position: -0.130388
+    max_position: 3.183010
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  left_elbow_joint:
+    has_position_limits: true
+    min_position: -0.582913
+    max_position: 2.604699
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  left_wrist_flex_joint:
+    has_position_limits: true
+    min_position: -0.417243
+    max_position: 2.782641
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  left_wrist_roll_joint:
+    has_position_limits: true
+    min_position: -2.142971
+    max_position: 1.113670
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  right_base_joint:
+    has_position_limits: true
+    min_position: -1.343767
+    max_position: 1.356039
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  right_shoulder_joint:
+    has_position_limits: true
+    min_position: -0.191748
+    max_position: 3.184544
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  right_elbow_joint:
+    has_position_limits: true
+    min_position: -0.630466
+    max_position: 2.587825
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  right_wrist_flex_joint:
+    has_position_limits: true
+    min_position: -0.500078
+    max_position: 2.465107
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  right_wrist_roll_joint:
+    has_position_limits: true
+    min_position: -1.894466
+    max_position: 1.316155
+    has_velocity_limits: true
+    max_velocity: 0.5

@@ -1,6 +1,7 @@
 import json
 import math
 import re
+import subprocess
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -9,7 +10,7 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MACRO_PATH = ROOT / "ros2_ws/src/so101_description/urdf/so101_arm_macro.xacro"
+ACTIVE_XACRO_PATH = ROOT / "ros2_ws/src/so101_description/urdf/so101_left.urdf.xacro"
 SRDF_PATH = ROOT / "ros2_ws/src/so101_moveit_config/config/so101_left.srdf"
 CALIBRATION_PATH = ROOT / "ros2_ws/src/single_arm_bridge/config/single_arm_calibration.json"
 MAPPING_PATH = ROOT / "ros2_ws/src/so101_isaac_bridge/so101_isaac_bridge/mapping.py"
@@ -84,9 +85,15 @@ def parse_usd_tuple(block, attribute):
 class LeftArmQ0ContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.macro = ET.parse(MACRO_PATH).getroot()
+        completed = subprocess.run(
+            ["/opt/ros/jazzy/bin/xacro", str(ACTIVE_XACRO_PATH)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        cls.macro = ET.fromstring(completed.stdout)
         cls.joints = {
-            element.attrib["name"].replace("${prefix}", ""): element
+            element.attrib["name"].removeprefix("left_"): element
             for element in cls.macro.findall(".//joint")
         }
 

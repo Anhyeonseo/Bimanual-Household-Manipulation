@@ -92,9 +92,8 @@ def transmit_ms(payload_bytes: int) -> float:
 
 def test_declared_host_baud_matches_the_lpuart_initialiser() -> None:
     """예산 계산이 실제로 설정된 속도를 쓰고 있어야 한다."""
-    match = re.search(r"hlpuart1\.Init\.BaudRate = (\d+);", MAIN)
-    assert match is not None
-    assert int(match.group(1)) == HOST_BAUD
+    assert "hlpuart1.Init.BaudRate = HOST_BINARY_UART_BAUD;" in MAIN
+    assert HOST_BAUD == 115200
 
 
 def test_wire_length_formula_agrees_with_the_real_encoder() -> None:
@@ -130,12 +129,12 @@ def test_remaining_acknowledgement_margin_is_reported_as_thin() -> None:
     assert 0.0 < margin_ms < 1.0
 
 
-def test_only_terminal_frames_carry_the_lateness_distribution() -> None:
+def test_f2_restores_lateness_distribution_to_refill_acknowledgements() -> None:
     match = re.search(
         r"actuator_buffered_status_encode\((.*?)\)\)", BINARY_CONTROL, re.S
     )
     assert match is not None
-    assert "(status_code == HOST_BUFFERED_STATUS_TERMINAL)" in match.group(1)
+    assert "diagnostics,\n            true" in match.group(1)
 
 
 def test_encoder_omits_the_lateness_block_when_not_requested() -> None:
@@ -144,12 +143,6 @@ def test_encoder_omits_the_lateness_block_when_not_requested() -> None:
     assert "const size_t encoded_size = include_lateness ?" in ROUTE_SOURCE
 
 
-def test_build_refuses_an_acknowledgement_that_outgrows_the_allowance() -> None:
-    """시험은 건너뛸 수 있지만 컴파일은 못 건너뛴다."""
-    guard = re.search(
-        r"#if HOST_BINARY_FRAME_TRANSMIT_MS\(\s*"
-        r"ACTUATOR_BUFFERED_STATUS_EXTENDED_SIZE\s*\)\s*>\s*\\?\s*"
-        r"HOST_BUFFERED_EXECUTION_MAXIMUM_APPLY_LATENESS_MS\s*\n#error",
-        BINARY_CONTROL,
-    )
-    assert guard is not None
+def test_f2_removes_the_blocking_wire_time_build_guard() -> None:
+    assert "Buffered acknowledgement transmit exceeds the apply lateness allowance" not in BINARY_CONTROL
+    assert "HostUartTx_Enqueue" in BINARY_CONTROL

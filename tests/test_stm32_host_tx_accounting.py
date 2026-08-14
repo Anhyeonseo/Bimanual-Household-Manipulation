@@ -39,29 +39,25 @@ def function_body(source: str, signature: str) -> str:
     raise AssertionError(f"unterminated function: {signature}")
 
 
-def test_transmit_result_is_captured_not_discarded() -> None:
+def test_enqueue_result_is_captured_not_discarded() -> None:
     body = function_body(BINARY, "static HAL_StatusTypeDef Host_SendBinaryFrame(")
-    assert "HAL_StatusTypeDef status = HAL_UART_Transmit(" in body
+    assert "HAL_StatusTypeDef status = HostUartTx_Enqueue(" in body
+    assert "HAL_UART_Transmit(" not in body
     assert "host_tx_last_status = (uint8_t)status;" in body
     assert "if (status != HAL_OK)" in body
     assert "host_tx_failure_count++" in body
 
 
-def test_timeout_is_counted_separately_from_other_failures() -> None:
-    """
-    HAL_TIMEOUT 은 프레임이 중간에 잘렸다는 뜻이고, 다른 실패와 성격이 다르다.
-    host stream 정렬이 깨지는 것은 이 경우뿐이므로 따로 센다.
-    """
-    body = function_body(BINARY, "static HAL_StatusTypeDef Host_SendBinaryFrame(")
-    assert "status == HAL_TIMEOUT" in body
-    assert "host_tx_timeout_count++" in body
+def test_dma_or_queue_failure_is_latched_for_fail_closed_service() -> None:
+    assert "HostUartTx_TakeFault()" in BINARY
+    assert "ACTUATOR_BUFFERED_REASON_CONNECTION_LOSS" in BINARY
 
 
 def test_transmit_elapsed_time_is_measured() -> None:
     """
-    전송이 왜 잘렸는지는 걸린 시간으로만 좁힐 수 있다. 42 바이트는
-    115200 baud 에서 3.6 ms 인데 100 ms timeout 에 걸렸다면 그 사이에
-    무언가가 main context 를 붙잡았다는 뜻이다.
+    F2 뒤 이 값은 wire duration이 아니라 enqueue에 걸린 control-path
+    시간이다. DMA 전송은 ISR에서 완료되므로 이 수치가 apply lateness를
+    차지하지 않는다는 것을 terminal F0 계측으로 다시 확인한다.
     """
     body = function_body(BINARY, "static HAL_StatusTypeDef Host_SendBinaryFrame(")
     assert "uint32_t started = HAL_GetTick();" in body

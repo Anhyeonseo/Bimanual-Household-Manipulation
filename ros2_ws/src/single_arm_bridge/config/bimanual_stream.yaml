@@ -1,0 +1,8 @@
+bimanual_stream_adapter:
+  ros__parameters:
+    serial_device: auto
+    motion_authorized: false
+    poll_period_s: 0.1
+    feedback_period_s: 0.05
+    heartbeat_period_s: 0.1
+    response_timeout_s: 0.12

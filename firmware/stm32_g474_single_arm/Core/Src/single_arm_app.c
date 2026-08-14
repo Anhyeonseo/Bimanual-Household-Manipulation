@@ -403,11 +403,12 @@ void SingleArmApp_Process(void)
              processed < HOST_BINARY_RX_BURST_MAX_BYTES;
              processed++)
         {
-            if (HostUartRx_Pop(&rx_byte) == 0U)
+            uint32_t received_at_ms = 0U;
+            if (HostUartRx_Pop(&rx_byte, &received_at_ms) == 0U)
             {
                 break;
             }
-            BinaryControl_ProcessByte(rx_byte);
+            BinaryControl_ProcessByte(rx_byte, received_at_ms);
         }
 
         if (HostUartRx_TakeFault() != 0U)
@@ -432,7 +433,7 @@ void SingleArmApp_Process(void)
       {
 	  if (BinaryControl_IsBinaryMode() != 0U)
 	  {
-	      BinaryControl_ProcessByte(rx_byte);
+	      BinaryControl_ProcessByte(rx_byte, HAL_GetTick());
 	      return;
 	  }
 	  else if ((rx_byte == 'P') || (rx_byte == 'p'))

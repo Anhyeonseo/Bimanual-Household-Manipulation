@@ -348,7 +348,35 @@
 
 ## 단계 10 — 오른팔 단독 동등성
 
-- 오른팔 6축 ID·방향·raw limit·q0·전원·온도·PID/torque readback 확정
+- P2S real-feedback/no-output gate와 R4 복구를 먼저 끝낸 뒤,
+  `docs/checklists/BIMANUAL_JOINT_RANGE_CALIBRATION.md`의 J0..J2를 수행
+- 2026-08-13 J0-D는 양팔 12축의 cable-safe desired envelope와 gripper
+  closed/task-open checkpoint까지 완료했다. J0-M physical outer margin은 J2 전
+  별도 결정으로 남긴다.
+- J1-W `0x00024000` 상태형 wrap-aware no-output 후보는 전체 Python `1258/1258`,
+  C `6/6`, Cortex-M4 build와 실기 양 SHOULDER forward/reverse wrap, R4 복구 후
+  100-sample 12축 soak를 통과했다.
+- J1-L에서는 J0-D 끝단을 양쪽에서 64 raw 수축한 arm 5축 후보를 만들었고,
+  기존 왼팔 Pick–Place 7개 phase의 1,031점을 전수 검사해 모두 후보 안임을
+  확인했다. 최소 여유는 Shoulder 0.130388 rad다. 사용자 승인 뒤 `0x00024100`
+  firmware/host parity, 실기 no-output shadow, R4 복구 12축 soak 10/10을 통과했다.
+  simulation-only 양팔 URDF, 미참조 MoveIt candidate, Isaac import URDF도 같은
+  10축 limit으로 plan-only parity를 통과했다. J0-M, gripper mapping, physical q0와
+  base transform, 오른팔 대표 route, J2 bounded active 검증은 남아 있다.
+- [역사 기록] J2 진입용 arm 10축 양방향 25/50/75% 내부 목표를 SHA-bound plan-only artifact로
+  만들었다. 첫 실기는 오른팔 Base upper 25% raw `2048→2269→2048` 한 축만
+  verified disable까지 누적된 R4 `0x00023B00` primitive로 수행한다. 왼팔
+  12 V OFF, q0 preflight,
+  비선택축 torque-off/drift 감시, 최대 20 raw step, 성공 시 verified disable,
+  실패 시 latched stop을 강제한다. 아직 실기 evidence가 없으므로 J2와 일반
+  trajectory는 승인되지 않았다.
+- 왼팔과 오른팔을 독립적으로 torque-off 수동 계측해 6축 ID·방향·raw
+  mechanical/cable envelope·q0·전원·온도·PID/torque readback 확정
+- 2026-08-14 작업자가 이미 직접 검증한 J0-D 전체 끝값을 inclusive firmware
+  운용 한계로 승인했다. 기존 inset64와 축별 25/50/75% 추가 승인은 더 이상
+  runtime blocker가 아니며, canonical 표와 raw↔rad/unwrap parity만 자동 검증한다.
+- firmware/host가 같은 canonical limit manifest를 사용한다. URDF/MoveIt/Isaac의
+  물리 zero와 collision 모델 정밀화는 명령 범위 승인과 분리해 후속 보정한다
 - 오른팔 URDF/MoveIt/Isaac FK와 실제 encoder→ROS→모델 parity 검증
 - READ_ONLY physical disable, MOTION_ENABLED 무동작, 단일 축 격리 이동,
   multi-point trajectory, cancel/stop/fault 복구 검증
@@ -358,7 +386,52 @@
 
 ## 단계 11 — 양팔 통합과 Policy 권한 확대
 
-- 왼팔·오른팔 단독 기준선이 모두 통과한 뒤 dual planning group과 공유
+- 2026-08-14 작업자 승인으로 수동 검증한 J0-D 전체 범위를 firmware 운용
+  범위로 채택했고 추가 J2 축별 25/50/75% gate는 폐기했다. heartbeat/stop/tracking
+  안전 계약과 양팔 실제 dispatch gate는 유지한다.
+- F7-A에서는 HAL 독립 12축 goal map과 공통 STS3215 SYNC WRITE encoder를
+  구현했다. `0x00024500 / 0x607FFFFF`는 아직 일반 12축 UART 출력을 연결하지
+  않은 순수 리팩터링 후보이며, 기존 `0x00024400`과 R4 HEX SHA는 불변이다.
+- F7 `0x00024604` 후보는 공통 5 ms tick의 12축 executor 출력을 좌우 TX DMA로
+  쌍 기동하고, 미완료/전송/tick/heartbeat fault를 양팔 stop으로 묶었다. 자동
+  branch anchor와 dispatch 진단을 연결했고, 실기 no-output과 current-pose hold에서
+  `36/36` paired DMA, 최대 시작 시차 `2 us`, 최대 launch lateness `46 us`, 정상
+  torque-off를 확인했고, base `+0.03 rad` 왕복도 `71/71`, `2 us`, `49 us`로
+  통과했다. 별도 one-shot 오른쪽 DMA fault에서도 `8/8` 뒤 failure `+1`과 좌우 verified
+  torque-off를 확인했다. 정상 `0x00024604` 복구 no-output까지 통과했으므로
+  F7 dispatch/coordinated-stop gate는 완료다. 실행 중 tracking-error feedback은
+  다음 F8 항목에서 별도로 완료했다.
+- F8 tracking-feedback 후보 `0x00024700`은 각 paired dispatch 뒤 같은 관절의
+  좌우 present position을 비동기 병렬 READ하고, 요청 시점 명령값과 비교한다.
+  한쪽 응답 실패·4 ms timeout·tracking-error 초과는 다음 tick 출력을 막고 양팔
+  coordinated stop으로 수렴한다. 로컬 C `9/9`, 선택 Python `40`, 전체
+  Python `1329`과 F7 HEX byte-identical 회귀를 통과했다. 실기 no-output과
+  zero-delta hold도 dispatch/feedback `35/35`, 최대 피드백 지연 `2 ms`,
+  최대 tracking error `0 urad`, 종료 verified torque-off로 통과했다.
+  별도 `0x00024701` tracking-error fault injection도 8번째 paired feedback에서
+  정확히 `100000 urad`를 검출하고 다음 출력을 차단했으며 좌우 verified
+  torque-off를 통과했다. 정상 `0x00024700` 복구 no-output까지 통과했으므로
+  F8 route-time tracking feedback gate는 완료다.
+- F8 resident 실행기 `0x00024703`은 finite 재사용, open/append/splice와 명시적
+  coordinated STOP을 하나의 Pi serial owner에서 실기 통과했다. F8.1
+  `0x00024800`은 별도 12축 measured-feedback snapshot과 ROS
+  `/bimanual_stream_adapter/feedback`을 추가했다. direct no-output에서
+  `present_mask=0x0FFF`, 실제 양팔 base `+0.03 rad` rolling 왕복에서 feedback
+  8 sample, 최대 sample age `27 ms`, commands/epochs `7 / 1,1,2,2,2,2,2`와
+  최종 STOP을 통과했다. 이 firmware/ROS 경계는
+  [상단 애플리케이션 인터페이스 계약](BIMANUAL_UPPER_APPLICATION_INTERFACE.md)으로
+  고정하며, 이후 MoveIt/FSM/pretrained-policy 통합은 이 경계 위에서 진행한다.
+- F8.6 `0x00024806`은 position-read failure에만 3회 연속 fault 조건을 적용하고
+  정상 pair에서 streak를 복구해 단발 telemetry 손실과 즉시 정지 fault를
+  분리했다. F8.7 `0x00024807`은 arm terminal `46,020 urad`를 유지하고 gripper
+  contact terminal만 `90,000 urad`로 분리했으며, 12회 연속 fresh pair와 resident
+  terminal snapshot을 완료 조건으로 고정했다. F8.7 no-motion, current-pose finite
+  2회, fresh-anchor 회귀와 Top-camera 왼팔 Pick/Place 2회(run20/run22)를
+  자동 재시도 없이 통과했다. 결과와 남은 오른팔 task/policy/soak 범위는
+  [F8.7 최종 수락 결과](test-results/2026-08-15-f87-resident-top-camera-pick-place.md)를
+  따른다.
+- 좌우 공통 운용 범위, unwrap parity와 왼팔·오른팔 단독 기준선이 준비된 뒤
+  dual planning group과 공유
   collision scene 활성화
 - 개별 작업 영역에서는 병렬 실행하고 공유 영역에서는 하나의 조정된 계획 사용
 - 공통 시간 기준의 실제 시작 시각 차이와 한 팔 fault 시 양팔 동시 정지 검증

@@ -45,9 +45,9 @@ GRIPPER_ACTION = (
 
 
 def test_identity_and_capability_are_bumped_for_diagnostics() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022F00)" in CONFIG
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in CONFIG
-    assert "EXPECTED_FIRMWARE_VERSION = 0x00022F00" in (
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023B00)" in CONFIG
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x007FFFFF)" in CONFIG
+    assert "F0_METRICS_CANDIDATE_FIRMWARE_VERSION = 0x00023000" in (
         ROOT
         / "ros2_ws"
         / "src"

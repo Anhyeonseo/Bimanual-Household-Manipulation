@@ -22,6 +22,14 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "single_arm_app.h"
+#include "right_servo_bus.h"
+#include "control_tick.h"
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+#include "bimanual_servo_dispatch.h"
+#endif
+#include "f0_metrics.h"
+#include "single_arm_config.h"
+#include "timebase.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,7 +51,16 @@
 
 UART_HandleTypeDef hlpuart1;
 UART_HandleTypeDef huart1;
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+DMA_HandleTypeDef hdma_usart1_tx;
+DMA_HandleTypeDef hdma_uart4_tx;
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+DMA_HandleTypeDef hdma_uart4_rx;
+#endif
+#endif
+UART_HandleTypeDef huart4;
 DMA_HandleTypeDef hdma_usart1_rx;
+DMA_HandleTypeDef hdma_lpuart1_tx;
 
 /* USER CODE BEGIN PV */
 
@@ -55,6 +72,7 @@ static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_LPUART1_UART_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_UART4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -87,6 +105,8 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
+  Timebase_Init();
+  ControlTick_Init();
 
   /* USER CODE END SysInit */
 
@@ -95,9 +115,14 @@ int main(void)
   MX_DMA_Init();
   MX_LPUART1_UART_Init();
   MX_USART1_UART_Init();
+  MX_UART4_Init();
 
   /* USER CODE BEGIN 2 */
   SingleArmApp_Init(&hlpuart1, &huart1);
+  RightServoBus_Init(&huart4);
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+  BimanualServoDispatch_Init(&huart1, &huart4);
+#endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -107,7 +132,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    F0Metrics_LoopBegin();
     SingleArmApp_Process();
+    F0Metrics_LoopEnd();
     /* USER CODE END 3 */
   }
 }
@@ -124,6 +151,18 @@ static void MX_DMA_Init(void)
 
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 2U, 0U);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 5U, 0U);
+  HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+  HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 1U, 0U);
+  HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
+  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 1U, 0U);
+  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 2U, 0U);
+  HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
+#endif
+#endif
 }
 
 void SystemClock_Config(void)
@@ -184,7 +223,7 @@ static void MX_LPUART1_UART_Init(void)
 
   /* USER CODE END LPUART1_Init 1 */
   hlpuart1.Instance = LPUART1;
-  hlpuart1.Init.BaudRate = 115200;
+  hlpuart1.Init.BaudRate = HOST_BINARY_UART_BAUD;
   hlpuart1.Init.WordLength = UART_WORDLENGTH_8B;
   hlpuart1.Init.StopBits = UART_STOPBITS_1;
   hlpuart1.Init.Parity = UART_PARITY_NONE;
@@ -263,6 +302,25 @@ static void MX_USART1_UART_Init(void)
 
 }
 
+static void MX_UART4_Init(void)
+{
+  huart4.Instance = UART4;
+  huart4.Init.BaudRate = 1000000;
+  huart4.Init.WordLength = UART_WORDLENGTH_8B;
+  huart4.Init.StopBits = UART_STOPBITS_1;
+  huart4.Init.Parity = UART_PARITY_NONE;
+  huart4.Init.Mode = UART_MODE_TX_RX;
+  huart4.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart4.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart4.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart4.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart4.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
 /**
   * @brief GPIO Initialization Function
   * @param None
@@ -319,4 +377,3 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-

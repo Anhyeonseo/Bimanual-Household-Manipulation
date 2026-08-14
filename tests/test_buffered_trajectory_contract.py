@@ -444,8 +444,8 @@ def test_g474_identity_advertises_separate_validation_and_execution_routes() -> 
         / "binary_control.c"
     ).read_text(encoding="utf-8")
 
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00022F00)" in config
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x00000FFF)" in config
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023B00)" in config
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x007FFFFF)" in config
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in config
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in config
     assert "if (sample_count == 1U)" in binary_control

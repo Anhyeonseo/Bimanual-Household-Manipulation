@@ -100,6 +100,61 @@ extrinsic and preserve the perception stack's fail-closed authorization.
 
 Only the left-arm configuration has been validated. The macro and prefix prepare later right-arm/bimanual composition but do not claim that a mirrored right-arm mount has been calibrated.
 
+## Simulation-only bimanual preview
+
+`urdf/so101_dual_preview.urdf.xacro` instantiates the same STL-backed arm
+macro twice. The right arm is translated to negative Y because the workcell
+convention is +X forward, +Y robot-left, +Z up. It is not mirrored: the two
+physical arms use the same model, motor directions, and assembly convention.
+The preview places an identical physical arm-base STL under each arm. The
+previously validated overhead-camera bottom/top tower sits between the two
+plates in top view: left base plate, camera tower, right base plate. Its single
+URDF parent remains the left plate to avoid a closed kinematic loop. The
+calibrated left wrist-camera mount/frame remains enabled. The right wrist
+uses the same camera-mount replacement STL and the same wrist joint origin as
+the left because its physical part and assembly are identical. A right camera
+optical frame remains absent until the actual camera installation and its
+eye-in-hand transform are independently confirmed.
+
+The default right-base translation is `0 -0.232064146 0` m. It is derived
+from the STL boundaries: the left plate already has the validated 10 mm camera
+mount insertion, and this position gives the right plate the same 10 mm
+insertion on the opposite side. It replaces the earlier rough 14-inch center
+spacing. The value remains a CAD-fit candidate until visual and external
+measurement confirm the physical assembly. It is intentionally isolated from
+MoveIt and hardware control, and the preview URDF contains no `ros2_control`
+block.
+Generate a resolved URDF for Isaac Sim with:
+
+```bash
+python3 tools/generate_isaac_bimanual_preview_urdf.py
+```
+
+In Isaac Sim 6.0.1, use **File > Import** to select the printed
+`BIMANUAL_PREVIEW_URDF`. The generated preview carries the SHA-bound J1-L
+arm-only candidate limits; grippers remain excluded and
+`motion_authorized=false`. In the right-side **Model > ROS Package List** table,
+use the printed `ISAAC_ROS_PACKAGE_NAME` and `ISAAC_ROS_PACKAGE_PATH` as one
+row. Import with the timeline stopped. The generator also writes a manifest with
+`simulation_only=true`, `motion_authorized=false`, and
+`right_mount.status=PROVISIONAL_UNCALIBRATED`.
+
+When a physical base transform has been measured, generate another candidate
+without editing the source model:
+
+```bash
+python3 tools/generate_isaac_bimanual_preview_urdf.py \
+  --right-mount-xyz-m X Y Z \
+  --right-mount-rpy-rad R P Y
+```
+
+STL improves link and mounting-surface registration, but it does not measure
+the encoder zero or the transform between the two physical bases. Those remain
+separate external-calibration gates. Detailed STL collision is also a preview
+reference; a later MoveIt bimanual model should use validated, computationally
+appropriate collision geometry rather than treating mesh detail as measured
+clearance.
+
 ## Left-arm q0 contract
 
 The 2026-07-26 visual registration established the physical raw-2048 Home as

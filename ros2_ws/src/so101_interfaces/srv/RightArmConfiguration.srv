@@ -1,0 +1,34 @@
+# R2 observation-only snapshot for one right-arm servo. The request performs
+# five READ transactions and never writes torque, goal, PID, or EEPROM state.
+uint8 servo_id
+---
+bool success
+uint8 status_code
+uint8 read_status
+uint8 successful_block_mask
+uint32 sample_time_ms
+uint8 torque_enabled
+uint8 p_gain
+uint8 d_gain
+uint8 i_gain
+uint8 voltage_raw
+uint8 temperature_c
+uint16 position_raw
+uint16 speed_raw
+uint16 load_raw
+uint16 current_raw
+uint16 runtime_torque_limit_raw
+uint16 goal_position_raw
+uint16 model_number
+uint8 firmware_major_version
+uint8 firmware_minor_version
+uint16 maximum_torque_limit_raw
+uint16 minimum_startup_force_raw
+uint8 cw_dead_zone_raw
+uint8 ccw_dead_zone_raw
+uint16 protection_current_raw
+uint8 operating_mode
+uint8 protective_torque_raw
+uint8 protection_time_raw
+uint8 overload_torque_raw
+string diagnostic

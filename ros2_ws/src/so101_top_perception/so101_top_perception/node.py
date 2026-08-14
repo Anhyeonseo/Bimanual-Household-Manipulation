@@ -371,6 +371,10 @@ class TopObjectPoseNode(Node):
         output.yaw_rad = pose["yaw_rad"]
         output.confidence = pose_confidence(pose)
         output.frame_age_s = float(frame_age_s)
+        output.center_x_px = float(pose["raw_center_px"][0])
+        output.center_y_px = float(pose["raw_center_px"][1])
+        output.image_width_px = int(message.width)
+        output.image_height_px = int(message.height)
         footprint_inside = bool(
             pose["calibration_region"]["footprint_inside"]
         )
