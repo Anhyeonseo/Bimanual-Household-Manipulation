@@ -16,8 +16,8 @@
 - [ ] 서보 12 V 전원 분리
 - [ ] Waveshare adapter 점퍼 `A` 확인
 - [ ] NUCLEO–adapter 공통 GND 연결
-- [ ] adapter RX–MCU RX 연결 확인
-- [ ] adapter TX–MCU TX 연결 확인
+- [ ] Bus Servo Adapter (A) UART는 adapter RX–MCU RX 연결 확인
+- [ ] Bus Servo Adapter (A) UART는 adapter TX–MCU TX 연결 확인
 - [ ] 12 V가 NUCLEO 3V3/5V/VIN에 연결되지 않았음을 확인
 - [ ] 서보 adapter UART의 유휴(idle) 전압 확인
 - [ ] 서보 전원의 극성과 정격 확인

@@ -50,8 +50,8 @@ def function_body(source: str, signature: str) -> str:
 
 
 def test_buffered_rx_identity_and_capability_are_fail_closed() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023400)" in CONFIG
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x0000FFFF)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023B00)" in CONFIG
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x007FFFFF)" in CONFIG
     assert "BUFFERED_HOST_RX_CAPABILITY = 0x00000040" in IDENTITY
     assert "interrupt-buffered host RX capability is missing" in IDENTITY
 
@@ -118,6 +118,22 @@ def test_firmware_acknowledges_each_accepted_heartbeat() -> None:
     heartbeat_case = handler[heartbeat_start:heartbeat_end]
     assert "actuator_safety_on_heartbeat(" in heartbeat_case
     assert "Host_SendBinaryState(request->sequence, 0U);" in heartbeat_case
+
+
+def test_clear_fault_recovers_the_safety_state_before_rearming() -> None:
+    handler = function_body(BINARY, "static void Host_HandleBinaryFrame(")
+    clear_start = handler.index("case ACTUATOR_MSG_CLEAR_FAULT:")
+    clear_end = handler.index("case ACTUATOR_MSG_HOLD:", clear_start)
+    clear_case = handler[clear_start:clear_end]
+
+    # A latched stop may coincide with FAULT/ESTOPPED. Releasing only the
+    # host latch leaves request_arm permanently rejected in state=FAULT.
+    assert "actuator_safety_clear_latched_stop(" in clear_case
+    assert "ACTUATOR_STATE_FAULT" in clear_case
+    assert "ACTUATOR_STATE_ESTOPPED" in clear_case
+    assert clear_case.index("actuator_safety_clear_latched_stop(") < clear_case.index(
+        "host_stop_latched = 0U;"
+    )
 
 
 def test_f1_uses_frame_completion_isr_tick_for_heartbeat_freshness() -> None:

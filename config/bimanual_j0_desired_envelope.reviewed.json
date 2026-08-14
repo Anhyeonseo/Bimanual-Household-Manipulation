@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "record_kind": "bimanual_j0_d_reviewed_desired_envelope",
+  "status": "J0_D_REVIEWED_PASS_J0_M_NOT_MEASURED",
+  "motion_authorized": false,
+  "raw_units_per_turn": 4096,
+  "operator_confirmation": {
+    "all_sweeps_cable_safe": true,
+    "cable_or_connector_issue_observed": false,
+    "mechanical_hard_stops_measured": false,
+    "meaning": "manually traversed desired task workspace, not mechanical endpoints"
+  },
+  "candidate_policy": {
+    "default_inset_raw": 64,
+    "purpose": "contract a plan-only candidate inside the manually traversed envelope",
+    "does_not_prove": [
+      "mechanical outer margin",
+      "torque-on tracking",
+      "task coverage after contraction",
+      "URDF physical zero alignment"
+    ],
+    "endpoint_motion_authorized": false
+  },
+  "arms": {
+    "left": {
+      "joints": {
+        "base": {
+          "coordinate": "raw",
+          "observed_minimum": 983,
+          "observed_maximum": 3041,
+          "evidence": {
+            "path": "artifacts/joint_ranges/2026-08-13/left_base_desired_run01.json",
+            "sha256": "fb8e522c30cf30a338592b8a1aa0434449642a1e5d4a0cd5f22949df39ec923f"
+          }
+        },
+        "shoulder": {
+          "coordinate": "unwrapped_raw",
+          "observed_minimum": 1899,
+          "observed_maximum": 4187,
+          "wrap_crossings": 4,
+          "evidence": {
+            "path": "artifacts/joint_ranges/2026-08-13/left_shoulder_desired_run01.json",
+            "sha256": "8f941d39e720db4fe871a2152f691aa1cfc578e1f1e1e561f1e2558da7367efc"
+          }
+        },
+        "elbow": {
+          "coordinate": "raw",
+          "observed_minimum": 286,
+          "observed_maximum": 2492,
+          "evidence": {
+            "path": "artifacts/joint_ranges/2026-08-13/left_elbow_desired_run01.json",
+            "sha256": "e776ef6292fe3d643366520a3585a9669455eb43d6606a8421d62d1a8e720632"
+          }
+        },
+        "wrist_flex": {
+          "coordinate": "raw",
+          "observed_minimum": 170,
+          "observed_maximum": 2384,
+          "evidence": {
+            "path": "artifacts/joint_ranges/2026-08-13/left_wrist_flex_desired_run01.json",
+            "sha256": "1d61468e9f15710f67b6ec12010c983b462d9054421118d4dcdc51a19e1e42f9"
+          }
+        },
+        "wrist_roll": {
+          "coordinate": "raw",
+          "observed_minimum": 587,
+          "observed_maximum": 2838,
+          "evidence": {
+            "path": "artifacts/joint_ranges/2026-08-13/left_wrist_roll_desired_run01.json",
+            "sha256": "6a17c6969d7225ec84a884a0786cdd250c1ca842f3aff5852beda7944acdbfff"
+          }
+        },
+        "gripper": {
+          "coordinate": "semantic_raw",
+          "automatic_limit_candidate": false,
+          "manual_sweep_minimum": 1872,
+          "manual_sweep_maximum": 3255,
+          "unloaded_closed": 1891,
+          "loaded_close_command": 1963,
+          "release_command": 2009,
+          "task_open": 3257,
+          "evidence": [
+            {
+              "path": "artifacts/joint_ranges/2026-08-13/left_gripper_desired_run01.json",
+              "sha256": "d67c4fd9bb32611b8cb7afd2db0dec87e88ca283283b4d86571939c170bcb233"
+            },
+            {
+              "path": "artifacts/joint_ranges/2026-08-13/left_gripper_task_open_checkpoint_run01.json",
+              "sha256": "b0fb7ad65acbc7299c9b9e9aade2b48ac3a70c945e48cbc70da86d87424be07d"
+            }
+          ],
+          "blocker": "task-open has no measured open-side margin and jaw-gap mapping is pending"
+        }
+      }
+    },
+    "right": {
+      "joints": {
+        "base": {
+          "coordinate": "raw",
+          "observed_minimum": 1108,
+          "observed_maximum": 2996,
+          "evidence": {
+            "path": "artifacts/joint_ranges/2026-08-13/right_base_q0_run01.json",
+            "sha256": "592ec1a9b546171035494d0ad63a21690dce3895c8ad7b14be9dded7b3316630"
+          }
+        },
+        "shoulder": {
+          "coordinate": "unwrapped_raw",
+          "observed_minimum": 1859,
+          "observed_maximum": 4188,
+          "wrap_crossings": 8,
+          "evidence": {
+            "path": "artifacts/joint_ranges/2026-08-13/right_shoulder_desired_run02.json",
+            "sha256": "92f6cb03ff7b0a7c87d1d275c2ff2179cf5d8b1f6884d924d2ccfd1da89f7589"
+          }
+        },
+        "elbow": {
+          "coordinate": "raw",
+          "observed_minimum": 297,
+          "observed_maximum": 2523,
+          "evidence": [
+            {
+              "path": "artifacts/joint_ranges/2026-08-13/right_elbow_desired_run01.json",
+              "sha256": "bc19bf6988f4e7b095612c17ed272a3ad766ad4558dfaf893844931596f31e3e"
+            },
+            {
+              "path": "artifacts/joint_ranges/2026-08-13/right_shoulder_desired_run02.json",
+              "sha256": "92f6cb03ff7b0a7c87d1d275c2ff2179cf5d8b1f6884d924d2ccfd1da89f7589"
+            }
+          ],
+          "note": "union of isolated elbow and coordinated shoulder sweep evidence"
+        },
+        "wrist_flex": {
+          "coordinate": "raw",
+          "observed_minimum": 377,
+          "observed_maximum": 2438,
+          "evidence": {
+            "path": "artifacts/joint_ranges/2026-08-13/right_wrist_flex_desired_run01.json",
+            "sha256": "5c4722e39fe5a6bda64fb80103ce04da0a7722cc999af8711bb8a439e6cadab8"
+          }
+        },
+        "wrist_roll": {
+          "coordinate": "raw",
+          "observed_minimum": 749,
+          "observed_maximum": 2970,
+          "evidence": {
+            "path": "artifacts/joint_ranges/2026-08-13/right_wrist_roll_desired_run01.json",
+            "sha256": "3106c5980b79ec676e3dc312e6d7acd5d1ebb724e5c2f731952b1c6c00a47840"
+          }
+        },
+        "gripper": {
+          "coordinate": "semantic_raw",
+          "automatic_limit_candidate": false,
+          "manual_sweep_minimum": 1941,
+          "manual_sweep_maximum": 3299,
+          "unloaded_closed": 1907,
+          "task_open": 3062,
+          "evidence": [
+            {
+              "path": "artifacts/joint_ranges/2026-08-13/right_gripper_desired_run01.json",
+              "sha256": "9fe63d03b805f52bb714df9fd129ad3864ddc6c9441c05529f8d2e67447606d2"
+            },
+            {
+              "path": "artifacts/joint_ranges/2026-08-13/right_gripper_closed_checkpoint_run01.json",
+              "sha256": "bb267e8fb33839be41163a0a236f75631568be5565260721747309591ed379a1"
+            },
+            {
+              "path": "artifacts/joint_ranges/2026-08-13/right_gripper_maximum_open_checkpoint_run01.json",
+              "sha256": "0ceeb5b557c2d855ce4e83b9d11bbe10918cd8574ea844719958f9b2d9662021"
+            }
+          ],
+          "blocker": "right loaded grasp command and jaw-gap mapping are pending"
+        }
+      }
+    }
+  }
+}

@@ -5,7 +5,14 @@
   Modified for the SO101-Bimanual-Manipulation ROS joint and frame contract.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:macro name="so101_arm" params="prefix parent mount_xyz mount_rpy use_wrist_camera_mount:=false">
+  <xacro:macro name="so101_arm" params="
+    prefix parent mount_xyz mount_rpy use_wrist_camera_mount:=false
+    base_lower:=-1.91986 base_upper:=1.91986
+    shoulder_lower:=-0.174533673205103 shoulder_upper:=3.3161263267949
+    elbow_lower:=-0.730068911403119 elbow_upper:=2.64993108859688
+    wrist_flex_lower:=-0.525371313497813 wrist_flex_upper:=2.790748686502188
+    wrist_roll_lower:=-4.3146463267949 wrist_roll_upper:=1.2704136732051
+  ">
     <joint name="${prefix}arm_mount_joint" type="fixed">
       <origin xyz="${mount_xyz}" rpy="${mount_rpy}"/>
       <parent link="${parent}"/>
@@ -390,7 +397,7 @@
       rotates this physical joint about local +Z.
     -->
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-4.3146463267949" upper="1.2704136732051"/>
+    <limit effort="10" velocity="10" lower="${wrist_roll_lower}" upper="${wrist_roll_upper}"/>
   </joint>
 
   <!-- Joint from lower_arm to wrist -->
@@ -404,7 +411,7 @@
     <parent link="${prefix}lower_arm_link"/>
     <child link="${prefix}wrist_link"/>
     <axis xyz="0 0 -1"/>
-    <limit effort="10" velocity="10" lower="-0.525371313497813" upper="2.790748686502188"/>
+    <limit effort="10" velocity="10" lower="${wrist_flex_lower}" upper="${wrist_flex_upper}"/>
   </joint>
 
   <!-- Joint from upper_arm to lower_arm -->
@@ -414,7 +421,7 @@
     <parent link="${prefix}upper_arm_link"/>
     <child link="${prefix}lower_arm_link"/>
     <axis xyz="0 0 -1"/>
-    <limit effort="10" velocity="10" lower="-0.730068911403119" upper="2.64993108859688"/>
+    <limit effort="10" velocity="10" lower="${elbow_lower}" upper="${elbow_upper}"/>
   </joint>
 
   <!-- Joint from shoulder to upper_arm -->
@@ -428,7 +435,7 @@
       rotates this physical joint about local +Z.
     -->
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-0.174533673205103" upper="3.3161263267949"/>
+    <limit effort="10" velocity="10" lower="${shoulder_lower}" upper="${shoulder_upper}"/>
   </joint>
 
   <!-- Joint from base to shoulder -->
@@ -441,7 +448,7 @@
       rotates this physical joint about local +Z.
     -->
     <axis xyz="0 0 1"/>
-    <limit effort="10" velocity="10" lower="-1.91986" upper="1.91986"/>
+    <limit effort="10" velocity="10" lower="${base_lower}" upper="${base_upper}"/>
   </joint>
 
   </xacro:macro>

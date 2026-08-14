@@ -15,9 +15,9 @@ PROTOCOL = (ROOT / "ros2_ws/src/single_arm_bridge/single_arm_bridge/protocol.py"
 
 
 def test_f0_has_a_distinct_candidate_identity_and_capability() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023400)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023B00)" in CONFIG
     assert "HOST_F0_METRICS_CAPABILITY UINT32_C(0x00001000)" in CONFIG
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x0000FFFF)" in CONFIG
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x007FFFFF)" in CONFIG
 
 
 def test_f0_uses_a_free_running_observation_only_microsecond_timebase() -> None:

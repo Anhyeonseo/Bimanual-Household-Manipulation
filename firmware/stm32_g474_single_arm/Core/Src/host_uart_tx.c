@@ -1,6 +1,12 @@
 #include "host_uart_tx.h"
 
 #include "actuator_core/protocol.h"
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+#include "bimanual_servo_dispatch.h"
+#endif
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+#include "right_servo_bus.h"
+#endif
 #include "servo_bus.h"
 
 #include <string.h>
@@ -135,8 +141,14 @@ void HostUartTx_OnError(UART_HandleTypeDef *host_uart)
 
 void HAL_UART_TxCpltCallback(UART_HandleTypeDef *host_uart)
 {
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+    BimanualServoDispatch_OnTxComplete(host_uart);
+#endif
     /* H2.0 position reads use USART1 TX interrupt, distinct from host DMA. */
     Servo_InMotionTelemetryOnTxComplete(host_uart);
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+    RightServoBus_InMotionTelemetryOnTxComplete(host_uart);
+#endif
 
     if ((host_uart != host_tx_uart) || (host_tx_active == 0U))
     {

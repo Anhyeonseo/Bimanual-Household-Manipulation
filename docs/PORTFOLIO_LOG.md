@@ -807,3 +807,40 @@
   `docs/test-results/2026-08-02-top-pen-holdout-legacy-baseline.md`,
   `artifacts/stage8/top_pen_dataset/manifest.json`,
   `artifacts/stage8/top_pen_detection_legacy_baseline.json`.
+
+## 2026-08-13~15 — 12축 resident firmware와 Top-camera reference app 수락
+
+- 오른팔 bus를 복구하고 좌우 12축 READ_ONLY feedback/torque-off를 확인했다.
+  cable-safe desired sweep와 gripper checkpoint를 작업자가 직접 승인했고, shoulder
+  4095→0 연속 branch를 unwrapped coordinate로 고정했다.
+- 921600 baud host link를 motion 없는 상태에서 30분, 90,000 frame으로 검증했다.
+  actual wire 32,000 B/s, transport error 0, rejected delta 0이었다.
+- protocol v2의 finite/open/append/splice, 12축 absolute-radian contract와
+  owner/epoch/STOP 상태 머신을 구현했다. 상단 앱은 servo raw나 serial protocol을
+  직접 다루지 않는다.
+- F7 0x00024604에서 공통 5 ms executor와 좌우 paired TX DMA를 실기 수락했다.
+  current-pose hold와 base +0.03 rad 왕복, 오른쪽 DMA fault 후 좌우 coordinated
+  torque-off를 통과했다.
+- F8 0x00024700에서 paired position read와 route-time tracking을 추가했다.
+  정상 hold의 tracking pair와 별도 100,000 urad fault injection을 모두 통과했다.
+- F8.1 0x00024800에서 12축 measured-feedback snapshot과 ROS feedback topic을
+  추가했다. no-output full mask와 actual rolling feedback age 최대 27 ms를 확인했다.
+- F8.6 0x00024806은 in-motion position-read 단발 실패와 hard fault를 분리했다.
+  3회 연속 실패만 stop으로 승격하고 성공한 pair에서 streak를 복구한다.
+- F8.7 0x00024807은 arm terminal 46,020 urad를 유지하면서 gripper contact
+  terminal을 90,000 urad로 분리하고, 12회 연속 fresh measured pair 뒤에만
+  finite success를 선언한다.
+- Pi resident는 motion 직전 torque-off fresh anchor를 취득하고 full finite route를
+  내부 9점/400 ms wire window로 공급한다. current-pose finite 2회 재사용,
+  explicit STOP과 no-motion gate를 F8.7에서 통과했다.
+- Top YOLO-OBB의 원본 pixel x로 팔을 선택하는 reference app이 왼팔 Pick/Place를
+  연속 두 번 완주했다. run20/run22 모두 automatic retry 0, q0와 6개 task action,
+  최종 epoch 7 armed READY/HOLD였다. 작업 확인 뒤 작업자가 STOP했다.
+- 전체 Python/ROS 회귀는 최종 문서 계약 테스트 포함 1416 passed, native
+  actuator core 9/9, F8.7 Cortex-M4 Release와 ROS 5 package build를 통과했다.
+- 규범 계약:
+  docs/BIMANUAL_UPPER_APPLICATION_INTERFACE.md
+- 최종 수락:
+  docs/test-results/2026-08-15-f87-resident-top-camera-pick-place.md
+- 다음 범위는 오른팔 task-level Pick/Place, 좌우 반복성 benchmark,
+  pretrained-policy shadow/제한 실기와 통합 soak다.

@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "record_kind": "bimanual_operational_limits",
+  "status": "OPERATOR_VERIFIED_FULL_TASK_ENVELOPE",
+  "approved_on": "2026-08-14",
+  "operator_approved": true,
+  "firmware_limit_authorized": true,
+  "general_trajectory_output_available": false,
+  "raw_units_per_turn": 4096,
+  "source": {
+    "path": "config/bimanual_j0_desired_envelope.reviewed.json",
+    "sha256": "c1d6d41c402de15c0ac03ceca7c9eeb2d2ffe166dd794599e3fdc8b2db87a48e",
+    "decision": "use the complete manually traversed ranges without the former 64-raw inset"
+  },
+  "preserved_safety_contracts": [
+    "heartbeat_timeout",
+    "stop_latch",
+    "communication_fault_stop",
+    "tracking_error_stop",
+    "maximum_step_per_control_tick",
+    "verified_torque_disable"
+  ],
+  "joint_order": [
+    "left_base_joint",
+    "left_shoulder_joint",
+    "left_elbow_joint",
+    "left_wrist_flex_joint",
+    "left_wrist_roll_joint",
+    "left_gripper_joint",
+    "right_base_joint",
+    "right_shoulder_joint",
+    "right_elbow_joint",
+    "right_wrist_flex_joint",
+    "right_wrist_roll_joint",
+    "right_gripper_joint"
+  ],
+  "arms": {
+    "left": {
+      "base": {"coordinate": "raw", "minimum_unwrapped_raw": 983, "maximum_unwrapped_raw": 3041, "minimum_urad": -1633689, "maximum_urad": 1523243},
+      "shoulder": {"coordinate": "unwrapped_raw", "minimum_unwrapped_raw": 1899, "maximum_unwrapped_raw": 4187, "minimum_urad": -228563, "maximum_urad": 3281185},
+      "elbow": {"coordinate": "raw", "minimum_unwrapped_raw": 286, "maximum_unwrapped_raw": 2492, "minimum_urad": -681087, "maximum_urad": 2702874},
+      "wrist_flex": {"coordinate": "raw", "minimum_unwrapped_raw": 170, "maximum_unwrapped_raw": 2384, "minimum_urad": -515418, "maximum_urad": 2880816},
+      "wrist_roll": {"coordinate": "raw", "minimum_unwrapped_raw": 587, "maximum_unwrapped_raw": 2838, "minimum_urad": -2241146, "maximum_urad": 1211845},
+      "gripper": {"coordinate": "semantic_raw", "minimum_unwrapped_raw": 1872, "maximum_unwrapped_raw": 3257, "minimum_urad": -1854583, "maximum_urad": 269981}
+    },
+    "right": {
+      "base": {"coordinate": "raw", "minimum_unwrapped_raw": 1108, "maximum_unwrapped_raw": 2996, "minimum_urad": -1441942, "maximum_urad": 1454214},
+      "shoulder": {"coordinate": "unwrapped_raw", "minimum_unwrapped_raw": 1859, "maximum_unwrapped_raw": 4188, "minimum_urad": -289922, "maximum_urad": 3282719},
+      "elbow": {"coordinate": "raw", "minimum_unwrapped_raw": 297, "maximum_unwrapped_raw": 2523, "minimum_urad": -728641, "maximum_urad": 2686000},
+      "wrist_flex": {"coordinate": "raw", "minimum_unwrapped_raw": 377, "maximum_unwrapped_raw": 2438, "minimum_urad": -598252, "maximum_urad": 2563282},
+      "wrist_roll": {"coordinate": "raw", "minimum_unwrapped_raw": 749, "maximum_unwrapped_raw": 2970, "minimum_urad": -1992641, "maximum_urad": 1414330},
+      "gripper": {"coordinate": "semantic_raw", "minimum_unwrapped_raw": 1907, "maximum_unwrapped_raw": 3299, "minimum_urad": -1919010, "maximum_urad": 216291}
+    }
+  },
+  "notes": [
+    "Shoulder limits are branch-aware and cross raw 4095 to 0 continuously.",
+    "Gripper bounds are servo-command limits; jaw-gap geometry remains a model calibration concern.",
+    "No additional per-axis 25/50/75 percent approval gate is required for these bounds."
+  ]
+}

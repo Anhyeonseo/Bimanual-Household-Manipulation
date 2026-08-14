@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "record_kind": "bimanual_j1_operational_limits_approved_candidate",
+  "status": "J1_L_ARM_5_APPROVED_FOR_PARITY_ONLY",
+  "approved_on": "2026-08-13",
+  "approval_scope": "left and right arm joints 1..5; grippers excluded",
+  "operator_approved": true,
+  "motion_authorized": false,
+  "runtime_change_authorized": false,
+  "candidate_margin_policy": {
+    "inset_raw": 64,
+    "inset_degrees": 5.625,
+    "reference": "inside manually traversed J0-D envelope",
+    "mechanical_margin_proven": false
+  },
+  "inputs": {
+    "derived_candidate": {
+      "path": "artifacts/joint_ranges/2026-08-13/j1_operational_limits_candidate_inset64.json",
+      "sha256": "0dbaa9bc267a3b500e4686430b8b367f4d00d3afb61bd1a096c7fb1f651c4719"
+    },
+    "left_nominal_route_coverage": {
+      "path": "artifacts/joint_ranges/2026-08-13/j1_left_nominal_route_coverage_inset64.json",
+      "sha256": "a1f15e57d5e335532e2f65f41768617f37ca9ffeffb220e972b8ef4b74042dc0"
+    }
+  },
+  "joint_order": [
+    "left_base_joint",
+    "left_shoulder_joint",
+    "left_elbow_joint",
+    "left_wrist_flex_joint",
+    "left_wrist_roll_joint",
+    "left_gripper_joint",
+    "right_base_joint",
+    "right_shoulder_joint",
+    "right_elbow_joint",
+    "right_wrist_flex_joint",
+    "right_wrist_roll_joint",
+    "right_gripper_joint"
+  ],
+  "arms": {
+    "left": {
+      "base": {"coordinate": "raw", "minimum_unwrapped_raw": 1047, "maximum_unwrapped_raw": 2977, "minimum_urad": -1535515, "maximum_urad": 1425068},
+      "shoulder": {"coordinate": "unwrapped_raw", "minimum_unwrapped_raw": 1963, "maximum_unwrapped_raw": 4123, "minimum_urad": -130388, "maximum_urad": 3183010},
+      "elbow": {"coordinate": "raw", "minimum_unwrapped_raw": 350, "maximum_unwrapped_raw": 2428, "minimum_urad": -582913, "maximum_urad": 2604699},
+      "wrist_flex": {"coordinate": "raw", "minimum_unwrapped_raw": 234, "maximum_unwrapped_raw": 2320, "minimum_urad": -417243, "maximum_urad": 2782641},
+      "wrist_roll": {"coordinate": "raw", "minimum_unwrapped_raw": 651, "maximum_unwrapped_raw": 2774, "minimum_urad": -2142971, "maximum_urad": 1113670},
+      "gripper": {"status": "BLOCKED_SEMANTIC_GRIPPER_MAPPING_REQUIRED"}
+    },
+    "right": {
+      "base": {"coordinate": "raw", "minimum_unwrapped_raw": 1172, "maximum_unwrapped_raw": 2932, "minimum_urad": -1343767, "maximum_urad": 1356039},
+      "shoulder": {"coordinate": "unwrapped_raw", "minimum_unwrapped_raw": 1923, "maximum_unwrapped_raw": 4124, "minimum_urad": -191748, "maximum_urad": 3184544},
+      "elbow": {"coordinate": "raw", "minimum_unwrapped_raw": 361, "maximum_unwrapped_raw": 2459, "minimum_urad": -630466, "maximum_urad": 2587825},
+      "wrist_flex": {"coordinate": "raw", "minimum_unwrapped_raw": 441, "maximum_unwrapped_raw": 2374, "minimum_urad": -500078, "maximum_urad": 2465107},
+      "wrist_roll": {"coordinate": "raw", "minimum_unwrapped_raw": 813, "maximum_unwrapped_raw": 2906, "minimum_urad": -1894466, "maximum_urad": 1316155},
+      "gripper": {"status": "BLOCKED_SEMANTIC_GRIPPER_MAPPING_REQUIRED"}
+    }
+  },
+  "parity_targets": {
+    "firmware_unwrapped_urad": false,
+    "host_unwrapped_rad": false,
+    "urdf": false,
+    "moveit": false,
+    "isaac": false
+  },
+  "remaining_blockers": [
+    "gripper semantic mapping",
+    "physical q0 and inter-base model alignment",
+    "right-arm representative route coverage",
+    "J2 bounded active validation"
+  ]
+}

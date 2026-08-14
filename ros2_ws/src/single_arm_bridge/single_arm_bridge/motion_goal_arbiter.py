@@ -5,7 +5,19 @@ from __future__ import annotations
 import threading
 
 
-VALID_OWNERS = frozenset({"arm", "gripper", "diagnostics"})
+VALID_OWNERS = frozenset(
+    {
+        "arm",
+        "gripper",
+        "diagnostics",
+        "bimanual_read_only_feedback",
+        "right_arm_discovery",
+        "right_arm_configuration",
+        "right_arm_configure_once",
+        "right_arm_jog",
+        "right_arm_torque_enable",
+    }
+)
 
 
 class MotionGoalArbiter:

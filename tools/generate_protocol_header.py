@@ -20,7 +20,9 @@ def render_header(manifest: dict[str, Any]) -> str:
         "",
         "#include <stdint.h>",
         "",
+        "#ifndef ACTUATOR_PROTOCOL_VERSION",
         f"#define ACTUATOR_PROTOCOL_VERSION {version}u",
+        "#endif",
         "",
         "typedef enum {",
     ]

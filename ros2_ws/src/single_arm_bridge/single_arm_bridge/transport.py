@@ -19,12 +19,24 @@ from .protocol import (
     MessageType,
     MotionResult,
     ProtocolError,
+    RightArmDiscovery,
+    RightArmConfiguration,
+    RightArmConfigureOnce,
+    RightArmDisable,
+    RightArmJogOnce,
+    RightArmTorqueEnableOnce,
     ServoDiagnostics,
     State,
     decode_frame,
     encode_buffered_setpoint_payload,
     encode_frame,
     parse_hello,
+    parse_right_arm_disable,
+    parse_right_arm_discovery,
+    parse_right_arm_configuration,
+    parse_right_arm_configure_once,
+    parse_right_arm_jog_once,
+    parse_right_arm_torque_enable_once,
     parse_servo_diagnostic,
     parse_setpoint_status,
     parse_state,
@@ -39,6 +51,13 @@ POSITION_STATE_RESPONSE_TIMEOUT_S = 0.5
 DISABLE_RESPONSE_TIMEOUT_S = 2.5
 DIAGNOSTIC_RESPONSE_TIMEOUT_S = 0.5
 DIAGNOSTIC_CAPABILITY = 0x00000010
+RIGHT_ARM_READ_ONLY_DISCOVERY_CAPABILITY = 0x00020000
+RIGHT_ARM_JOG_ONCE_CAPABILITY = 0x00040000
+RIGHT_ARM_TORQUE_ENABLE_ONCE_CAPABILITY = 0x00080000
+RIGHT_ARM_CONFIGURATION_SNAPSHOT_CAPABILITY = 0x00100000
+RIGHT_ARM_CONFIGURE_ONCE_CAPABILITY = 0x00200000
+RIGHT_ARM_VERIFIED_DISABLE_CAPABILITY = 0x00400000
+RIGHT_ARM_DISABLE_RESPONSE_TIMEOUT_S = 0.8
 # The MCU latches if it does not *process* a heartbeat within
 # HOST_BINARY_HEARTBEAT_TIMEOUT_MS (500 ms); the same starvation that delays a
 # response also delays feeding that watchdog. A host budget below the MCU's own
@@ -572,6 +591,167 @@ class ActuatorTransport:
             joint_count=hello.joint_count,
             calibration_hash=hello.calibration_hash,
             joints=tuple(samples),
+        )
+
+    @_synchronized
+    def discover_right_arm_read_only(self) -> RightArmDiscovery:
+        hello = self.hello_info
+        if hello is None:
+            raise TransportError("right-arm discovery requires a completed HELLO")
+        if (
+            hello.capabilities & RIGHT_ARM_READ_ONLY_DISCOVERY_CAPABILITY
+        ) == 0:
+            raise TransportError(
+                "firmware does not provide right-arm read-only discovery"
+            )
+        sequence = self._send(MessageType.RIGHT_ARM_DISCOVERY_REQUEST)
+        snapshot = parse_right_arm_discovery(
+            self._receive_matching(
+                sequence,
+                MessageType.RIGHT_ARM_DISCOVERY_RESPONSE,
+                timeout_s=0.5,
+            ).payload
+        )
+        if snapshot.status_code == 1:
+            raise TransportError(
+                "right-arm discovery rejected while left-arm motion is active"
+            )
+        return snapshot
+
+    @_synchronized
+    def disable_right_arm_verified(self) -> RightArmDisable:
+        hello = self.hello_info
+        if hello is None:
+            raise TransportError(
+                "right-arm verified disable requires a completed HELLO"
+            )
+        if (hello.capabilities & RIGHT_ARM_VERIFIED_DISABLE_CAPABILITY) == 0:
+            raise TransportError(
+                "firmware does not provide right-arm verified disable"
+            )
+        sequence = self._send(MessageType.RIGHT_ARM_DISABLE_REQUEST)
+        snapshot = parse_right_arm_disable(
+            self._receive_matching(
+                sequence,
+                MessageType.RIGHT_ARM_DISABLE_RESPONSE,
+                timeout_s=RIGHT_ARM_DISABLE_RESPONSE_TIMEOUT_S,
+            ).payload
+        )
+        if snapshot.status_code != 0:
+            raise TransportError(
+                "right-arm verified disable failed: "
+                f"status={snapshot.status_code} "
+                f"torque_mask=0x{snapshot.torque_enabled_mask:02X} "
+                f"failures={snapshot.failure_count}"
+            )
+        return snapshot
+
+    @_synchronized
+    def configure_right_arm_once(
+        self, servo_id: int
+    ) -> RightArmConfigureOnce:
+        hello = self.hello_info
+        if hello is None:
+            raise TransportError(
+                "right-arm configure-once requires a completed HELLO"
+            )
+        if (hello.capabilities & RIGHT_ARM_CONFIGURE_ONCE_CAPABILITY) == 0:
+            raise TransportError(
+                "firmware does not provide right-arm configure-once"
+            )
+        if not 1 <= servo_id <= 6:
+            raise TransportError("right-arm configure-once servo ID is invalid")
+        sequence = self._send(
+            MessageType.RIGHT_ARM_CONFIGURE_ONCE_REQUEST,
+            bytes((servo_id,)),
+        )
+        return parse_right_arm_configure_once(
+            self._receive_matching(
+                sequence,
+                MessageType.RIGHT_ARM_CONFIGURE_ONCE_RESPONSE,
+                timeout_s=0.4,
+            ).payload
+        )
+
+    @_synchronized
+    def read_right_arm_configuration(
+        self, servo_id: int
+    ) -> RightArmConfiguration:
+        hello = self.hello_info
+        if hello is None:
+            raise TransportError(
+                "right-arm configuration read requires a completed HELLO"
+            )
+        if (hello.capabilities & RIGHT_ARM_CONFIGURATION_SNAPSHOT_CAPABILITY) == 0:
+            raise TransportError(
+                "firmware does not provide right-arm configuration snapshots"
+            )
+        if not 1 <= servo_id <= 6:
+            raise TransportError("right-arm configuration servo ID is invalid")
+        sequence = self._send(
+            MessageType.RIGHT_ARM_CONFIGURATION_REQUEST,
+            bytes((servo_id,)),
+        )
+        snapshot = parse_right_arm_configuration(
+            self._receive_matching(
+                sequence,
+                MessageType.RIGHT_ARM_CONFIGURATION_RESPONSE,
+                timeout_s=0.4,
+            ).payload
+        )
+        if snapshot.status_code == 1:
+            raise TransportError(
+                "right-arm configuration read rejected while motion is active"
+            )
+        return snapshot
+
+    @_synchronized
+    def jog_right_arm_once(self, servo_id: int, delta_raw: int) -> RightArmJogOnce:
+        hello = self.hello_info
+        if hello is None:
+            raise TransportError("right-arm jog requires a completed HELLO")
+        if (hello.capabilities & RIGHT_ARM_JOG_ONCE_CAPABILITY) == 0:
+            raise TransportError("firmware does not provide right-arm jog-once")
+        if not 1 <= servo_id <= 6 or not -128 <= delta_raw <= 127:
+            raise TransportError("right-arm jog request is outside wire bounds")
+        sequence = self._send(
+            MessageType.RIGHT_ARM_JOG_ONCE_REQUEST,
+            struct.pack("<Bb", servo_id, delta_raw),
+        )
+        return parse_right_arm_jog_once(
+            self._receive_matching(
+                sequence,
+                MessageType.RIGHT_ARM_JOG_ONCE_RESPONSE,
+                timeout_s=0.5,
+            ).payload
+        )
+
+    @_synchronized
+    def enable_right_arm_torque_once(
+        self,
+        servo_id: int,
+    ) -> RightArmTorqueEnableOnce:
+        hello = self.hello_info
+        if hello is None:
+            raise TransportError(
+                "right-arm torque enable requires a completed HELLO"
+            )
+        if (hello.capabilities & RIGHT_ARM_TORQUE_ENABLE_ONCE_CAPABILITY) == 0:
+            raise TransportError(
+                "firmware does not provide right-arm torque-enable-once"
+            )
+        if not 1 <= servo_id <= 6:
+            raise TransportError("right-arm torque-enable servo ID is invalid")
+        sequence = self._send(
+            MessageType.RIGHT_ARM_TORQUE_ENABLE_ONCE_REQUEST,
+            bytes((servo_id,)),
+        )
+        return parse_right_arm_torque_enable_once(
+            self._receive_matching(
+                sequence,
+                MessageType.RIGHT_ARM_TORQUE_ENABLE_ONCE_RESPONSE,
+                timeout_s=0.5,
+            ).payload
         )
 
     @_synchronized

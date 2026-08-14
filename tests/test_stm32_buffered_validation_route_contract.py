@@ -87,12 +87,40 @@ def test_identity_and_capability_are_fail_closed() -> None:
         hello(firmware_version=0x00023400, capabilities=0x0000FFFF),
         0x2D90167E,
     )
+    validate_hardware_identity(
+        hello(firmware_version=0x00023500, capabilities=0x0001FFFF),
+        0x2D90167E,
+    )
+    validate_hardware_identity(
+        hello(firmware_version=0x00023501, capabilities=0x0001FFFF),
+        0x2D90167E,
+    )
+    validate_hardware_identity(
+        hello(firmware_version=0x00023600, capabilities=0x0003FFFF),
+        0x2D90167E,
+    )
     with pytest.raises(
         HardwareIdentityError,
         match="in-motion telemetry capability is missing",
     ):
         validate_hardware_identity(
             hello(firmware_version=0x00023400, capabilities=0x00007FFF),
+            0x2D90167E,
+        )
+    with pytest.raises(
+        HardwareIdentityError,
+        match="F3 control-tick metrics capability is missing",
+    ):
+        validate_hardware_identity(
+            hello(firmware_version=0x00023500, capabilities=0x0000FFFF),
+            0x2D90167E,
+        )
+    with pytest.raises(
+        HardwareIdentityError,
+        match="right-arm read-only discovery capability is missing",
+    ):
+        validate_hardware_identity(
+            hello(firmware_version=0x00023600, capabilities=0x0001FFFF),
             0x2D90167E,
         )
     with pytest.raises(
@@ -106,8 +134,8 @@ def test_identity_and_capability_are_fail_closed() -> None:
 
 
 def test_capability_is_removed_when_route_initialization_fails() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023400)" in CONFIG
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x0000FFFF)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023B00)" in CONFIG
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x007FFFFF)" in CONFIG
     assert "HOST_BUFFERED_VALIDATION_CAPABILITY UINT32_C(0x00000400)" in CONFIG
     assert "HOST_BUFFERED_EXECUTION_CAPABILITY UINT32_C(0x00000800)" in CONFIG
 

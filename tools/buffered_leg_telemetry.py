@@ -75,6 +75,11 @@ _INTEGER_FIELDS = {
     "f0_loop_work_max_us": "f0_loop_work_max_us",
     "f0_servo_sync_write_max_us": "f0_servo_sync_write_max_us",
     "f0_host_tx_max_us": "f0_host_tx_max_us",
+    # F3.0 observation-only TIM6 control-clock metrics.
+    "f3_control_tick_period_max_us": "f3_control_tick_period_max_us",
+    "f3_control_tick_jitter_max_us": "f3_control_tick_jitter_max_us",
+    "f3_control_tick_work_max_us": "f3_control_tick_work_max_us",
+    "f3_control_tick_count": "f3_control_tick_count",
     # H2.0 terminal-only position telemetry.  The per-joint vector has a
     # separate strict parser below because comma-separated values must never
     # be mistaken for six independent scalar fields.
@@ -287,6 +292,9 @@ def summarise_leg_telemetry(legs: list[dict]) -> dict:
         "f0_loop_work_max_us",
         "f0_servo_sync_write_max_us",
         "f0_host_tx_max_us",
+        "f3_control_tick_period_max_us",
+        "f3_control_tick_jitter_max_us",
+        "f3_control_tick_work_max_us",
     ):
         series = _series(ordered, field)
         if series is not None:
@@ -398,6 +406,9 @@ def format_leg_trend(summary: dict) -> list[str]:
         ("f0_loop_work_max_us", "F0_LOOP_WORK_MAX_US"),
         ("f0_servo_sync_write_max_us", "F0_SERVO_SYNC_WRITE_MAX_US"),
         ("f0_host_tx_max_us", "F0_HOST_TX_MAX_US"),
+        ("f3_control_tick_period_max_us", "F3_CONTROL_TICK_PERIOD_MAX_US"),
+        ("f3_control_tick_jitter_max_us", "F3_CONTROL_TICK_JITTER_MAX_US"),
+        ("f3_control_tick_work_max_us", "F3_CONTROL_TICK_WORK_MAX_US"),
     ):
         series = summary.get(field)
         if not series:

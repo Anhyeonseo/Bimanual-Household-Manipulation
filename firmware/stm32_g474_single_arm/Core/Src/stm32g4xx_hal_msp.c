@@ -42,6 +42,13 @@
 /* USER CODE BEGIN PV */
 extern DMA_HandleTypeDef hdma_usart1_rx;
 extern DMA_HandleTypeDef hdma_lpuart1_tx;
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+extern DMA_HandleTypeDef hdma_usart1_tx;
+extern DMA_HandleTypeDef hdma_uart4_tx;
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+extern DMA_HandleTypeDef hdma_uart4_rx;
+#endif
+#endif
 
 /* USER CODE END PV */
 
@@ -195,11 +202,83 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
       Error_Handler();
     }
     __HAL_LINKDMA(huart, hdmarx, hdma_usart1_rx);
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+    hdma_usart1_tx.Instance = DMA1_Channel3;
+    hdma_usart1_tx.Init.Request = DMA_REQUEST_USART1_TX;
+    hdma_usart1_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
+    hdma_usart1_tx.Init.PeriphInc = DMA_PINC_DISABLE;
+    hdma_usart1_tx.Init.MemInc = DMA_MINC_ENABLE;
+    hdma_usart1_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+    hdma_usart1_tx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+    hdma_usart1_tx.Init.Mode = DMA_NORMAL;
+    hdma_usart1_tx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
+    if (HAL_DMA_Init(&hdma_usart1_tx) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    __HAL_LINKDMA(huart, hdmatx, hdma_usart1_tx);
+#endif
 
     /* USER CODE BEGIN USART1_MspInit 1 */
     HAL_NVIC_SetPriority(USART1_IRQn, 2U, 0U);
     HAL_NVIC_EnableIRQ(USART1_IRQn);
     /* USER CODE END USART1_MspInit 1 */
+  }
+  else if(huart->Instance==UART4)
+  {
+    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_UART4;
+    PeriphClkInit.Uart4ClockSelection = RCC_UART4CLKSOURCE_PCLK1;
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+    {
+      Error_Handler();
+    }
+
+    __HAL_RCC_UART4_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    /* PC10 is UART4_TX; PC11 is UART4_RX (Nucleo CN7-1/CN7-2). */
+    GPIO_InitStruct.Pin = GPIO_PIN_10;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Alternate = GPIO_AF5_UART4;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+    GPIO_InitStruct.Pin = GPIO_PIN_11;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+    hdma_uart4_tx.Instance = DMA1_Channel4;
+    hdma_uart4_tx.Init.Request = DMA_REQUEST_UART4_TX;
+    hdma_uart4_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
+    hdma_uart4_tx.Init.PeriphInc = DMA_PINC_DISABLE;
+    hdma_uart4_tx.Init.MemInc = DMA_MINC_ENABLE;
+    hdma_uart4_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+    hdma_uart4_tx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+    hdma_uart4_tx.Init.Mode = DMA_NORMAL;
+    hdma_uart4_tx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
+    if (HAL_DMA_Init(&hdma_uart4_tx) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    __HAL_LINKDMA(huart, hdmatx, hdma_uart4_tx);
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+    hdma_uart4_rx.Instance = DMA1_Channel5;
+    hdma_uart4_rx.Init.Request = DMA_REQUEST_UART4_RX;
+    hdma_uart4_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
+    hdma_uart4_rx.Init.PeriphInc = DMA_PINC_DISABLE;
+    hdma_uart4_rx.Init.MemInc = DMA_MINC_ENABLE;
+    hdma_uart4_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
+    hdma_uart4_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+    hdma_uart4_rx.Init.Mode = DMA_CIRCULAR;
+    hdma_uart4_rx.Init.Priority = DMA_PRIORITY_HIGH;
+    if (HAL_DMA_Init(&hdma_uart4_rx) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    __HAL_LINKDMA(huart, hdmarx, hdma_uart4_rx);
+#endif
+    HAL_NVIC_SetPriority(UART4_IRQn, 2U, 0U);
+    HAL_NVIC_EnableIRQ(UART4_IRQn);
+#endif
   }
 
 }
@@ -245,10 +324,25 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
     HAL_GPIO_DeInit(GPIOC, GPIO_PIN_4|GPIO_PIN_5);
 
     HAL_DMA_DeInit(huart->hdmarx);
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+    HAL_DMA_DeInit(huart->hdmatx);
+#endif
 
     /* USER CODE BEGIN USART1_MspDeInit 1 */
     HAL_NVIC_DisableIRQ(USART1_IRQn);
     /* USER CODE END USART1_MspDeInit 1 */
+  }
+  else if(huart->Instance==UART4)
+  {
+    __HAL_RCC_UART4_CLK_DISABLE();
+    HAL_GPIO_DeInit(GPIOC, GPIO_PIN_10|GPIO_PIN_11);
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+    HAL_DMA_DeInit(huart->hdmatx);
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+    HAL_DMA_DeInit(huart->hdmarx);
+#endif
+    HAL_NVIC_DisableIRQ(UART4_IRQn);
+#endif
   }
 
 }

@@ -16,8 +16,8 @@ CMAKE = (FIRMWARE / "CMakeLists.txt").read_text(encoding="utf-8")
 
 
 def test_f2_has_a_distinct_candidate_identity_and_dma_capability() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023400)" in CONFIG
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x0000FFFF)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023B00)" in CONFIG
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x007FFFFF)" in CONFIG
     assert "HOST_F2_ASYNC_HOST_TX_CAPABILITY UINT32_C(0x00002000)" in CONFIG
 
 

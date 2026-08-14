@@ -1,5 +1,11 @@
 #include "host_uart_rx.h"
 #include "host_uart_tx.h"
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+#include "bimanual_servo_dispatch.h"
+#endif
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+#include "right_servo_bus.h"
+#endif
 #include "servo_bus.h"
 
 #include <stddef.h>
@@ -146,7 +152,13 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
+#if HOST_BIMANUAL_DMA_DISPATCH_BUILD
+    BimanualServoDispatch_OnUartError(huart);
+#endif
     ServoBus_HandleUartError(huart);
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+    RightServoBus_InMotionTelemetryOnUartError(huart);
+#endif
     HostUartTx_OnError(huart);
     if ((huart != host_rx_uart) || (host_rx_started == 0U))
     {

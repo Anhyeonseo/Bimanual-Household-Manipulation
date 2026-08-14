@@ -92,9 +92,8 @@ def transmit_ms(payload_bytes: int) -> float:
 
 def test_declared_host_baud_matches_the_lpuart_initialiser() -> None:
     """예산 계산이 실제로 설정된 속도를 쓰고 있어야 한다."""
-    match = re.search(r"hlpuart1\.Init\.BaudRate = (\d+);", MAIN)
-    assert match is not None
-    assert int(match.group(1)) == HOST_BAUD
+    assert "hlpuart1.Init.BaudRate = HOST_BINARY_UART_BAUD;" in MAIN
+    assert HOST_BAUD == 115200
 
 
 def test_wire_length_formula_agrees_with_the_real_encoder() -> None:

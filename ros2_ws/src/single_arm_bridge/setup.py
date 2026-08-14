@@ -29,6 +29,7 @@ setup(
     entry_points={
         "console_scripts": [
             "bridge_node = single_arm_bridge.bridge_node:main",
+            "bimanual_stream_node = single_arm_bridge.bimanual_stream_node:main",
         ],
     },
 )

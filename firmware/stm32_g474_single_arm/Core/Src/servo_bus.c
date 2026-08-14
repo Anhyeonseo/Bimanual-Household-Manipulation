@@ -1,8 +1,12 @@
 #include "servo_bus.h"
+#include "actuator_core/sts3215_packet.h"
 #include "f0_metrics.h"
 #include "timebase.h"
 #include "servo_response_parser.h"
 #include "servo_rx_window.h"
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+#include "right_servo_bus.h"
+#endif
 
 #include <stddef.h>
 #include <string.h>
@@ -279,6 +283,9 @@ void HAL_UARTEx_RxEventCallback(
 )
 {
     (void)received;
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+    RightServoBus_InMotionTelemetryOnRxEvent(uart, received);
+#endif
     if ((uart == NULL) || (uart != servo_uart_handle))
     {
         return;
@@ -959,6 +966,12 @@ HAL_StatusTypeDef Servo_InMotionTelemetryPoll(
                 servo_in_motion_snapshot.maximum_error_raw[
                     telemetry->joint_index] = error;
             }
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+            servo_in_motion_snapshot.last_joint_index =
+                telemetry->joint_index;
+            servo_in_motion_snapshot.last_position_raw = actual;
+            servo_in_motion_snapshot.last_commanded_raw = commanded;
+#endif
             uint32_t latency_ms = now_ms - telemetry->started_at_ms;
             if (latency_ms >
                 servo_in_motion_snapshot.maximum_reply_latency_ms)
@@ -2064,6 +2077,45 @@ HAL_StatusTypeDef Servo_ReadAllPositions(
     return status;
 }
 
+#if HOST_BIMANUAL_DISPATCH_REFACTOR_BUILD
+HAL_StatusTypeDef Servo_SyncWritePositions(
+    const uint16_t positions[6]
+)
+{
+    uint8_t ids[SINGLE_ARM_JOINT_COUNT] = {0U};
+    uint8_t packet[ACTUATOR_STS3215_SYNC_WRITE_POSITION_PACKET_SIZE] = {0U};
+    size_t packet_length = 0U;
+
+    if (positions == NULL)
+    {
+        return HAL_ERROR;
+    }
+    for (uint8_t i = 0U; i < servo_joint_count; i++)
+    {
+        ids[i] = servo_joints[i].id;
+    }
+    if (actuator_sts3215_build_sync_write_positions(
+            ids,
+            positions,
+            servo_joint_count,
+            packet,
+            &packet_length
+        ) != ACTUATOR_STS3215_PACKET_OK)
+    {
+        return HAL_ERROR;
+    }
+
+    uint32_t started_us = Timebase_NowUs();
+    HAL_StatusTypeDef status = HAL_UART_Transmit(
+        servo_uart_handle,
+        packet,
+        (uint16_t)packet_length,
+        100U
+    );
+    F0Metrics_ObserveServoSyncWrite(Timebase_ElapsedUs(started_us));
+    return status;
+}
+#else
 HAL_StatusTypeDef Servo_SyncWritePositions(
     const uint16_t positions[6]
 )
@@ -2116,6 +2168,7 @@ HAL_StatusTypeDef Servo_SyncWritePositions(
     F0Metrics_ObserveServoSyncWrite(Timebase_ElapsedUs(started_us));
     return status;
 }
+#endif
 
 HAL_StatusTypeDef Servo_ConfigureAllForTrajectory(
     uint16_t initial_positions[6]

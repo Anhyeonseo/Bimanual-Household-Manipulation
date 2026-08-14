@@ -111,6 +111,11 @@ typedef struct
 typedef struct
 {
     uint16_t maximum_error_raw[SINGLE_ARM_JOINT_COUNT];
+#if HOST_BIMANUAL_TRACKING_FEEDBACK_BUILD
+    uint16_t last_position_raw;
+    uint16_t last_commanded_raw;
+    uint8_t last_joint_index;
+#endif
     uint32_t requested_samples;
     uint32_t completed_samples;
     uint32_t failed_samples;

@@ -51,7 +51,7 @@ def test_bridge_success_terminal_literal_is_unchanged() -> None:
         'f"post_settle_max_error_raw={settle.max_error_raw}; "' in EXECUTION_SOURCE
     )
     assert (
-        'f"{startup}; {lateness}; {f0_metrics}; {h2_telemetry}; "'
+        'f"{startup}; {lateness}; {f0_metrics}; {h2_telemetry}; {f3_tick}; "'
         in EXECUTION_SOURCE
     )
     assert (
@@ -79,6 +79,7 @@ def build_bridge_terminal(
     startup: str,
     profile: str = "lateness_buckets=2340,0,0,0,0,0 lateness_worst_sample=none",
     telemetry: str = "h2_telemetry=unavailable",
+    f3_tick: str = "f3_control_tick=unavailable",
     measurement: str | None = None,
 ) -> str:
     """bridge 가 실제로 만드는 문자열을 그대로 재구성한다."""
@@ -87,7 +88,7 @@ def build_bridge_terminal(
     return (
         "buffered trajectory completed; "
         f"maximum_apply_lateness_ms={lateness} "
-        f"post_settle_max_error_raw={settle}; {startup}; {profile}; {telemetry}; "
+        f"post_settle_max_error_raw={settle}; {startup}; {profile}; {telemetry}; {f3_tick}; "
         f"{measurement}"
     )
 
@@ -105,6 +106,7 @@ def test_sender_pattern_accepts_the_real_bridge_terminal() -> None:
     assert int(match.group(2)) == 18
     assert match.group("diagnostics") == (
         f"{startup}; {profile}; h2_telemetry=unavailable; "
+        "f3_control_tick=unavailable; "
         f"{build_measurement(18)}"
     )
 

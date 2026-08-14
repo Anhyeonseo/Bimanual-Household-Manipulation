@@ -25,10 +25,10 @@
 | Gripper 축 | 팔당 1축 | 확정 |  |
 | 장착 서보 | STS3215 12V × 12 | 확정 |  |
 | 예비 서보 | STS3215 12V × 2 | 확정 |  |
-| 서보 ID | 각 버스 1~6 | 측정 필요 | 관절 매핑 확인 필요 |
+| 서보 ID | 각 버스 1~6 | 확정 | 우팔 R0/R1.1에서 ID 1~6 응답과 관절별 +8 raw 방향 확인 |
 | 왼팔 관절 원점/방향 | 프로젝트 q0 raw 2048 기준 | 확정 | 2026-07-26 실기 재정렬 기록 |
-| 오른팔 관절 원점/방향 | 팔별 `zero_raw[6]` 독립 측정 | 측정 필요 | 왼팔 raw 값을 복사하지 않음 |
-| Raw 위치 범위 | 팔별 READ_ONLY→단일 관절 순서로 독립 확인 | 측정 필요 | 좌우 동일값을 가정하지 않음 |
+| 오른팔 관절 원점/방향 | q0 전 축 raw 2048, 좌팔과 동일 조립 방향 | 확정 | 전원 재인가 후 q0 기록 및 R1.1 전 축 +8 raw 응답 확인 |
+| Raw 위치 범위 | 좌팔 실기 범위를 우팔 보수 후보로 채택 | 측정 필요 | 동일 기종·조립 근거로 후보 채택; 우팔 bounded-home 뒤 일반 궤적 전에 범위 gate 필요 |
 | Feedback 항목 | position/speed/load/voltage 확인 | 확정 | 단일 시험 팔 ID 1~6 실기 검증 |
 
 ## 전원과 서보 버스
@@ -51,9 +51,10 @@
 | 보드 | NUCLEO-G474RE | 확정 | MB1367-G474RE-D01 |
 | 상위 제어기 연결 | On-board ST-LINK VCP | 확정 | 현재 COM3 실기 검증, Pi 연결 시 udev 식별값 확인 필요 |
 | 실행 구조 | STM32 HAL 기반 main loop | 확정 | 현재 FreeRTOS 미사용 |
-| 현재 서보 연결 | USART1 단일 bus | 확정 | STS3215 ID 1~6 실기 검증 |
-| 양팔 확장 연결 | 우팔 UART4 PC10/CN7-1 TX→driver R RX, PC11/CN7-2 RX←driver R TX | 확정 | 좌우 driver 각 1개; 공통 GND와 3.3 V IO 호환 실측 필요; 12 V bus의 MCU 핀 직접 연결 금지 |
-| 현재 펌웨어 | binary protocol v1 / `0x00020700` | 확정 | 실기 smoke·동작·SAFE_STOP·load/current·실제 위치 feedback 통과 |
+| 현재 서보 연결 | 좌팔 USART1 + 우팔 UART4 독립 bus | 확정 | 양쪽 STS3215 ID 1~6 read-only 동시 점검 통과; 각 팔 Waveshare driver 1개 |
+| 양팔 확장 연결 | 우팔 UART4 PC10/CN7-1 TX→driver R TX, PC11/CN7-2 RX←driver R RX | 확정 | Bus Servo Adapter (A)는 같은 이름끼리 연결; 좌우 driver 각 1개; 공통 GND와 3.3 V IO 호환 실측 필요; 12 V bus의 MCU 핀 직접 연결 금지 |
+| 현재 배포 펌웨어 | binary protocol v1 / `0x00023B00` (R4 read-only) | 확정 | 양팔 startup verified torque-off 및 12축 ROS read-only soak 100/100 통과; 일반 오른팔 trajectory는 비승인 |
+| 우팔 commissioning 상태 | R4 양팔 read-only 통합 통과, 일반 trajectory 비승인 | 확정 | 12축 이름·부호·지속 readback 검증 완료; 다음 gate는 오른팔 물리 joint-zero와 좌우 base transform 실측 |
 
 ## 카메라
 

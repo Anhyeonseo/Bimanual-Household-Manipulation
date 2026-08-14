@@ -9,6 +9,7 @@ from single_arm_bridge.protocol import (
     encode_buffered_setpoint_payload,
     parse_setpoint_status,
     SETPOINT_STATUS_F0_METRICS,
+    SETPOINT_STATUS_F3_CONTROL_TICK_METRICS,
     SETPOINT_STATUS_H2_TELEMETRY,
     validate_buffered_setpoint_flags,
 )
@@ -116,6 +117,26 @@ def test_h2_terminal_status_exposes_position_only_in_motion_telemetry() -> None:
     assert result.h2_telemetry_completed_samples == 29
     assert result.h2_telemetry_failed_samples == 1
     assert result.h2_telemetry_maximum_reply_latency_ms == 2
+
+
+def test_f3_terminal_status_exposes_observation_only_control_tick_metrics() -> None:
+    payload = struct.pack(
+        "<BBBBIII" "BBBBHHII" "7I" "4I" "6H4I" "4I",
+        6, 2, 3, 9, 42, 1_500, 0x2D90167E,
+        4, 3, 1, 7, 5, 8, 12, 10,
+        2, 1, 0, 0, 0, 0, 3,
+        5_200, 4_980, 310, 4_720,
+        1, 2, 3, 4, 5, 6, 30, 29, 1, 2,
+        5_007, 7, 3, 2_400,
+    )
+    assert len(payload) == (
+        104 + SETPOINT_STATUS_F3_CONTROL_TICK_METRICS.size
+    )
+    result = parse_setpoint_status(payload)
+    assert result.f3_control_tick_period_max_us == 5_007
+    assert result.f3_control_tick_jitter_max_us == 7
+    assert result.f3_control_tick_work_max_us == 3
+    assert result.f3_control_tick_count == 2_400
 
 
 @pytest.mark.parametrize("length", [0, 15, 17, 31, 33, 77, 103, 105])

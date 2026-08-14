@@ -1,264 +1,146 @@
-# 현재 분기점과 남은 로드맵
+# 현재 상태와 다음 로드맵
 
-- 기준일: 2026-08-04
-- 목적: 지금까지 검증된 결과를 보존하면서 단일 팔 완성, 오른팔 동등성 검증,
-  양팔 통합과 Raspberry Pi 5 정책 배포의 순서를 명확히 한다.
+- 기준일: 2026-08-15
+- 현재 기준선: STM32 F8.7 `0x00024807`, protocol v2, 12축 resident 실행
+- 목적: 검증된 firmware/ROS 경계를 동결하고 상단 애플리케이션과 pretrained
+  policy 개발이 그 경계를 재구현하지 않게 한다.
 
-## 1. 현재 분기점
+## 1. 현재 판정
 
-현재 프로젝트는 “왼팔로 한 번 Pick and Place에 성공한 단계”를 넘어,
-검증된 단일 팔 기준선을 생산형 계약으로 바꾸기 직전이다.
+프로젝트는 단일 왼팔 prototype을 넘어 한 STM32에서 두 SO-ARM101의 12축을
+동시에 실행하는 resident backend와 실제 Top-camera Pick/Place reference
+application까지 통과했다.
 
-### 검증된 사실
+### 완료된 기반
 
-- 왼팔 STM32 firmware `0x00022100`, protocol 1, calibration
-  `0x8AD27897`, capabilities `0x00000FFF` 조합을 물리 수락했다.
-- Shoulder P32, Elbow P28 설정으로 grasp, 약 20 mm lift, Place, release,
-  retreat와 q0 복귀를 감독하에 1회 완주했다.
-- 서보 UART 재동기화·완전 복구, 5분 무동작 heartbeat/feedback,
-  fault injection과 reset 없는 6축 복구를 통과했다.
-- 단계 7 감독형 시운전 체크리스트는 100%다. 그러나 정식 완료 조건인
-  50회 중 90% 이상 반복 시험은 아직 수행하지 않아 단계 7은 ‘부분 통과’다.
-- Top 카메라의 기존 작업대 좌표 검증은 통과했지만, 2026-08-01 재배치
-  영상에서는 대리석 무늬·반사 환경에서 기존 임계값 검출기가
-  “detected 2 (ignored 2 fully outside)”로 fail-closed 동작했다.
-  영상 수집 자체는 640x480, rgb8, sharpness 87.93으로 정상이다.
-- 오른팔은 사용자가 현재 정상 작동한다고 확인했다. 이는 하드웨어 복구
-  사실이며, 오른팔의 calibration, 모델, MoveIt, STM32와 반복 동작의 공식
-  동등성 검증을 대신하지 않는다.
+- NUCLEO-G474RE 한 대가 USART1/UART4의 두 servo bus를 제어한다.
+- 좌우 6축 present position, torque-off, q0와 작업자 승인 운용 범위를 읽고
+  firmware/host/model에 같은 manifest를 연결했다.
+- shoulder의 4095→0 연속 이동은 unwrapped coordinate로 처리한다.
+- 공통 5 ms executor가 12축 목표를 좌우 TX DMA에 paired dispatch한다.
+- 양팔 current-pose hold와 base +0.03 rad 왕복에서 시작 시차 최대 2~6 us,
+  launch lateness 최대 49 us 수준을 실측했다.
+- 오른쪽 DMA fault와 tracking-error fault injection에서 다음 출력을 차단하고
+  좌우 torque-off로 수렴했다.
+- F8.1 measured-feedback snapshot, ROS 12축 feedback과 fresh anchor를 제공한다.
+- F8.6은 position-read 단발 실패와 hard fault를 분리했다. in-motion read 실패만
+  3회 연속일 때 정지하고 성공한 pair에서 streak를 복구한다.
+- F8.7은 arm terminal `46,020 urad`, gripper contact terminal
+  `90,000 urad`, 12회 연속 fresh measured pair 완료 조건을 적용한다.
+- resident adapter의 no-motion, current-pose finite 2회 재사용과 명시적 STOP을
+  F8.7에서 다시 통과했다.
+- Top YOLO-OBB 픽셀 x로 왼팔/오른팔을 선택하는 reference app이 실제 왼팔
+  Pick/Place를 연속 두 번 완주했다. 자동 재시도 0, 최종 epoch 7 HOLD였다.
 
-### 아직 채택하지 않은 항목
+최종 실기·artifact·SHA는
+[F8.7 resident·Top 카메라 Pick/Place 수락 결과](test-results/2026-08-15-f87-resident-top-camera-pick-place.md)에
+모았다.
 
-- 기존 single-point 정착형 실행은 생산용 연속 trajectory가 아니었다.
-  현재 G474 buffered physical route와 ROS multi-point Action을 Pi에 배포했고
-  소형 다중 관절 왕복과 dense q0 왕복 실기를 통과했다. Motion-10은 해석적
-  quintic 211점, 4.2초 단일 Action, maximum apply lateness `4 ms`,
-  post-settle `20 raw`, 자동 재시도 0회와 physical DISABLE을 확인했다.
-  상승 구간의 약한 흔들림은 후속 추종 품질 항목이며, Pick/Place 연속경로와
-  반복성 시험은 아직 남아 있다. Motion-11은 실기 검증된 anchor→q0와
-  MoveIt 충돌 검사 q0→Pick pregrasp를 단일 dense Action 후보로 결합했다.
-  첫 9.1초 물리 시도는 경로를 따라 움직였지만 Shoulder/Wrist Flex 추종
-  부족으로 fail-closed ABORTED가 됐다. 자동 재시도 없이 실측 추종률을
-  반영한 43초·2151 sample 후보를 생성했으며 fresh anchor 재검증이 남았다.
-- Place 높이는 실제 안착에서 총 10 mm 추가 하강이 필요해 Pick/Place 접촉
-  offset을 분리해 다시 계측해야 한다.
-- 반사·무늬 배경의 검은 펜 holdout에서 legacy 명도 임계값 검출기는
-  miss 100%, false positive 66.7%로 실패했다. 이후 별도 학습 데이터로
-  경량 YOLO-OBB를 학습·ONNX export했고, Pi 5에서 Top OBB 4 Hz와 3카메라
-  동시 30분 자원 gate를 통과했다.
-- 손목 카메라 eye-in-hand와 최종 visual correction은 미완료다.
-- 오른팔과 양팔 동작은 formal gate를 아직 통과하지 않았다.
-- `tests/` 일부가 `artifacts/`(gitignore 대상, stage7 route/plan 캡처 등)를
-  직접 읽어서 fresh clone에서는 실패한다(2026-08-07 PR #31 머지 후 확인,
-  PR 이전 커밋도 동일해 이번 PR과는 무관한 기존 문제). 그 시험들이 쓰는
-  파일이 작으면 git에 커밋하고, 크면 파일 있을 때만 도는 별도 카테고리로
-  분리해 없으면 skip 되게 해야 한다.
-- 실제 Isaac 정책의 ONNX 입력·출력, control_dt와 Pi 5 실행시간은 아직
-  deployment contract로 동결하지 않았다.
+## 2. 동결한 계층 경계
 
-## 2. 현재 이후의 결정
+```text
+Desktop / upper application
+├─ camera/perception
+├─ MoveIt planning and collision checking
+├─ task FSM / pretrained policy / command arbiter
+└─ complete 12-axis finite route or rolling batch
+                  │ ROS service/message
+                  ▼
+Raspberry Pi resident adapter
+├─ one serial/backend lease
+├─ owner + arbiter epoch
+├─ full-route validation
+├─ finite route → 9-point/400-ms wire windows
+├─ fresh/terminal 12-axis anchors
+└─ READY / ACTIVE / STOPPED / FAULTED
+                  │ protocol v2
+                  ▼
+STM32 F8.7
+├─ operational limits and shoulder unwrap
+├─ 5-ms executor
+├─ paired USART1/UART4 DMA dispatch
+├─ tracking and measured feedback
+└─ heartbeat/watchdog/coordinated stop/torque-off
+```
 
-1. 왼팔을 재현 가능한 단일 팔 기준선으로 먼저 완성한다.
-2. 정상 복구된 오른팔에 왼팔의 검증 절차를 그대로 적용해 단독 동등성을 만든다.
-3. 두 팔이 각각 단독 기준선을 통과한 뒤에만 양팔 동시·공유 영역을 통합한다.
-4. Isaac Sim/Isaac Lab 학습은 데스크탑에서 수행하고, 검증된 정책만 ONNX
-   deployment bundle로 Raspberry Pi 5에 배포한다.
-5. MoveIt은 전역 경로와 충돌 검사를 담당하고, 정책은 관절 보정값 또는
-   제한된 Cartesian residual을 출력한다. 정책은 STM32나 servo raw 명령을
-   직접 우회하지 않는다.
-6. Top 카메라는 전역 탐색, 각 손목 카메라는 접근 직전 상대 정렬을 담당한다.
-7. 카메라·인식·정책 부하는 STM32 bridge와 분리하고, stale observation이나
-   deadline miss가 있으면 이전 action을 반복하지 않고 fail-closed 한다.
+상단 애플리케이션은 firmware protocol을 직접 소유하거나 servo raw packet을 만들지
+않는다. 규범 경계는
+[양팔 상단 애플리케이션 인터페이스](BIMANUAL_UPPER_APPLICATION_INTERFACE.md)다.
 
-상세 결정은 [ADR-0012](adr/0012-arm-integration-and-pi-policy-deployment.md)에
-기록한다.
+## 3. 운영 불변식
 
-## 3. 목표 실행 구조
+1. 새 motion session은 `ready`, `owner=null`, `arbiter_epoch=0`,
+   `motion_authorized=true`에서만 시작한다.
+2. ARM 직전 `/refresh_anchor`로 torque-off measured 12축 anchor를 취득한다.
+3. finite trajectory 전체를 ROS 요청 하나로 제출한다. 상단 앱이 wire window
+   크기에 맞춰 APPEND로 쪼개지 않는다.
+4. 한 팔 task도 반대 팔의 최신 hold target을 포함한 12축 명령이다.
+5. firmware와 resident의 terminal 판정이 끝나기 전 성공으로 간주하지 않는다.
+6. 성공 뒤 `ready`는 torque-on HOLD일 수 있다. 팔을 지지하지 않은 상태에서
+   자동 torque-off하지 않는다.
+7. STOP은 terminal이며 같은 process/session을 재사용하지 않는다.
+8. status 2/3 startup shadow는 좌/우 verified torque-disable 실패다. 자동 반복하지
+   않고 전원·bus·중복 backend를 확인한 뒤 감독 reset한다.
+9. transport/dispatch/heartbeat/tracking/limit fault는 자동 재시도하지 않는다.
+10. 상단 앱의 task 실패 판정이 안전한 finite 완료 뒤 발생했다면 operator가 팔을
+    지지하고 STOP할 때까지 HOLD를 보존할 수 있다.
 
-~~~text
-Desktop
-└─ Isaac Sim/Isaac Lab 학습·평가
-   └─ policy.onnx + manifest + calibration/normalization hash
+## 4. 완료로 보지 않는 범위
 
-Raspberry Pi 5
-├─ 3-camera capture와 phase scheduler
-├─ 공통 observation adapter
-├─ Top/손목 perception
-├─ policy.onnx inference
-├─ MoveIt 전역 경로 또는 검증된 trajectory
-├─ action safety supervisor와 command arbiter
-└─ STM32 bridge
+- 왼팔 Top-camera reference task 2회는 interface 수락 증거이지 50회 생산
+  반복성 benchmark가 아니다.
+- 오른팔 bus, feedback, limits, base 제한 왕복과 양팔 dispatch는 검증했지만
+  오른팔 선택 camera Pick/Place의 place 높이와 접근 자세는 아직 별도 수락 전이다.
+- wrist roll은 현재 reference task에서 q0 hold다. 물체 yaw에 따른 가장 가까운
+  동치각 선택은 후속 기능이며 360도 강제 회전은 금지한다.
+- 현재 grasp z offset과 gripper raw 값은 이 작업대/펜 reference task 값이다.
+  범용 물체 정책 상수로 승격하지 않는다.
+- pretrained policy bundle, Pi 실제 inference latency와 policy shadow/실기 gate는
+  아직 미완료다.
+- systemd 부팅, 8시간/24시간 soak와 현장 복구 runbook은 별도다.
 
-STM32
-├─ servo bus 시간축과 bounded interpolation
-├─ heartbeat/watchdog
-├─ position/read failure 진단
-└─ HOLD, physical DISABLE과 latched stop
-~~~
+## 5. 다음 우선순위
 
-정책이 구조화 상태를 입력받으면 Pi의 연산 부담과 sim-to-real 차이가 가장
-작다. 이미 학습된 정책이 3개 RGB tensor를 요구한다면 camera order, crop,
-해상도, 색 순서, normalization, timestamp와 frame-valid 규칙을 학습 때와
-동일하게 재현하고 실제 ONNX로 Pi 자원 gate를 통과해야 한다.
+### A. PR과 interface 동결
 
-## 4. 남은 로드맵
+1. protocol manifest, firmware core/board glue, ROS message/service와 resident node,
+   승인된 operational-limit 파일을 한 PR의 일관된 변경으로 review한다.
+2. 상단 앱 개발자는
+   [인계 프롬프트](prompts/BIMANUAL_UPPER_APPLICATION_HANDOFF_PROMPT.md)를
+   사용하고 규범 문서/서비스 정의에서 자동 contract test를 만든다.
+3. fresh clone/ROS overlay에서 전체 unit test와 Cortex-M4 Release build를 반복한다.
 
-### A. 왼팔 생산 기준선 완성
+### B. 오른팔 task parity
 
-1. single-point 정착 체인을 multi-point/buffered trajectory로 교체한다.
-2. 시간축, queue, cancel, HOLD, continuous diagnostics와 tracking error 계약을
-   단위 시험·mock·plan-only·제한 실기로 검증한다.
-   `0x00021900` validation-only Pi–VCP timing 측정과 운영값 검토를 마쳤다.
-   `0x00022100 / 0x00000FFF`에서 bounded lateness, observable 단일 관절과
-   Motion-9 다중 관절 buffered Action 왕복 실기를 통과했다. Action 1회,
-   61 samples, 최대 apply lateness `4 ms`, 독립 복귀 오차 `6 raw`였으며
-   `motion_authorized=false`는 유지한다. 이어 dense quintic 211점과
-   heartbeat-gated 2.5초 post-settle로 q0 왕복을 실기 통과했다. 다음은
-   추종률 기반 Motion-11 Pick pregrasp 단일 Action의 fresh-start와 제한 실기,
-   grasp/lift/place/retreat/q0 전체 연속 실행과 반복성 gate 순이다.
-   상승 구간의 약한 흔들림은 별도 축별 추종 증거를 수집한 뒤 시간
-   스케일링·가속도/jerk·servo 추종 순으로 개선한다.
-3. Pick/Place TCP-to-contact offset을 분리하고 Place 후보 0.015 m를 다시 계측한다.
-4. 반사·무늬 배경 holdout과 legacy 실패 기준선을 고정하고 별도 학습
-   데이터로 경량 YOLO-OBB를 학습·ONNX export했다. 같은 holdout과 Pi 5
-   3카메라 동시 30분 runtime gate를 통과했다.
-5. 왼쪽 손목 카메라 eye-in-hand와 마지막 수 cm의 bounded visual correction을
-   검증한다.
-6. 10회 pilot 뒤 50회 benchmark에서 Pick/Place 각각 90% 이상,
-   비명령 동작·충돌 0회를 확인한다.
+1. 동일한 Top-camera routing에서 오른팔을 선택하는 plan-only 결과를 검토한다.
+2. 오른팔 place 높이와 접근 자세를 1회 감독 검증한다.
+3. 왼팔과 동일한 one-shot flow를 자동 재시도 없이 수행한다.
+4. 좌우 각각 10회 pilot 뒤 사전 정의한 반복성 benchmark로 간다.
 
-### B. Pi 5 3카메라·정책 실행 기준선
+### C. pretrained policy 상단 앱
 
-1. 세 카메라의 stable identity, USB topology, mode, FPS와 phase별 필요도를
-   기록했다.
-2. 3카메라+STM32 READ_ONLY 30분 시험에서 frame age, decode 시간, CPU,
-   memory, 온도, throttling을 machine-readable artifact로 남겼다.
-3. policy ONNX의 입력·출력, joint order, action scale, control_dt, stale/deadline
-   규칙을 manifest로 동결한다.
-4. Pi에서 실제 모델 warm-up과 반복 inference의 p50/p95/max를 측정한다.
-5. camera-only 부하에서 STM32 heartbeat/feedback 오류 0회를 확인했다.
-   detector/policy 동시 부하는 후속 gate다.
-6. camera-only 30분 시험은 통과했다. 다음은 policy shadow 30분, 8시간 soak,
-   headless 재부팅 반복 gate다.
+1. 데스크탑에서 학습된 model, normalization, joint order, `control_dt`와 SHA를
+   deployment bundle로 동결한다.
+2. Pi에서 perception/state 입력과 policy 출력을 기록하는 no-motion shadow를
+   먼저 수행한다.
+3. policy 출력은 MoveIt/collision/operational-limit/freshness supervisor를 지난
+   bounded target만 resident interface에 제출한다.
+4. deterministic camera Pick/Place reference보다 개선되는지 수치로 비교한다.
 
-2026-08-02 분기점에서 Top YOLO-OBB와 3카메라 30분 동시 부하는 통과했다.
-실제 policy ONNX/체크포인트는 아직 로컬에 없으므로 값을 추측하지 않고
-`config/policy_deployment_contract.json`과
-`tools/validate_policy_deployment_bundle.py`로 model·observation·action·
-runtime·provenance 계약을 먼저 fail-closed로 고정한다. 실제 모델을 확보한
-뒤에만 bundle artifact를 만들고 Pi shadow inference로 진행한다.
+### D. 운영 신뢰성
 
-### C. 오른팔 단독 동등성 검증
+1. camera + YOLO + MoveIt + policy + resident 30분, 이후 8시간 soak
+2. serial lease, process crash, USB reconnect, STM32 reset과 status 2/3 startup
+   fault의 운영 절차
+3. 반복 부팅 STANDBY, journald/systemd, 물리 E-stop과 안전 종료 검증
 
-1. servo ID, 방향, raw range, q0, torque/PID와 전원을 실측한다.
-2. 오른팔 URDF/Xacro, collision, SRDF, MoveIt group과 Isaac articulation을
-   왼팔 계약과 독립적으로 검증한다.
-3. READ_ONLY physical disable, identity, heartbeat, diagnostics를 통과한다.
-4. 단일 관절 → 전체 팔 → gripper → home → cancel/fault 순서로 제한 실기를 한다.
-5. 오른쪽 손목 카메라 eye-in-hand와 단독 Pick/Place 기준선을 만든다.
-6. 왼팔과 같은 pilot·반복 기준을 적용한다.
+## 6. 최종 증거 인덱스
 
-### D. 양팔 통합
-
-0. **[진입 전 필수] STM32 main loop를 비동기 구조로 전환한다.**
-
-   현재 firmware는 협조적 단일 루프다. `SingleArmApp_Process` 한 바퀴가 host
-   바이트를 처리하고 `BinaryControl_Service`를 호출하며, 어느 한 호출이 길게
-   블로킹하면 host UART 처리가 멈춘다. heartbeat는 *수신*이 아니라 *처리*
-   시점에 기록되므로(`binary_control.c`의 `host_binary_last_heartbeat_ms`)
-   굶김은 응답 지연으로 끝나지 않고 **MCU가 자기 500 ms watchdog을 먹지
-   못해 스스로 latch**하는 데까지 간다. 시연 중이면 팔이 그 자세로 멈춘다.
-
-   이 불변식은 명시된 적이 없어 **세 번** 조용히 깨졌다. `0x00022500`이 모든
-   servo write에 `PrepareTransaction`을 붙여 DISABLE 봉투를 늘렸고(산술로
-   발견), `0x00022600`에서 같은 비용이 buffered 실행 중 motion-safety
-   폴링에 붙어 host를 굶겼다(실기에서 발견, 관측 침묵 `365 ms` / 한계
-   `500 ms`).
-
-   `0x00022700`은 buffered 실행 경로에서 servo read를 제거해 그 경합을
-   없앴고, `tests/test_stm32_main_loop_blocking_budget.py`가 예산을 소스
-   상수에서 계산해 강제한다.
-
-   세 번째는 servo가 아니라 **host 송신**이었다. `Host_SendBinaryFrame`은
-   blocking `HAL_UART_Transmit`이고, 그것을 호출하는 루프가 곧 executor를
-   stepping하는 루프다. 따라서 **응답 프레임의 길이가 apply lateness로 그대로
-   청구된다.** 115200 baud에서 refill 응답 하나가 `4.688 ms`이고 허용치는
-   `5 ms`다 — 예산의 94%가 이미 쓰이고 있었다. Motion-11이 관측한 max apply
-   lateness가 정확히 `5 ms`였던 것은 우연이 아니라 이 전송시간이었다.
-   `0x00022800`이 lateness histogram을 refill 응답에 실어 이것을 `7.118 ms`로
-   늘렸고, 2026-08-06 q0 복귀가 첫 sample에서 `applied=0`으로 중단됐다.
-   **계측이 계측 대상을 바꿨다.**
-
-   `0x00022900`은 histogram을 terminal 프레임에만 싣고,
-   `binary_control.c`의 `#error`가 acknowledgement 전송시간이 허용치를 넘으면
-   **컴파일을 거부**한다(`payload +4 B`에서 발동함을 음성 검증).
-
-   단일 팔 기준선에는 이것으로 충분하다. **다만 남은 여유는 `0.312 ms`,
-   전선 기준 4바이트 미만이다.** 이 숫자를 여유라고 부르기 어렵다.
-
-   **양팔에서는 충분하지 않다.** 서보 버스 2개, executor 2개, host 트래픽
-   2배, 수건 접기는 Pick/Place보다 길고 연속적이다. 현재 여유 `135 ms`가
-   그때 남아 있을 근거가 없다.
-
-   전환 내용:
-   - 서보 버스 I/O를 비동기 상태머신으로 (블로킹 대기 제거)
-   - **host frame 송신을 비동기로** (DMA + 유한 큐, 넘치면 fail-closed).
-     이것이 `0.312 ms` 여유를 구조적으로 없애는 유일한 방법이다. 프레임
-     길이가 더 이상 lateness에 청구되지 않으므로 진단을 늘려도 안전해진다.
-   - executor tick을 하드웨어 타이머 ISR로 (main loop가 굶길 수 없게)
-
-   대역폭은 제약이 아니다. 1 Mbaud 서보 버스에서 sync write `0.26 ms`,
-   telemetry 왕복 `0.23 ms`로 5 ms slot에 충분히 들어간다. 제약은 전부
-   **blocking 구조**이며, 전환하면 실행 중 load/current 모니터링도 되살릴 수
-   있다. host 링크를 115200에서 올리는 것도 같은 비용을 8배 줄이지만, 그건
-   완화이지 제거가 아니다 — 순서상 비동기가 먼저다.
-
-   근거 기록:
-   - [0x00022600 계측과 startup 중단 분석](test-results/2026-08-06-stm32-0x00022600-apply-lateness-instrumentation.md)
-   - [0x00022900 status 프레임 전송 예산](test-results/2026-08-06-stm32-0x00022900-status-transmit-budget.md)
-
-1. 좌우 namespace, joint order, controller와 camera identity를 분리한다.
-2. 한 팔 fault 시 양팔 coordinated stop을 먼저 검증한다.
-3. 개별 작업 영역에서 병렬 실행과 시작 시각 차이를 측정한다.
-4. 공유 영역은 두 독립 계획이 아니라 하나의 충돌 검사 계약으로 실행한다.
-5. Top 전역 관측과 두 손목 residual을 하나의 timestamped observation으로 묶는다.
-6. 양팔 10회 pilot와 정식 반복 시험을 수행한다.
-
-### E. 학습 정책의 Pi 배포
-
-1. 데스크탑에서 학습된 policy와 기준 baseline을 저장 데이터로 비교한다.
-2. Pi에서 motion 없는 shadow mode로 실제 관측과 정책 출력을 기록한다.
-3. action limit, workspace, collision, freshness와 deadline supervisor를 통과한
-   bounded residual만 허용한다.
-4. 왼팔 제한 동작 → 오른팔 제한 동작 → 양팔 순서로 실제 권한을 확장한다.
-5. 정책 미사용 baseline보다 재현성 또는 성공률이 수치상 개선될 때만 채택한다.
-
-### F. 시연 재현성과 Headless 운영
-
-여기서 재현성은 카메라 각도·높이, 작업대–base transform과 물체 Z가 같은
-기하 조건을 유지한 채 집과 시연 장소 사이에서 **배경과 조명만 달라져도**
-동일한 인식·Pick/Place 성능을 내는 것을 뜻한다.
-
-1. 카메라 serial, mount hash, exposure/focus, calibration과 model SHA를 동결한다.
-2. 집/시연 장소를 대표하는 배경·조명·반사 조건의 이미지 세트를 만들고
-   위치/yaw 오차, miss와 false positive를 분리 측정한다.
-3. 자동 노출·white balance가 검출을 흔들지 않도록 고정값 또는 허용 범위를 기록한다.
-4. 저장 이미지/rosbag과 Isaac synthetic observation으로 회귀 시험을 수행한다.
-5. systemd, udev, journald, watchdog, 안전 종료와 재부팅 STANDBY를 검증한다.
-6. 카메라 mount나 물체 Z가 실제로 바뀐 경우는 이 재현성 범위가 아니며,
-   기존 calibration을 재사용하지 않고 별도 재보정 gate로 전환한다.
-
-### G. 최종 확장
-
-- 양팔 policy 개선
-- segmentation/keypoint 기반 수건 상태 인식
-- 수건 grasp와 fold 상태 머신
-- 전체 benchmark, 영상과 장애 복구 보고서
-
-## 5. 바로 다음 작업
-
-Isaac policy 작업은 결정론적 한팔 기준선 뒤로 동결했다. `0x00022100`
-buffered physical route와 bounded lateness, observable 단일 관절, Motion-9
-다중 관절 Action 왕복 실기까지 통과했다. 다음은 현재 계약으로 q0 왕복,
-Pick pregrasp, grasp/lift/place/retreat/q0 연속 Pick/Place, 10회 pilot와 50회
-benchmark 순서다. Git 조작은 사용자가 직접 수행한다.
+- [F2 async host TX](test-results/2026-08-11-f2-async-host-tx-probe.md)
+- [양팔 J0 작업자 desired envelope](test-results/2026-08-13-bimanual-j0-desired-envelope.md)
+- [J1 unwrap shadow](test-results/2026-08-13-bimanual-j1w-unwrapped-shadow-candidate.md)
+- [J1 operational limits](test-results/2026-08-13-bimanual-j1-operational-limit-candidate.md)
+- [F7 paired DMA dispatch와 fault stop](test-results/2026-08-14-bimanual-dma-dispatch-f7.md)
+- [F8 tracking feedback와 fault stop](test-results/2026-08-14-bimanual-tracking-feedback-f8.md)
+- [F8.1 resident measured feedback](test-results/2026-08-14-bimanual-resident-feedback-f81.md)
+- [F8.7 resident와 Top-camera Pick/Place](test-results/2026-08-15-f87-resident-top-camera-pick-place.md)

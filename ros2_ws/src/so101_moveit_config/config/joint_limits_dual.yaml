@@ -1,0 +1,14 @@
+default_velocity_scaling_factor: 0.5
+default_acceleration_scaling_factor: 0.5
+
+joint_limits:
+  left_base_joint: {has_position_limits: true, min_position: -1.633689, max_position: 1.523243, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
+  left_shoulder_joint: {has_position_limits: true, min_position: -0.228563, max_position: 3.281185, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
+  left_elbow_joint: {has_position_limits: true, min_position: -0.681087, max_position: 2.702874, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
+  left_wrist_flex_joint: {has_position_limits: true, min_position: -0.515418, max_position: 2.880816, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
+  left_wrist_roll_joint: {has_position_limits: true, min_position: -2.241146, max_position: 1.211845, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
+  right_base_joint: {has_position_limits: true, min_position: -1.441942, max_position: 1.454214, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
+  right_shoulder_joint: {has_position_limits: true, min_position: -0.289922, max_position: 3.282719, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
+  right_elbow_joint: {has_position_limits: true, min_position: -0.728641, max_position: 2.686000, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
+  right_wrist_flex_joint: {has_position_limits: true, min_position: -0.598252, max_position: 2.563282, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
+  right_wrist_roll_joint: {has_position_limits: true, min_position: -1.992641, max_position: 1.414330, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}

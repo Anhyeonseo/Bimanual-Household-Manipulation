@@ -1,0 +1,19 @@
+# One source-agnostic command gate for finite plans and rolling policy output.
+uint8 START_FINITE=1
+uint8 START_OPEN=2
+uint8 APPEND=3
+uint8 SPLICE=4
+uint8 STOP=5
+uint8 operation
+string owner
+string[] joint_names
+# SPLICE only: replacement begins at this command-relative time. The adapter
+# synthesizes the exact continuity sample; supplied points must occur later.
+# Must be zero for every other operation.
+uint32 splice_offset_ms
+trajectory_msgs/JointTrajectoryPoint[] points
+---
+bool accepted
+string adapter_state
+uint32 arbiter_epoch
+string diagnostic

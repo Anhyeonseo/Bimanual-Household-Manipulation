@@ -15,41 +15,39 @@ Raspberry Pi 5, ROS 2 Jazzy, STM32G474, 두 대의 SO-ARM101과 세 대의 USB �
 
 ## 현재 상태
 
-- 완료 범위: NUCLEO-G474RE 기반 왼팔 STS3215 6축 제어, 단계 6 Top
-  카메라 인식, 단계 7 감독형 Pick/Place 시운전 1회
-- 오른팔: 사용자가 현재 정상 작동을 확인했다. 다음 확장 대상이지만 왼팔과
-  같은 calibration·모델·MoveIt·STM32·반복 실기 gate는 아직 미실행
-- 현재 장착 펌웨어: `0x00021800`; protocol `1`, calibration
-  `0x8AD27897`, capabilities `0x000003FF`
-- 펌웨어: COBS/CRC-32C, acknowledged heartbeat, SAFE_STOP, 물리
-  torque-disable, cooperative motion, 서보 UART frame 재동기화·완전 복구와
-  실패 원인 진단
-- 제어 설정: Shoulder P32/torque 780, Elbow P28/torque 650. 실제 grasp,
-  약 20 mm lift, Place, release, retreat와 q0 복귀 통과
-- ROS 2: Pi bridge의 `/joint_states`, READ_ONLY 차단, MoveIt 표준 Action,
-  commanded gripper hold, fail-closed feedback와 무경고 shutdown 통과
-- 카메라: 3대 MJPEG capture, hot-plug 복구, Top eye-to-hand·table–base
-  등록 통과. 고정 기하에서 배경 2종·조명 3종·반사를 포함한 holdout
-  18장을 승인했고, YOLO11n-OBB 후보 v3가 miss 0%, false positive 0%,
-  중심 p95 5.29 px, yaw p95 2.79 degree를 통과했다.
-- Top OBB Pi runtime: OpenCV DNN 4.10 격리 환경에서 3카메라와 30분
-  동시 실행해 추론 3.989 Hz, p95 86.95 ms, 오류·명령 발행·재연결 0,
-  CPU 평균 35.07%, 온도 최대 50.15°C, throttling 0을 확인했다.
-- 성능: RGB 3개 topic과 STM32 READ_ONLY bridge 30분 동시 부하에서 CPU 평균
-  7.94%, 온도 최대 40.8°C, `/joint_states` 5.00049 Hz, 카메라 reconnect와
-  heartbeat·feedback 오류, swap, throttling 모두 0
-- simulation: 동일한 왼팔 URDF/Xacro q0 계약, 카메라 장착물, MoveIt mock,
-  Isaac Sim 6.0.1 backend 검증 완료
-- 단계 7 내부 시운전: **100%**. 단, 로드맵의 정식 합격 조건인 50회 중
-  90% 이상 반복 시험은 미실행이므로 검증 매트릭스 상태는 `부분 통과`
-- 현재 분기점: 왼팔 생산 기준선 완성 → 오른팔 단독 동등성 검증 → 양팔
-  통합 순서로 진행
-- 다음 gate: host 계약, STM32 공통 C queue·보간과 dormant command route·확장
-  terminal codec·timing 분석 도구까지 완료했다. 다음은 별도 firmware route
-  연결·Pi–VCP timing 실측, ROS adapter와 제한 실기를 각각 분리해 검증한다.
-  Isaac 정책 학습은 이 결정론적 한팔 기준선 이후에만 재개한다.
-- 확장 방향: 동일한 µrad 관절 규격을 사용해 왼팔 실물, 향후 양팔 실물,
-  Isaac Sim backend를 교체할 수 있게 구성
+- 양팔 하드웨어: NUCLEO-G474RE 한 대가 좌 USART1, 우 UART4를 통해 팔별
+  Waveshare servo bus driver와 STS3215 6축씩, 총 12축을 제어한다.
+- 현재 resident 후보 firmware: `0x00024807`, protocol `2`, joints `12`, capabilities
+  `0xEFFFFFFF`, 좌우 calibration hash `0x2D90167E`.
+- deterministic backend: 공통 5 ms executor, 양팔 paired DMA dispatch,
+  operational limits, branch-aware shoulder unwrap, heartbeat/timeout/tracking fault의
+  coordinated torque-off/stop latch를 실기 검증했다.
+- F8.7은 F8.6의 tracking 보호를 유지하고 gripper terminal contact residual만
+  `90,000 µrad`까지 분리 허용한다. 실측 tracking error 초과·DMA·dispatch·heartbeat
+  fault는 즉시 정지하고,
+  in-motion 위치 read 실패만 3회 연속일 때 정지한다. 단발/2회 실패 뒤 성공한
+  pair가 오면 streak를 0으로 복구하며 누적 `failed_pairs`는 진단으로 남긴다.
+- Pi resident ROS adapter: finite/open horizon, APPEND, continuity SPLICE, owner/epoch,
+  explicit STOP을 하나의 serial owner에서 처리한다. 최초 motion 직전 torque-off
+  anchor를 재취득하며, stale anchor 기반 경로는 ARM 전에 거부한다.
+- 실측 feedback: canonical 12축 rad, 관절별 sample age, present mask와 firmware
+  tick을 20 Hz ROS topic으로 제공한다.
+- F8.1 최종 실기: direct no-output `present_mask=0x0FFF`, launch 0; 실제 양팔 base
+  `+0.03 rad` rolling 왕복에서 feedback 8 sample, age max 27 ms, 7개 command,
+  epoch `1,1,2,2,2,2,2`, coordinated STOP을 통과했다.
+- firmware/ROS 하위 경계는 source-agnostic이다. 학습은 외부에서 끝내고 Pi에는
+  pretrained policy inference, MoveIt/FSM과 단일 상단 command arbiter만 올린다.
+- reference consumer인 Top-camera one-shot 앱은 F8.7에서 fresh anchor, 양팔 연속
+  q0, 왼팔 pick/lift/place/release, 최종 armed READY/HOLD를 automatic retry 없이
+  두 번 완주했다(`application_run20`, `application_run22`). 이는 하위 인터페이스와
+  한 개 task adapter의 실기 증거이며 운영용 범용 상단 arbiter 완성을 뜻하지 않는다.
+- legacy `single_arm_bridge` 일반 trajectory backend는 계속 비승인이다. 양팔 motion은
+  `bimanual_stream_adapter` 경로만 사용한다.
+- 다음 개발 범위: 상단 MoveIt/FSM/policy adapter, observation freshness supervisor,
+  양팔 URDF/base transform 정밀화, inter-arm collision, 카메라 보정과 task-level
+  반복성이다. 이는 firmware stream gate와 분리한다.
+- 상단 개발의 canonical 진입점은
+  [양팔 상단 애플리케이션 인터페이스 계약](docs/BIMANUAL_UPPER_APPLICATION_INTERFACE.md)이다.
 
 ## 새 개발 환경 준비
 
@@ -114,6 +112,9 @@ cp bridge.local.yaml.example bridge.local.yaml
 
 ## 문서 안내
 
+- [양팔 상단 애플리케이션 인터페이스 계약](docs/BIMANUAL_UPPER_APPLICATION_INTERFACE.md)
+- [상단 애플리케이션 개발 인계 프롬프트](docs/prompts/BIMANUAL_UPPER_APPLICATION_HANDOFF_PROMPT.md)
+- [F8.7 resident·Top 카메라 Pick/Place 최종 수락 결과](docs/test-results/2026-08-15-f87-resident-top-camera-pick-place.md)
 - [프로젝트 헌장](docs/PROJECT_CHARTER.md)
 - [현재 분기점과 남은 로드맵](docs/CURRENT_STATE_AND_NEXT_ROADMAP.md)
 - [전체 로드맵](docs/ROADMAP.md)

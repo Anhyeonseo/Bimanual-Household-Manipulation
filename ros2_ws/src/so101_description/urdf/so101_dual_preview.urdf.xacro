@@ -1,0 +1,135 @@
+<?xml version="1.0"?>
+<!--
+  Simulation/visual-registration entrypoint for the physical bimanual rig.
+
+  This file deliberately contains no ros2_control block and is not referenced
+  by MoveIt bringup. The default right-arm mount is a CAD-fit candidate that
+  inserts both base plates 10 mm into the center camera mount; it is not an
+  externally calibrated transform and must not authorize hardware motion.
+-->
+<robot name="so101_dual_preview" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="left_mount_xyz" default="0 0 0"/>
+  <xacro:arg name="left_mount_rpy" default="0 0 0"/>
+  <!-- +Y is robot-left, therefore the physical right arm is at negative Y. -->
+  <xacro:arg name="right_mount_xyz" default="0 -0.232064146 0"/>
+  <xacro:arg name="right_mount_rpy" default="0 0 0"/>
+  <xacro:arg name="left_use_wrist_camera_mount" default="true"/>
+  <xacro:arg name="right_use_wrist_camera_mount" default="true"/>
+  <xacro:arg name="use_overhead_webcam_mount" default="true"/>
+  <xacro:arg name="top_camera_xyz" default="0 0.2344404 0"/>
+  <xacro:arg name="top_camera_optical_rpy" default="1.5707963267948966 0 0"/>
+  <xacro:arg name="left_wrist_camera_xyz" default="0.01437087 -0.00675864 0.01616744"/>
+  <xacro:arg name="left_wrist_camera_optical_rpy" default="-0.02242196 0.03092788 3.02135163"/>
+
+  <!-- Operator-verified full task envelope (2026-08-14); firmware limits remain authoritative. -->
+  <xacro:arg name="left_base_lower" default="-1.633689"/>
+  <xacro:arg name="left_base_upper" default="1.523243"/>
+  <xacro:arg name="left_shoulder_lower" default="-0.228563"/>
+  <xacro:arg name="left_shoulder_upper" default="3.281185"/>
+  <xacro:arg name="left_elbow_lower" default="-0.681087"/>
+  <xacro:arg name="left_elbow_upper" default="2.702874"/>
+  <xacro:arg name="left_wrist_flex_lower" default="-0.515418"/>
+  <xacro:arg name="left_wrist_flex_upper" default="2.880816"/>
+  <xacro:arg name="left_wrist_roll_lower" default="-2.241146"/>
+  <xacro:arg name="left_wrist_roll_upper" default="1.211845"/>
+  <xacro:arg name="right_base_lower" default="-1.441942"/>
+  <xacro:arg name="right_base_upper" default="1.454214"/>
+  <xacro:arg name="right_shoulder_lower" default="-0.289922"/>
+  <xacro:arg name="right_shoulder_upper" default="3.282719"/>
+  <xacro:arg name="right_elbow_lower" default="-0.728641"/>
+  <xacro:arg name="right_elbow_upper" default="2.686000"/>
+  <xacro:arg name="right_wrist_flex_lower" default="-0.598252"/>
+  <xacro:arg name="right_wrist_flex_upper" default="2.563282"/>
+  <xacro:arg name="right_wrist_roll_lower" default="-1.992641"/>
+  <xacro:arg name="right_wrist_roll_upper" default="1.414330"/>
+
+  <xacro:include filename="so101_arm_macro.xacro"/>
+  <xacro:include filename="so101_overhead_webcam_mount.xacro"/>
+  <xacro:include filename="so101_wrist_camera.xacro"/>
+
+  <material name="3d_printed">
+    <color rgba="1.0 0.82 0.12 1.0"/>
+  </material>
+  <material name="sts3215">
+    <color rgba="0.1 0.1 0.1 1.0"/>
+  </material>
+
+  <link name="workcell_base_link"/>
+
+  <!-- Identical physical base plates under both arms. -->
+  <xacro:so101_overhead_webcam_arm_base
+    prefix="left_mount_"
+    parent="workcell_base_link"
+    mount_xyz="$(arg left_mount_xyz)"
+    mount_rpy="$(arg left_mount_rpy)"
+  />
+  <xacro:so101_overhead_webcam_arm_base
+    prefix="right_mount_"
+    parent="workcell_base_link"
+    mount_xyz="$(arg right_mount_xyz)"
+    mount_rpy="$(arg right_mount_rpy)"
+  />
+
+  <!--
+    Top view order is left plate, camera tower, then right plate. The URDF tree owns
+    the fixed tower joint on the left plate to avoid a closed kinematic loop.
+  -->
+  <xacro:if value="$(arg use_overhead_webcam_mount)">
+    <xacro:so101_overhead_webcam_tower
+      prefix="top_"
+      parent="left_mount_arm_base_link"
+      camera_xyz="$(arg top_camera_xyz)"
+      camera_optical_rpy="$(arg top_camera_optical_rpy)"
+    />
+  </xacro:if>
+
+  <xacro:so101_arm
+    prefix="left_"
+    parent="left_mount_arm_base_link"
+    mount_xyz="0 0 0"
+    mount_rpy="0 0 0"
+    use_wrist_camera_mount="$(arg left_use_wrist_camera_mount)"
+    base_lower="$(arg left_base_lower)"
+    base_upper="$(arg left_base_upper)"
+    shoulder_lower="$(arg left_shoulder_lower)"
+    shoulder_upper="$(arg left_shoulder_upper)"
+    elbow_lower="$(arg left_elbow_lower)"
+    elbow_upper="$(arg left_elbow_upper)"
+    wrist_flex_lower="$(arg left_wrist_flex_lower)"
+    wrist_flex_upper="$(arg left_wrist_flex_upper)"
+    wrist_roll_lower="$(arg left_wrist_roll_lower)"
+    wrist_roll_upper="$(arg left_wrist_roll_upper)"
+  />
+
+  <!-- Reuse the validated left eye-in-hand optical transform. -->
+  <xacro:if value="$(arg left_use_wrist_camera_mount)">
+    <xacro:so101_wrist_camera
+      prefix="left_"
+      parent="left_wrist_camera_mount_center_link"
+      camera_xyz="$(arg left_wrist_camera_xyz)"
+      camera_optical_rpy="$(arg left_wrist_camera_optical_rpy)"
+    />
+  </xacro:if>
+
+  <!--
+    The physical assemblies have the same motor type, direction and build.
+    Do not mirror the arm kinematics: only this fixed base transform differs.
+  -->
+  <xacro:so101_arm
+    prefix="right_"
+    parent="right_mount_arm_base_link"
+    mount_xyz="0 0 0"
+    mount_rpy="0 0 0"
+    use_wrist_camera_mount="$(arg right_use_wrist_camera_mount)"
+    base_lower="$(arg right_base_lower)"
+    base_upper="$(arg right_base_upper)"
+    shoulder_lower="$(arg right_shoulder_lower)"
+    shoulder_upper="$(arg right_shoulder_upper)"
+    elbow_lower="$(arg right_elbow_lower)"
+    elbow_upper="$(arg right_elbow_upper)"
+    wrist_flex_lower="$(arg right_wrist_flex_lower)"
+    wrist_flex_upper="$(arg right_wrist_flex_upper)"
+    wrist_roll_lower="$(arg right_wrist_roll_lower)"
+    wrist_roll_upper="$(arg right_wrist_roll_upper)"
+  />
+</robot>

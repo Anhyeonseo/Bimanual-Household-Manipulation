@@ -33,8 +33,8 @@ def function_body(source: str, signature: str) -> str:
 
 
 def test_h2_identity_and_terminal_wire_schema_are_explicit() -> None:
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023400)" in CONFIG
-    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x0000FFFF)" in CONFIG
+    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023B00)" in CONFIG
+    assert "HOST_BINARY_CAPABILITIES UINT32_C(0x007FFFFF)" in CONFIG
     assert "HOST_H2_IN_MOTION_TELEMETRY_CAPABILITY UINT32_C(0x00008000)" in CONFIG
     assert "H2_TELEMETRY_TIMING_CANDIDATE_FIRMWARE_VERSION = 0x00023400" in IDENTITY
     assert "in-motion telemetry capability is missing" in IDENTITY

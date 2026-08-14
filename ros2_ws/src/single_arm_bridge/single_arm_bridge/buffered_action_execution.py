@@ -156,6 +156,25 @@ def format_h2_telemetry(result: Any) -> str:
     )
 
 
+def format_f3_control_tick_metrics(result: Any) -> str:
+    """Render F3.0's observation-only TIM6 timing snapshot."""
+    values = (
+        getattr(result, "f3_control_tick_period_max_us", None),
+        getattr(result, "f3_control_tick_jitter_max_us", None),
+        getattr(result, "f3_control_tick_work_max_us", None),
+        getattr(result, "f3_control_tick_count", None),
+    )
+    if any(value is None for value in values):
+        return "f3_control_tick=unavailable"
+    period, jitter, work, count = (int(value) for value in values)
+    return (
+        f"f3_control_tick_period_max_us={period} "
+        f"f3_control_tick_jitter_max_us={jitter} "
+        f"f3_control_tick_work_max_us={work} "
+        f"f3_control_tick_count={count}"
+    )
+
+
 def _tick_has_reached(current_tick_ms: int, apply_tick_ms: int, margin_ms: int) -> bool:
     elapsed = (current_tick_ms - apply_tick_ms) & UINT32_MAX
     return margin_ms <= elapsed <= UINT32_HALF_RANGE
@@ -519,6 +538,7 @@ class BufferedActionExecutionCore:
         lateness = format_apply_lateness_profile(result)
         f0_metrics = format_f0_metrics(result)
         h2_telemetry = format_h2_telemetry(result)
+        f3_tick = format_f3_control_tick_metrics(result)
         self._clear_active()
         return ExecutionOutcome(
             TerminalState.SUCCEEDED,
@@ -528,7 +548,7 @@ class BufferedActionExecutionCore:
             "buffered trajectory completed; "
             f"maximum_apply_lateness_ms={result.detail} "
             f"post_settle_max_error_raw={settle.max_error_raw}; "
-            f"{startup}; {lateness}; {f0_metrics}; {h2_telemetry}; "
+            f"{startup}; {lateness}; {f0_metrics}; {h2_telemetry}; {f3_tick}; "
             f"{settle.terminal_summary()}",
         )
 

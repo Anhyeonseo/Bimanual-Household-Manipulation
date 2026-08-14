@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "status": "COMMISSIONING_REQUIRED",
+  "motion_authorized": false,
+  "target_class": "lying_can",
+  "perception": {
+    "top_model_bundle": null,
+    "left_wrist_model_bundle": null,
+    "right_wrist_model_bundle": null,
+    "maximum_frame_age_s": 0.2,
+    "minimum_confidence": null,
+    "minimum_aspect_ratio": null,
+    "expected_length_m": null,
+    "expected_diameter_m": null,
+    "length_tolerance_m": null,
+    "diameter_tolerance_m": null,
+    "routing_deadband_px": 40.0,
+    "yaw_semantics": "undirected_long_axis_modulo_pi",
+    "bottom_end_semantics": "wrist_close_up_required"
+  },
+  "wrist_refinement": {
+    "coordinate": "selected_wrist_camera_relative_xy_yaw",
+    "z_correction_authorized": false,
+    "maximum_top_wrist_center_disagreement_m": null,
+    "maximum_top_wrist_yaw_disagreement_rad": null,
+    "maximum_correction_m": null,
+    "maximum_yaw_correction_rad": null,
+    "stable_observations_required": null
+  },
+  "motion_contract": {
+    "approach": "vertical_from_above",
+    "floor_sweep_authorized": false,
+    "gripper_closing_line": "perpendicular_to_can_long_axis",
+    "wrist_yaw_branch": "nearest_equivalent_modulo_pi",
+    "upright_pitch_change_rad": 1.5707963267948966,
+    "position_only_ik_authorized_for_upright": false,
+    "stand_on_physical_bottom_required": true,
+    "successful_terminal": "q0_torque_hold"
+  },
+  "commissioning_gates": [
+    "measure the exact can length and diameter used by the application",
+    "train and holdout-validate a lying-can OBB model for the top camera",
+    "train and holdout-validate wrist-camera center, yaw, and bottom-end semantics",
+    "measure bounded wrist-relative XY/yaw correction limits",
+    "prove both 90-degree upright branches in collision-aware simulation",
+    "run plan-only, torque-off, and guarded single-motion commissioning in that order"
+  ]
+}
