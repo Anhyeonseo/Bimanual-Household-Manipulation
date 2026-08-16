@@ -6,3 +6,6 @@ bimanual_stream_adapter:
     feedback_period_s: 0.05
     heartbeat_period_s: 0.1
     response_timeout_s: 0.12
+    # Calibration-only rolling torque-off measurement. Enable explicitly from
+    # the launch command; motion_authorized=true is rejected when this is set.
+    unarmed_feedback_refresh_period_s: 0.0

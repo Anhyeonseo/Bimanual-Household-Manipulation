@@ -165,7 +165,7 @@ def main() -> int:
             or initial.get("arbiter_epoch") != 0
             or initial.get("motion_authorized") is not True
             or initial.get("firmware_version")
-            not in ("0x00024806", "0x00024807")
+            not in ("0x00024806", "0x00024809")
         ):
             raise RuntimeError(f"unexpected initial resident state: {initial}")
 

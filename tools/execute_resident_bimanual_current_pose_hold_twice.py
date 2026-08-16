@@ -38,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--confirmation", required=True)
     parser.add_argument("--timeout-s", type=float, default=10.0)
+    parser.add_argument("--ready-soak-s", type=float, default=2.0)
     parser.add_argument(
         "--output",
         type=Path,
@@ -142,6 +143,8 @@ def main() -> int:
         )
     if args.timeout_s <= 0.0:
         raise SystemExit("--timeout-s must be positive")
+    if not 1.0 <= args.ready_soak_s <= 10.0:
+        raise SystemExit("--ready-soak-s must be within 1.0..10.0")
 
     rclpy.init()
     node = Node("resident_bimanual_current_pose_hold_twice")
@@ -181,7 +184,7 @@ def main() -> int:
             or initial.get("arbiter_epoch") != 0
             or initial.get("motion_authorized") is not True
             or initial.get("firmware_version")
-            not in ("0x00024806", "0x00024807")
+            not in ("0x00024806", "0x00024809")
         ):
             raise RuntimeError(f"unexpected initial resident state: {initial}")
 
@@ -216,6 +219,26 @@ def main() -> int:
                     "start_response": started_document,
                     "status_history": history,
                 }
+            )
+
+        # Exercise the independent resident heartbeat in armed READY without
+        # application traffic. This is deliberately longer than the 500 ms
+        # MCU watchdog and catches periodic-callback starvation before a real
+        # trajectory is attempted.
+        time.sleep(args.ready_soak_s)
+        ready_soak_status = status_document(
+            node,
+            status_client,
+            args.timeout_s,
+        )
+        if (
+            ready_soak_status.get("state") != "ready"
+            or ready_soak_status.get("owner") != OWNER
+            or ready_soak_status.get("arbiter_epoch") != 2
+            or ready_soak_status.get("torque_hold_active") is not True
+        ):
+            raise RuntimeError(
+                f"armed READY soak failed: {ready_soak_status}"
             )
 
         stop_request = BimanualStreamCommand.Request()
@@ -254,6 +277,8 @@ def main() -> int:
             "anchor_positions_rad": list(positions),
             "point_offsets_ms": list(POINT_OFFSETS_MS),
             "commanded_motion_delta_rad": [0.0] * 12,
+            "ready_soak_s": args.ready_soak_s,
+            "ready_soak_status": ready_soak_status,
             "initial_status": initial,
             "legs": legs,
             "stop_response": response_document(stopped),

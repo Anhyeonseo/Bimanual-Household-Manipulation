@@ -254,6 +254,21 @@ def test_armed_ready_feedback_keeps_watchdog_alive_between_finite_legs() -> None
     assert transport.calls[call_start:] == ["heartbeat", "feedback"]
 
 
+
+def test_stream_policy_relaxes_tracking_only_for_contact_grippers() -> None:
+    instance, transport = adapter()
+    instance.prepare()
+    instance.start("contact", points(80, 130), finite=True)
+
+    limits = transport.opened.tracking_error_limit_urad
+    assert len(limits) == 12
+    assert limits[5] == limits[11] == 150_000
+    assert all(
+        limit == 90_000
+        for index, limit in enumerate(limits)
+        if index not in (5, 11)
+    )
+
 def test_reorders_an_exact_joint_vector_and_rejects_duplicates() -> None:
     reversed_names = tuple(reversed(CANONICAL_JOINT_NAMES))
     reordered = normalize_joint_positions(reversed_names, tuple(range(12)))

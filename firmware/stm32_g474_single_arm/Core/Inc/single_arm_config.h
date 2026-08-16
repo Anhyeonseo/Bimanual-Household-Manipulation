@@ -85,6 +85,9 @@
 #ifndef HOST_BIMANUAL_GRIPPER_TERMINAL_SETTLE_BUILD
 #define HOST_BIMANUAL_GRIPPER_TERMINAL_SETTLE_BUILD 0U
 #endif
+#ifndef HOST_SERVO_DISABLE_READBACK_RECOVERY_BUILD
+#define HOST_SERVO_DISABLE_READBACK_RECOVERY_BUILD 0U
+#endif
 #ifndef HOST_BINARY_JOINT_COUNT
 #define HOST_BINARY_JOINT_COUNT SINGLE_ARM_JOINT_COUNT
 #endif
@@ -209,13 +212,15 @@
  * twelve consecutive in-tolerance feedback pairs (six joints, twice). Pair
  * counting deliberately avoids coupling completion to an asynchronous joint
  * index boundary. Arm joints retain the legacy terminal envelope
- * (30 raw ~= 0.04602 rad). F8.7 permits a held-object residual on each
- * gripper up to the unchanged route-time tracking limit (0.09 rad). The host
- * repeats the same per-axis check before exposing READY.
+ * (30 raw ~= 0.04602 rad). F8.9 permits a held-object residual on each
+ * gripper up to the reviewed held-object contact envelope (0.15 rad). The
+ * host repeats the same per-axis check before exposing READY. Arm-joint
+ * tracking remains unchanged at the tighter route-time limit.
  */
 #define HOST_BIMANUAL_TERMINAL_SETTLE_ARM_TOLERANCE_URAD INT32_C(46020)
 #if HOST_BIMANUAL_GRIPPER_TERMINAL_SETTLE_BUILD
-#define HOST_BIMANUAL_TERMINAL_SETTLE_GRIPPER_TOLERANCE_URAD INT32_C(90000)
+#define HOST_BIMANUAL_TERMINAL_SETTLE_GRIPPER_TOLERANCE_URAD INT32_C(150000)
+#define HOST_BIMANUAL_GRIPPER_TRACKING_HARD_CAP_URAD INT32_C(160000)
 #else
 #define HOST_BIMANUAL_TERMINAL_SETTLE_GRIPPER_TOLERANCE_URAD \
     HOST_BIMANUAL_TERMINAL_SETTLE_ARM_TOLERANCE_URAD

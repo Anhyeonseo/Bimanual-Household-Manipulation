@@ -7,6 +7,7 @@ import argparse
 from hashlib import sha256
 import json
 import math
+import os
 from pathlib import Path
 from statistics import median
 import sys
@@ -15,6 +16,7 @@ import time
 
 import numpy as np
 from scipy.optimize import least_squares
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 for source_path in (
@@ -74,8 +76,8 @@ MAX_JOINT_STEP_RAD = 0.18
 JOINT_GOAL_TOLERANCE_RAD = 0.0005
 PICK_PREGRASP_OFFSET_M = 0.100
 BASELINE_PICK_GRASP_OFFSET_M = 0.011
-PREVIOUS_PICK_GRASP_OFFSET_M = 0.005
-PICK_GRASP_OFFSET_M = 0.002
+PREVIOUS_PICK_GRASP_OFFSET_M = 0.002
+PICK_GRASP_OFFSET_M = -0.001
 PICK_GRASP_DOWNWARD_ADJUSTMENT_M = (
     PREVIOUS_PICK_GRASP_OFFSET_M - PICK_GRASP_OFFSET_M
 )
@@ -84,16 +86,39 @@ PICK_GRASP_CUMULATIVE_DOWNWARD_ADJUSTMENT_M = (
 )
 PICK_LIFT_OFFSET_M = 0.031
 RAW_STEP_RAD = 2.0 * math.pi / 4096.0
-GRIPPER_OPEN_TARGET_RAW = 2009
+GRIPPER_OPEN_TARGET_RAW = 2048
 GRIPPER_OPEN_RAD = (2048 - GRIPPER_OPEN_TARGET_RAW) * RAW_STEP_RAD
 GRIPPER_CLOSE_TARGET_RAW = 1948
 GRIPPER_CLOSE_RAD = (2048 - GRIPPER_CLOSE_TARGET_RAW) * RAW_STEP_RAD
 POSITION_TOLERANCE_M = 0.001
 PLAN_RESIDUAL_BOUND_M = 0.0021
 GRASP_CROSSING_RESIDUAL_BOUND_RAD = math.radians(2.0)
-DUAL_URDF_XACRO = (
+DEFAULT_DUAL_URDF_PATH = (
     ROOT / "ros2_ws/src/so101_description/urdf/so101_dual_preview.urdf.xacro"
 )
+DUAL_URDF_ENVIRONMENT = "SO101_DUAL_URDF_PATH"
+TOP_HOMOGRAPHY_PATH = (
+    ROOT
+    / "ros2_ws/src/manipulation_camera_manager/config/"
+    "top_worktable_homography.yaml"
+)
+LEFT_SCREEN_X_CORRECTION_M = 0.01372
+LEFT_SCREEN_X_CORRECTION_REASON = (
+    "operator_requested_left_target_13_72mm_screen_right"
+)
+RIGHT_SCREEN_X_CORRECTION_M = -0.02947
+RIGHT_SCREEN_X_CORRECTION_REASON = (
+    "operator_requested_right_target_29_47mm_screen_left"
+)
+
+
+def dual_urdf_path() -> Path:
+    path = Path(os.environ.get(DUAL_URDF_ENVIRONMENT, DEFAULT_DUAL_URDF_PATH))
+    if not path.is_file():
+        raise RuntimeError(f"dual robot description does not exist: {path}")
+    return path
+
+
 OPERATIONAL_LIMITS = ROOT / "config/bimanual_operational_limits.json"
 ARM_JOINT_SHORT_NAMES = (
     "base",
@@ -105,11 +130,24 @@ ARM_JOINT_SHORT_NAMES = (
 PLACE_PLAN_SHA256 = (
     "39eae1f89d2ec9b0944227ec86eef61603450e45d67c0716013ba7df0730f9f5"
 )
+INTERARM_PLACE_WORKCELL_X_M = 0.420
+INTERARM_PLACE_WORKCELL_Y_M = -0.170
+INTERARM_PLACE_EXPECTED_CENTER_X_PX = 349.96007515
+INTERARM_PLACE_RIGHT_ROUTING_MIN_X_PX = 340.0
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan-only", action="store_true")
+    parser.add_argument(
+        "--interarm-place",
+        action="store_true",
+        help=(
+            "replace the proven default place XY with the reviewed left-to-right "
+            "staging point (0.420, -0.170) m; valid only when camera routing "
+            "selects the left arm"
+        ),
+    )
     parser.add_argument("--target-samples", type=int, default=7)
     parser.add_argument("--timeout-s", type=float, default=15.0)
     parser.add_argument(
@@ -183,7 +221,7 @@ def target_sample(
         raise RuntimeError(f"Top target transform is not validated: {result}")
     x_m, y_m, z_m = (float(value) for value in result.position_m)
     workspace_x_m, workspace_y_m = workspace_coordinates_for_arm(
-        x_m, y_m, selected_arm
+        x_m, y_m, selected_arm, z_m
     )
     bounds = config.workspace
     radius_m = math.hypot(workspace_x_m, workspace_y_m)
@@ -214,7 +252,9 @@ def wait_target(node, messages, config, count, timeout_s, deadband_px):
     samples = []
     sides = []
     center_x_samples = []
+    center_y_samples = []
     image_widths = []
+    image_heights = []
     stamps = set()
     rejection = "no observation"
     while len(samples) < count and time.monotonic() < deadline:
@@ -235,7 +275,9 @@ def wait_target(node, messages, config, count, timeout_s, deadband_px):
             samples.append(target_sample(node, config, message, side))
             sides.append(side)
             center_x_samples.append(float(message.center_x_px))
+            center_y_samples.append(float(message.center_y_px))
             image_widths.append(int(message.image_width_px))
+            image_heights.append(int(message.image_height_px))
             print(
                 "DYNAMIC_PICK_TARGET_SAMPLE "
                 f"count={len(samples)}/{count} side={side} "
@@ -248,13 +290,53 @@ def wait_target(node, messages, config, count, timeout_s, deadband_px):
         raise RuntimeError(f"only {len(samples)}/{count} valid samples; {rejection}")
     if len(set(image_widths)) != 1:
         raise RuntimeError(f"camera image width changed during lock: {image_widths}")
+    if len(set(image_heights)) != 1:
+        raise RuntimeError(
+            f"camera image height changed during lock: {image_heights}"
+        )
     selected_arm = require_consistent_arm_selection(sides)
     return (
         lock_target(samples),
         selected_arm,
         float(median(center_x_samples)),
+        float(median(center_y_samples)),
         image_widths[0],
+        image_heights[0],
     )
+
+
+def screen_positive_x_unit_workcell(
+    homography_path: Path,
+    center_x_px: float,
+    center_y_px: float,
+) -> tuple[float, float]:
+    document = yaml.safe_load(homography_path.read_text(encoding="utf-8"))
+    pixel_to_board = np.asarray(
+        document["homography"]["rectified_pixel_to_board_m"]["data"],
+        dtype=float,
+    )
+    base_from_board = np.asarray(
+        document["base_registration"]["base_from_board"]["data"],
+        dtype=float,
+    )
+    if pixel_to_board.shape != (3, 3) or base_from_board.shape != (4, 4):
+        raise RuntimeError("top homography matrix dimensions are invalid")
+
+    def project(pixel_x: float) -> np.ndarray:
+        homogeneous = pixel_to_board @ np.asarray(
+            (pixel_x, center_y_px, 1.0), dtype=float
+        )
+        if abs(float(homogeneous[2])) < 1.0e-12:
+            raise RuntimeError("top homography screen-x direction is singular")
+        return homogeneous[:2] / homogeneous[2]
+
+    board_delta = project(center_x_px + 1.0) - project(center_x_px)
+    workcell_delta = base_from_board[:2, :2] @ board_delta
+    length = float(np.linalg.norm(workcell_delta))
+    if not math.isfinite(length) or length < 1.0e-12:
+        raise RuntimeError("top homography screen-x direction is invalid")
+    unit = workcell_delta / length
+    return float(unit[0]), float(unit[1])
 
 
 def arm_contract(side: str) -> tuple[str, tuple[str, ...], str]:
@@ -361,7 +443,7 @@ def measure_tcp(fk_client, node, side, joint_names, positions):
 def load_yaw_kinematics(side: str) -> GraspYawKinematics:
     import xacro
 
-    xml = xacro.process_file(str(DUAL_URDF_XACRO)).toxml()
+    xml = xacro.process_file(str(dual_urdf_path())).toxml()
     with tempfile.NamedTemporaryFile("w", suffix=".urdf") as urdf:
         urdf.write(xml)
         urdf.flush()
@@ -400,10 +482,10 @@ def solve_endpoint_pose_with_locked_wrist(
     """Solve TCP xyz with wrist roll locked at the bimanual q0 angle."""
     original = np.asarray(position_only_solution, dtype=float)
     reference = np.asarray(reference, dtype=float)
-    target_x, target_y = workspace_coordinates_for_arm(
-        target_workcell[0], target_workcell[1], side
+    target = kinematics.point_in_base_frame(
+        np.asarray(target_workcell, dtype=float),
+        root_link=WORKCELL_FRAME,
     )
-    target = np.array([target_x, target_y, target_workcell[2]], dtype=float)
     locked_wrist_roll = 0.0
     if not lower[4] <= locked_wrist_roll <= upper[4]:
         raise RuntimeError(
@@ -592,6 +674,51 @@ def load_place_targets(path: Path):
     return result
 
 
+def select_place_targets(path: Path, *, interarm_place: bool, side: str):
+    targets = load_place_targets(path)
+    source = {
+        "path": str(path),
+        "sha256": PLACE_PLAN_SHA256,
+        "coordinate_reused": "workcell_base_link",
+        "joint_solution_reused": False,
+        "mode": "proven_default_place",
+        "right_arm_physical_place_validation_required": side == "right",
+    }
+    if not interarm_place:
+        return targets, source
+    if side != "left":
+        raise RuntimeError(
+            "--interarm-place is only valid for the left-arm first stage"
+        )
+    targets = {
+        name: (
+            INTERARM_PLACE_WORKCELL_X_M,
+            INTERARM_PLACE_WORKCELL_Y_M,
+            values[2],
+            values[3],
+        )
+        for name, values in targets.items()
+    }
+    source.update({
+        "mode": "left_to_right_interarm_stage",
+        "default_place_xy_replaced": True,
+        "interarm_place_workcell_xy_m": [
+            INTERARM_PLACE_WORKCELL_X_M,
+            INTERARM_PLACE_WORKCELL_Y_M,
+        ],
+        "expected_next_selected_arm": "right",
+        "expected_center_x_px_from_full_table_calibration": (
+            INTERARM_PLACE_EXPECTED_CENTER_X_PX
+        ),
+        "right_routing_minimum_x_px": INTERARM_PLACE_RIGHT_ROUTING_MIN_X_PX,
+        "right_routing_margin_px": (
+            INTERARM_PLACE_EXPECTED_CENTER_X_PX
+            - INTERARM_PLACE_RIGHT_ROUTING_MIN_X_PX
+        ),
+    })
+    return targets, source
+
+
 def interpolate_segments(start, target):
     largest = max(abs(b - a) for a, b in zip(start, target, strict=True))
     count = max(1, math.ceil(largest / MAX_JOINT_STEP_RAD))
@@ -754,7 +881,14 @@ def main() -> int:
             raise RuntimeError(f"service unavailable: {PLAN_SERVICE}")
         if not fk_client.wait_for_service(timeout_sec=args.timeout_s):
             raise RuntimeError(f"service unavailable: {FK_SERVICE}")
-        locked, side, center_x_px, image_width_px = wait_target(
+        (
+            locked,
+            side,
+            center_x_px,
+            center_y_px,
+            image_width_px,
+            image_height_px,
+        ) = wait_target(
             node,
             messages,
             config,
@@ -762,13 +896,59 @@ def main() -> int:
             args.timeout_s,
             args.routing_deadband_px,
         )
-        x, y, z, yaw = (
+        observed_x, observed_y, z, yaw = (
             locked.x_m,
             locked.y_m,
             locked.z_m,
             locked.yaw_rad,
         )
-        place = load_place_targets(args.place_plan)
+        x, y = observed_x, observed_y
+        correction_m = (
+            LEFT_SCREEN_X_CORRECTION_M
+            if side == "left"
+            else RIGHT_SCREEN_X_CORRECTION_M
+        )
+        correction_reason = (
+            LEFT_SCREEN_X_CORRECTION_REASON
+            if side == "left"
+            else RIGHT_SCREEN_X_CORRECTION_REASON
+        )
+        unit_x, unit_y = screen_positive_x_unit_workcell(
+            TOP_HOMOGRAPHY_PATH,
+            center_x_px,
+            center_y_px,
+        )
+        delta_x = unit_x * correction_m
+        delta_y = unit_y * correction_m
+        x += delta_x
+        y += delta_y
+        lateral_adjustment = {
+            "applied": True,
+            "selected_arm": side,
+            "screen_axis": "positive_image_x",
+            "operator_requested_screen_x_correction_m": correction_m,
+            "command_correction_m": correction_m,
+            "direction_unit_workcell_xy": [unit_x, unit_y],
+            "delta_workcell_xy_m": [delta_x, delta_y],
+            "observed_target_xy_m": [observed_x, observed_y],
+            "corrected_target_xy_m": [x, y],
+            "reason": correction_reason,
+            "homography": {
+                "path": str(TOP_HOMOGRAPHY_PATH),
+                "sha256": sha256_file(TOP_HOMOGRAPHY_PATH),
+            },
+        }
+        screen_direction = "right" if correction_m > 0.0 else "left"
+        print(
+            f"DYNAMIC_PICK_{side.upper()}_LATERAL_CORRECTION_PASS "
+            f"screen_{screen_direction}_mm={abs(correction_m) * 1000.0:.3f} "
+            f"delta_workcell_mm=({delta_x * 1000.0:.3f},"
+            f"{delta_y * 1000.0:.3f}) "
+            f"corrected_target=({x:.6f},{y:.6f})"
+        )
+        place, place_source = select_place_targets(
+            args.place_plan, interarm_place=args.interarm_place, side=side
+        )
         target_specs = {
             "pick_pregrasp": (x, y, z + PICK_PREGRASP_OFFSET_M, yaw),
             "pick_grasp": (x, y, z + PICK_GRASP_OFFSET_M, yaw),
@@ -835,7 +1015,7 @@ def main() -> int:
         steps = steps_from_phases(phases)
         _, selected_joints, _ = arm_contract(side)
         document = {
-            "schema_version": 9,
+            "schema_version": 12,
             "status": STATUS,
             "generated_at_unix_s": time.time(),
             "execution_api_used": False,
@@ -846,11 +1026,18 @@ def main() -> int:
                 "rule": "source_image_center_x",
                 "selected_arm": side,
                 "center_x_px": center_x_px,
+                "center_y_px": center_y_px,
                 "image_width_px": image_width_px,
+                "image_height_px": image_height_px,
                 "deadband_px": args.routing_deadband_px,
                 "nonselected_arm_behavior": "hold_bimanual_q0",
             },
             "planning_frame": WORKCELL_FRAME,
+            "robot_description": {
+                "path": str(dual_urdf_path()),
+                "sha256": sha256_file(dual_urdf_path()),
+                "environment": DUAL_URDF_ENVIRONMENT,
+            },
             "joint_names": list(selected_joints),
             "q0_rad": list(Q0),
             "target_lock": {
@@ -864,6 +1051,7 @@ def main() -> int:
                     locked.maximum_position_spread_m
                 ),
             },
+            "lateral_adjustment": lateral_adjustment,
             "pick_offsets_m": {
                 "pregrasp": PICK_PREGRASP_OFFSET_M,
                 "grasp": PICK_GRASP_OFFSET_M,
@@ -877,7 +1065,7 @@ def main() -> int:
                 "cumulative_downward_adjustment_m": (
                     PICK_GRASP_CUMULATIVE_DOWNWARD_ADJUSTMENT_M
                 ),
-                "reason": "operator_observed_run08_grasp_still_too_high",
+                "reason": "operator_observed_run10_grasp_still_too_high",
             },
             "gripper_contract": {
                 "preopen_required": True,
@@ -891,13 +1079,7 @@ def main() -> int:
                 "held_object_observed_residual_raw": 8,
                 "expected_held_residual_after_target_change_raw": 23,
             },
-            "place_target_source": {
-                "path": str(args.place_plan),
-                "sha256": PLACE_PLAN_SHA256,
-                "coordinate_reused": "workcell_base_link",
-                "joint_solution_reused": False,
-                "right_arm_physical_place_validation_required": side == "right",
-            },
+            "place_target_source": place_source,
             "calibration": {
                 "path": str(args.calibration),
                 "sha256": sha256_file(args.calibration),
@@ -945,6 +1127,12 @@ def main() -> int:
             f"downward_adjustment_m={PICK_GRASP_DOWNWARD_ADJUSTMENT_M:.6f} "
             f"cumulative_downward_adjustment_m={PICK_GRASP_CUMULATIVE_DOWNWARD_ADJUSTMENT_M:.6f} "
             f"grasp_target_z_m={z + PICK_GRASP_OFFSET_M:.6f}"
+        )
+        print(
+            "DYNAMIC_INTERARM_PLACE_MODE "
+            f"enabled={str(args.interarm_place).lower()} "
+            f"place_xy=({place['grasp'][0]:.6f},{place['grasp'][1]:.6f}) "
+            f"expected_next_arm={place_source.get('expected_next_selected_arm', 'none')}"
         )
         print(
             "DYNAMIC_PICK_GRIPPER_CONTRACT_PASS "

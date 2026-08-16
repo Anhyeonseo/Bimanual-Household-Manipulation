@@ -1,16 +1,16 @@
 # 양팔 상단 애플리케이션 인터페이스 계약
 
-- 계약 버전: `F8.7 + proven resident/application contract / 2026-08-15`
+- 계약 버전: `F8.9 proven bimanual task contract / 2026-08-16`
 - 대상: Raspberry Pi 5의 상단 애플리케이션, MoveIt/FSM adapter, 이미 학습된 policy inference runtime
-- STM32 기준 firmware: `0x00024807`, protocol `2`, joint count `12`
+- STM32 기준 firmware: `0x00024809`, protocol `2`, joint count `12`
 - 이 문서에서 명시하지 않은 STM32 serial/wire API는 상단 앱의 공개 API가 아니다.
 
 ## 1. 고정된 배포 identity
 
 | 항목 | 값 |
 |---|---|
-| firmware | `0x00024807` |
-| HEX SHA-256 | `9a9cd49247428478cae831d948977274d1188e9b0b0756d02de8c7c47fd431aa` |
+| firmware | `0x00024809` |
+| HEX SHA-256 | `a916a5ade13200df3572717f1c0a86c207cb5b6e91344fd9b78d276c60a619b0` |
 | protocol / joints | `2 / 12` |
 | capabilities | `0xEFFFFFFF` |
 | left/right calibration hash | `0x2D90167E / 0x2D90167E` |
@@ -41,6 +41,12 @@ STM32 실측 12축 ─────> ROS feedback ──────────�
 - Pi에서 resident node 하나만 STM32 serial과 backend lease를 소유한다.
 - 여러 명령 소스는 ROS service 앞의 단일 상단 arbiter에서 선택한다. 여러 프로세스가 서로 다른 `owner`로 service를 경쟁 호출하지 않는다.
 
+F8.9는 startup torque-disable의 bounded register-40 readback recovery를
+유지한다. 팔 관절의 route tracking/terminal 계약은 변경하지 않고, 정상 물체
+접촉을 tracking fault로 오인하지 않도록 gripper 2축에만 150,000 µrad
+route/terminal 한계와 160,000 µrad firmware hard cap을 적용한다. F8.9는
+no-motion, finite reuse와 실제 left→right Top-camera 전달을 통과했다.
+
 F8.7의 `failed_pairs`는 누적 degraded-telemetry 진단값이다. in-motion 위치
 read가 1~2회 연속 실패해도 다음 성공 pair에서 streak를 0으로 복구하며,
 3회 연속 실패할 때 firmware가 coordinated stop을 latch한다. 반면 측정된
@@ -69,7 +75,7 @@ ros2 launch single_arm_bridge bimanual_stream.launch.py \
 확인한 뒤에만 명령을 보낸다.
 
 ```text
-resident bimanual stream ready firmware=0x00024807 motion_authorized=true
+resident bimanual stream ready firmware=0x00024809 motion_authorized=true
 ```
 
 ## 4. 공개 ROS API
@@ -94,7 +100,7 @@ resident bimanual stream ready firmware=0x00024807 motion_authorized=true
   "owner": null,
   "arbiter_epoch": 0,
   "motion_authorized": true,
-  "firmware_version": "0x00024807"
+  "firmware_version": "0x00024809"
 }
 ```
 
@@ -190,7 +196,7 @@ string diagnostic
 - offset과 point 간격은 양수이면서 `5 ms`의 배수여야 한다.
 - 최초 START는 최소 `2` point이며 최초 lead는 최소 `20 ms`다.
 - 위치 변화는 각 `5 ms`당 최대 `9,000 µrad`다. 긴 point 간격에서는 같은 비율로 허용량이 늘어난다.
-- 운영 tracking error limit은 관절별 `90,000 µrad`, 최대 apply lateness는 `5 ms`다.
+- 운영 tracking error limit은 arm 10축 `90,000 µrad`, gripper 2축 `150,000 µrad`이며 최대 apply lateness는 `5 ms`다.
 - `1..9 points`와 `400 ms` maximum lead는 STM32 wire window의 제한이다.
   ROS `START_FINITE`의 완전한 route 길이/종료 시각 제한으로 해석하지 않는다.
 
@@ -203,7 +209,7 @@ string diagnostic
   STM32에 공급한다. 상단 앱이 finite route를 APPEND로 수동 분할하지 않는다.
 - 마지막 point tick이 정상 horizon이다.
 - firmware는 마지막 dispatch 뒤에도 feedback sweep을 계속한다. arm 10축은
-  최종 목표의 `46,020 µrad`, gripper 2축은 접촉 hold를 고려한 `90,000 µrad`
+  최종 목표의 `46,020 µrad`, gripper 2축은 접촉 hold를 고려한 `150,000 µrad`
   이내인 완전 sweep이 2회 연속 확인되어야 terminal settle을 성공시킨다.
   최대 대기 시간은 `1000 ms`다.
 - Pi adapter는 firmware 성공 뒤에도 `sample_age_ms <= 150`인 완전 실측
@@ -340,7 +346,7 @@ startup -> ready(owner=null, epoch=0)
   torque hold를 보존한 `HOLD_REQUIRED`로 보고할 수 있다. 팔을 지지할 준비 없이
   예외 처리만으로 즉시 torque-off하지 않는다.
 - arm terminal acceptance는 firmware/resident와 같은 `46,020 µrad`, gripper는
-  접촉 hold용 `90,000 µrad`다. 앱이 별도의 더 엄격한 30 mrad 같은 중복
+  접촉 hold용 `150,000 µrad`다. 앱이 별도의 더 엄격한 30 mrad 같은 중복
   gate를 만들어 정상 firmware 완료를 실패로 뒤집지 않는다.
 
 ## 11. 검증된 evidence
@@ -359,11 +365,13 @@ startup -> ready(owner=null, epoch=0)
 | F8.7 resident finite reuse | current-pose hold 2회, epoch 1/2, 매 leg `ACTIVE -> READY`, 명시적 STOP | `019c84f95207c06cf2ff3c1727510145734fd76fd9f40b839a0423478fec82df` |
 | Top-camera application run20 | fresh anchor, Q0 + 6 actions, epoch 7, 최종 armed READY/HOLD | `67d2d1de5035c937c670a5f23ed0447392479ec81145c607a00ec4ca41aebd1a` |
 | Top-camera application run22 | 두 번째 end-to-end Pick/Place, arm error max 21.476 mrad, 최종 armed READY/HOLD | `c887c8c723a5b870841cd404ab7673040f7dd0e26c58994ea068c45d0f1edd4c` |
+| F8.9 ROS no-motion | 12축 ready, motion 차단 | `248ee592fa6dd9f68134574afd4a21ff5679bf939cffa01c7e8d7cd652c687d8` |
+| F8.9 resident finite reuse | current-pose hold 2회, epoch 1/2, 명시적 STOP | `860f626d2e8a6e5ec5a5bcc5f3a38952ce67ef751b482950168dc6ff562a5f41` |
+| F8.9 left→right pen transfer | fresh plan/validate/execute 2회, retry 0, 최종 READY/HOLD | `408c21d6e7211834351123c5058cf7a8be50b8d20d064ec3f861230099198fbc` |
 
-`run20`과 `run22`는 카메라 검출, source-image x 기반 왼팔 선택, 양팔 연속 Q0,
-gripper open/close, pick/lift/place/release, q0 복귀를 automatic retry 없이 완주했다.
-두 실행 모두 최초 자세는 `resident_immediate_pre_motion_anchor`였고 성공 뒤
-`ready(owner=top_camera_pick_place_application, epoch=7)`에서 torque hold를 유지했다.
+F8.9 session03은 source-image x로 왼팔과 오른팔을 순서대로 선택하고,
+각 팔에서 fresh plan과 SHA를 생성했다. gripper open/close, pick/lift/place/release,
+q0 복귀를 automatic retry 없이 완주하고 최종 torque hold를 유지했다.
 
 ## 12. 상단 앱 완료 조건
 

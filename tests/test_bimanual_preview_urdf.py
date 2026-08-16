@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import subprocess
+import sys
+
+import numpy as np
+import pytest
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+from grasp_yaw_kinematics import GraspYawKinematics
+
 ENTRYPOINT = (
     ROOT
     / "ros2_ws/src/so101_description/urdf/so101_dual_preview.urdf.xacro"
@@ -180,3 +187,43 @@ def test_right_uses_same_camera_mount_wrist_part_without_fake_optical_frame() ->
     )
     assert "right_wrist_camera_link" not in links
     assert "right_wrist_camera_optical_frame" not in links
+
+
+def test_right_data_fit_candidate_constrains_equal_height_horizontal_bases() -> None:
+    candidate = (
+        ROOT
+        / "ros2_ws/src/so101_description/urdf/so101_dual_right_data_fit_candidate.urdf"
+    )
+    root = ET.parse(candidate).getroot()
+    assert root.attrib["name"] == "so101_dual_preview"
+    mount = _joints(root)["right_mount_arm_base_joint"].find("origin")
+    assert mount is not None
+    assert mount.attrib == {
+        "rpy": "0 0 0",
+        "xyz": "0 -0.232064146 0",
+    }
+    joints = _joints(root)
+    assert joints["right_base_joint"].find("origin").attrib != (
+        joints["left_base_joint"].find("origin").attrib
+    )
+
+    kinematics = GraspYawKinematics(candidate, prefix="right_")
+    local = kinematics.point_in_base_frame(
+        np.array([0.420, -0.170, 0.0063]),
+        root_link="workcell_base_link",
+    )
+    assert local == pytest.approx(
+        [0.420, 0.062064146, 0.0063], abs=1e-8
+    )
+
+
+def test_all_dual_moveit_launches_share_the_opt_in_calibrated_urdf() -> None:
+    launch_dir = ROOT / "ros2_ws/src/so101_moveit_config/launch"
+    for name in (
+        "dual_rsp.launch.py",
+        "dual_static_virtual_joint_tfs.launch.py",
+        "dual_move_group.launch.py",
+        "dual_moveit_rviz.launch.py",
+    ):
+        source = (launch_dir / name).read_text(encoding="utf-8")
+        assert 'os.environ.get("SO101_DUAL_URDF_PATH", default_urdf)' in source

@@ -62,7 +62,7 @@ def test_camera_visible_pose_is_outside_approved_hardware_workspace():
     config = MODULE.load_shadow_config(CONFIG_PATH)
     result = MODULE.evaluate_shadow(config, observation())
     assert result.position_m == pytest.approx(
-        [0.451740, -0.121469, 0.006300],
+        [0.4713886143024932, -0.165461710262537, 0.006300],
         abs=1e-6,
     )
     assert result.inside_workspace is False
@@ -83,7 +83,7 @@ def test_stage7_pick_center_is_inside_expanded_shadow_workspace_but_non_actionab
         ),
     )
     assert result.position_m == pytest.approx(
-        [0.375923, -0.129639, 0.006300],
+        [0.3955716143024932, -0.173631710262537, 0.006300],
         abs=1e-6,
     )
     assert result.inside_workspace is True
@@ -103,7 +103,7 @@ def test_stage7_pick_center_is_inside_expanded_shadow_workspace_but_non_actionab
         ),
         ('source_frame', 'left_base_link', 'SOURCE_FRAME_MISMATCH'),
         ('x_m', -0.001, 'SOURCE_OUTSIDE_BOARD'),
-        ('y_m', 0.281, 'SOURCE_OUTSIDE_BOARD'),
+        ('y_m', 0.394, 'SOURCE_OUTSIDE_BOARD'),
         (
             'robot_target_available',
             True,

@@ -43,7 +43,7 @@ CANONICAL_JOINT_NAMES = (
     "right_wrist_roll_joint",
     "right_gripper_joint",
 )
-F8_FIRMWARE_VERSION = 0x00024807
+F8_FIRMWARE_VERSION = 0x00024809
 F8_CAPABILITIES = 0xEFFFFFFF
 CALIBRATION_HASH = 0x2D90167E
 PROTOCOL_VERSION = 2
@@ -54,9 +54,10 @@ DEFAULT_OPEN_COMMAND_TIMEOUT_MS = 100
 DEFAULT_FINITE_COMMAND_TIMEOUT_MS = 500
 DEFAULT_MAXIMUM_APPLY_LATENESS_MS = 5
 DEFAULT_TRACKING_ERROR_LIMIT_URAD = 90_000
+DEFAULT_GRIPPER_TRACKING_ERROR_LIMIT_URAD = 150_000
 DEFAULT_MAXIMUM_STEP_URAD_PER_TICK = 9_000
 DEFAULT_TERMINAL_SETTLE_TOLERANCE_URAD = 46_020
-DEFAULT_TERMINAL_SETTLE_GRIPPER_TOLERANCE_URAD = 90_000
+DEFAULT_TERMINAL_SETTLE_GRIPPER_TOLERANCE_URAD = 150_000
 DEFAULT_TERMINAL_FEEDBACK_MAX_AGE_MS = 150
 DEFAULT_HEARTBEAT_PERIOD_S = 0.1
 DEFAULT_FEEDBACK_TRANSPORT_FAILURE_LIMIT = 3
@@ -119,6 +120,9 @@ class ResidentStreamConfig:
     finite_command_timeout_ms: int = DEFAULT_FINITE_COMMAND_TIMEOUT_MS
     maximum_apply_lateness_ms: int = DEFAULT_MAXIMUM_APPLY_LATENESS_MS
     tracking_error_limit_urad: int = DEFAULT_TRACKING_ERROR_LIMIT_URAD
+    gripper_tracking_error_limit_urad: int = (
+        DEFAULT_GRIPPER_TRACKING_ERROR_LIMIT_URAD
+    )
     maximum_step_urad_per_tick: int = DEFAULT_MAXIMUM_STEP_URAD_PER_TICK
     terminal_settle_tolerance_urad: int = (
         DEFAULT_TERMINAL_SETTLE_TOLERANCE_URAD
@@ -712,10 +716,12 @@ class ResidentBimanualStreamAdapter:
             maximum_lead_ms=self._config.maximum_lead_ms,
             command_timeout_ms=timeout,
             maximum_apply_lateness_ms=self._config.maximum_apply_lateness_ms,
-            tracking_error_limit_urad=(
-                self._config.tracking_error_limit_urad,
-            )
-            * JOINT_COUNT,
+            tracking_error_limit_urad=tuple(
+                self._config.gripper_tracking_error_limit_urad
+                if index in (5, 11)
+                else self._config.tracking_error_limit_urad
+                for index in range(JOINT_COUNT)
+            ),
             maximum_step_urad_per_tick=(
                 self._config.maximum_step_urad_per_tick,
             )

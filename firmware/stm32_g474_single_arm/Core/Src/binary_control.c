@@ -2321,7 +2321,15 @@ static actuator_v2_stream_hard_caps_t Host_V2HardCaps(void)
     for (uint8_t joint = 0U; joint < ACTUATOR_V2_JOINT_COUNT; joint++)
     {
         /* Validation-only values: these cannot authorize servo output. */
-        caps.tracking_error_limit_urad[joint] = 100000;
+        caps.tracking_error_limit_urad[joint] =
+#if HOST_BIMANUAL_GRIPPER_TERMINAL_SETTLE_BUILD
+            ((joint == (SINGLE_ARM_JOINT_COUNT - 1U)) ||
+             (joint == (ACTUATOR_V2_JOINT_COUNT - 1U)))
+                ? HOST_BIMANUAL_GRIPPER_TRACKING_HARD_CAP_URAD
+                : INT32_C(100000);
+#else
+            INT32_C(100000);
+#endif
         caps.maximum_step_urad_per_tick[joint] = 10000;
     }
     return caps;

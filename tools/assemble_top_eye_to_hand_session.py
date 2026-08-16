@@ -48,6 +48,7 @@ def relative_path(path: Path, output_directory: Path) -> str:
 def validated_capture(
     input_value: Path,
     output_directory: Path,
+    arm: str = "left",
 ) -> dict:
     yaml_path = capture_yaml_path(input_value)
     document = load_yaml(yaml_path)
@@ -64,6 +65,11 @@ def validated_capture(
     capture_id = str(capture.get("id", "")).strip()
     if not capture_id:
         raise ValueError(f"capture id is missing: {yaml_path}")
+    capture_arm = str(capture.get("arm", "left")).strip()
+    if capture_arm != arm:
+        raise ValueError(
+            f"{capture_id} arm {capture_arm!r} != session arm {arm!r}"
+        )
 
     marker_ids = tuple(int(value) for value in capture.get(
         "detected_marker_ids",
@@ -106,6 +112,7 @@ def validated_capture(
 
     return {
         "id": capture_id,
+        "arm": capture_arm,
         "measured_arm_rad": measured,
         "joint_span_rad": joint_span,
         "image_files": image_paths,
@@ -129,10 +136,13 @@ def assemble_document(
     training_values: list[Path],
     validation_values: list[Path],
     output_path: Path,
+    arm: str = "left",
 ) -> dict:
     session_id = session_id.strip()
     if not session_id:
         raise ValueError("session_id must not be empty")
+    if arm not in ("left", "right"):
+        raise ValueError(f"unsupported arm: {arm}")
     if len(training_values) < MIN_TRAINING_CAPTURES:
         raise ValueError(
             f"training capture count {len(training_values)} < "
@@ -146,11 +156,11 @@ def assemble_document(
 
     output_directory = output_path.resolve().parent
     training = [
-        validated_capture(value, output_directory)
+        validated_capture(value, output_directory, arm)
         for value in training_values
     ]
     validation = [
-        validated_capture(value, output_directory)
+        validated_capture(value, output_directory, arm)
         for value in validation_values
     ]
     capture_ids = [
@@ -165,9 +175,10 @@ def assemble_document(
         "status": "CAPTURE_SET_VALIDATED_READY_TO_SOLVE",
         "motion_authorized": False,
         "robot_target_available": False,
+        "arm": arm,
         "frames": {
-            "robot": "left_base_link",
-            "gripper": "left_gripper_frame_link",
+            "robot": f"{arm}_base_link",
+            "gripper": f"{arm}_gripper_frame_link",
             "camera": "top_camera_optical_frame",
             "target": "tcp_aruco_gridboard",
         },
@@ -191,6 +202,7 @@ def assemble_document(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--session-id", required=True)
+    parser.add_argument("--arm", choices=("left", "right"), default="left")
     parser.add_argument(
         "--training-capture",
         required=True,
@@ -216,6 +228,7 @@ def main() -> int:
         args.training_capture,
         args.validation_capture,
         args.output,
+        args.arm,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

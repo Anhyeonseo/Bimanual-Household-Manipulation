@@ -41,7 +41,8 @@ CANONICAL_JOINTS = (
 ARM_JOINTS_BY_SIDE = {"left": LEFT_ARM_JOINTS, "right": RIGHT_ARM_JOINTS}
 BIMANUAL_ARM_INDICES = (0, 1, 2, 3, 4, 6, 7, 8, 9, 10)
 DEFAULT_CAMERA_CENTER_DEADBAND_PX = 40.0
-RIGHT_BASE_Y_IN_WORKCELL_M = -0.232064146
+RIGHT_BASE_TRANSLATION_IN_WORKCELL_M = (0.0, -0.232064146, 0.0)
+RIGHT_BASE_RPY_IN_WORKCELL_RAD = (0.0, 0.0, 0.0)
 
 EXPECTED_MANIFEST_SHA256 = (
     "94f6eb82eab531276518ab2409b1fbf97e43b7e72b8768f0c3ddfafc7028a297"
@@ -155,17 +156,41 @@ def require_consistent_arm_selection(sides: Iterable[str]) -> str:
 
 
 def workspace_coordinates_for_arm(
-    x_m: float, y_m: float, arm: str
+    x_m: float, y_m: float, arm: str, z_m: float = 0.0063
 ) -> tuple[float, float]:
-    """Express a workcell target in the selected arm's parallel base frame."""
+    """Express a workcell target in the selected arm's calibrated base frame."""
     if arm not in ARM_JOINTS_BY_SIDE:
         raise TopPickPlaceContractError(f"unsupported arm: {arm}")
     x_m = float(x_m)
     y_m = float(y_m)
-    if not math.isfinite(x_m) or not math.isfinite(y_m):
+    z_m = float(z_m)
+    if not all(math.isfinite(value) for value in (x_m, y_m, z_m)):
         raise TopPickPlaceContractError("workspace coordinates must be finite")
-    base_y_m = 0.0 if arm == "left" else RIGHT_BASE_Y_IN_WORKCELL_M
-    return x_m, y_m - base_y_m
+    if arm == "left":
+        return x_m, y_m
+
+    roll, pitch, yaw = RIGHT_BASE_RPY_IN_WORKCELL_RAD
+    cr, sr = math.cos(roll), math.sin(roll)
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    root_from_base = (
+        (cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr),
+        (sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr),
+        (-sp, cp * sr, cp * cr),
+    )
+    delta = tuple(
+        value - origin
+        for value, origin in zip(
+            (x_m, y_m, z_m),
+            RIGHT_BASE_TRANSLATION_IN_WORKCELL_M,
+            strict=True,
+        )
+    )
+    base = tuple(
+        sum(root_from_base[row][column] * delta[row] for row in range(3))
+        for column in range(3)
+    )
+    return base[0], base[1]
 
 
 def sha256_file(path: Path) -> str:

@@ -25,7 +25,7 @@
 
 ## 실행 구조
 
-1. Pi resident adapter가 STM32 `0x00024807`과 12축 feedback을 소유한다.
+1. Pi resident adapter가 STM32 `0x00024809`과 12축 feedback을 소유한다.
 2. PC Top perception이 물체의 board pose와 원본 픽셀 중심을 발행한다.
 3. PC dual MoveIt이 `left_arm`과 `right_arm` 중 선택된 그룹만 plan-only한다.
 4. 생성된 JSON과 SHA-256을 사람이 확인한다.
@@ -61,7 +61,7 @@ source ros2_ws/install/setup.bash
 ros2 launch single_arm_bridge bimanual_stream.launch.py motion_authorized:=true
 ```
 
-준비 로그는 `firmware=0x00024807 motion_authorized=true`여야 한다. 이 노드는 기존
+준비 로그는 `firmware=0x00024809 motion_authorized=true`여야 한다. 이 노드는 기존
 `/bimanual_stream_adapter/joint_states`와 MoveIt용 `/joint_states`를 함께 발행한다.
 
 새 실행 전 status는 반드시 `ready`, `owner=null`, `arbiter_epoch=0`이어야 한다.
@@ -132,50 +132,25 @@ python3 tools/plan_top_camera_pick_place_once.py   --plan-only   --routing-deadb
 선택 팔의 IK로 새로 풀며, 반대 팔 q0를 포함한 self-collision 검사를 통과해야 한다.
 기존 place의 **관절각**은 재사용하지 않는다.
 
-현재 손목 회전 분리 시험에서는 MoveIt의 5축 `position_only_ik` 끝점을 그대로
-사용하지 않는다. wrist roll을 양팔 q0인 `0.0 rad`로 고정하고 나머지 4축만 수치
-최적화하여 TCP xyz를 맞춘다. 물체 yaw와 손가락 닫힘 축의 관계는 진단값으로만
-기록하며 실행 조건으로 강제하지 않는다. 모든 endpoint와 arm step의 wrist roll이
-0인지 확인한 뒤 그 끝점 사이를 다시 MoveIt으로 plan-only하여 self-collision을 검사한다. 이
-보정 메타데이터가 없는 이전 JSON은 실행기가 거부한다.
+현재 펜 reference task는 wrist roll을 양팔 q0인 `0.0 rad`로 고정하고
+나머지 4축으로 TCP xyz를 맞춘다. 물체 yaw는 진단값이며 펜 실행 조건으로
+강제하지 않는다. 캔 task의 orientation-aware wrist roll은 다음 PR에서
+별도 승격한다.
 
-그리퍼는 안전한 q0에서 먼저 검증된 release 위치 `raw 2009`
-(`0.059825 rad`)까지 연 뒤 접근하고, grasp 위치에서 왼팔/오른팔 공통 의미
-좌표 `raw 1948` (`0.153398 rad`)까지 닫는다. 직전 실기에서 기존 `raw 1963` 목표는 물체를 실제로
-잡았지만 잔차가 8 raw에 그쳐 접촉 판정 14 raw를 넘지 못했다. 목표를 15 raw
-더 닫으면 같은 접촉 위치에서 예상 잔차는 23 raw가 된다. 빈 그립에서 관측한
-2 raw와 구분되며, F8.7 gripper terminal settle 허용치 약 59 raw 안이다.
-arm 관절 허용치와 route-time tracking 한계는 바꾸지 않는다. `pick_open`은 측정
-잔차가 30 raw 이내여야 접근을 계속한다. 실행기는 이 순서와
-두 목표, 접촉 임계값이 포함된 schema 9 계획만 받는다.
+그리퍼는 `raw 2048`까지 연 뒤 접근하고 grasp에서 `raw 1948`까지 닫는다.
+접촉 판정은 잔차 14 raw 이상이다. F8.9는 arm route tracking 90,000 µrad와
+terminal 46,020 µrad를 유지하고, 그리퍼만 route/terminal 150,000 µrad,
+firmware hard cap 160,000 µrad를 적용한다.
 
-`run07` 실기 관찰에서 `object_z + 0.011 m`인 17.3 mm TCP 목표를 3 mm씩
-두 번 낮춰 8 mm, 5 mm offset을 시험했다. F8.6 `run15`에서는 5 mm
-offset의 11.3 mm TCP가 여전히 충분히 내려가지 않아 pick close가 물체를
-손가락 안쪽에 넣기 전에 끝났음을 작업자가 확인했다. firmware gripper
-terminal 안전 한계는 변경하지 않고 같은 3 mm를 한 번 더 내려 동적 grasp
-offset을 2 mm, 6.3 mm object z 기준 목표를 8.3 mm로 정했다. 기준 11 mm
-대비 누적 하향량은 9 mm다. 계획에는 기준/이전/선택 offset과 증분/누적
-하향량을 모두 기록하고 실행기가 일치 여부를 검사한다.
+동적 grasp 목표는 object z 기준 `-0.001 m` offset을 사용한다. 계획에는
+기준/선택 offset, 화면축 보정, homography SHA와 corrected target을 기록하고
+실행기가 schema 12 계약과 plan SHA를 검증한다.
 
-실행기는 검증된 `200 raw/s` 속도로 경로를 50 ms 시각열로 만들고,
-resident가 긴 finite horizon을 9점/400 ms wire batch로 계속 공급한다.
-q0 복귀는 연속 finite leg 1개이며 작업 경로는 기존 성공 방식과 같이 팔
-연속 leg 3개로 묶는다. 중간 MoveIt waypoint에서는 정지·정착 판정을 하지
-않고, pick grasp/place grasp/q0의 물리적 종료점에서만 firmware terminal
-settle을 검사한다. arm은 firmware와 resident가 공통으로 사용하는
-`46.020 mrad`, gripper는 접촉 hold용 `90 mrad` 계약을 적용한다. finite 완료
-직후의 첫 피드백만으로
-판정하지 않는다. F8.7 firmware가 마지막 goal과 torque를 유지한 채 12회 연속
-measured joint pair를 확인하고, resident adapter가 완전한 12축 snapshot의
-freshness와 terminal 오차를 검증한 뒤에만 `READY`가 된다. resident node는
-그 측정값을 새 terminal anchor로 발행하며 앱은 해당 epoch의 새 anchor에
-동일한 `46.020 mrad` arm 기준을 적용한다. READY 뒤에는 tracking sampler가 정지하므로
-동일한 `/feedback`의 증가하는 sample age를 새 정착 관측으로 중복 계산하지 않는다.
-그리퍼는 별도 finite 동작으로 pick
-전 open, grasp에서 close, place에서 release한다. 정상 finite 종료는 torque
-hold 상태인 `ready`를 유지한다.
-
+실행기는 50 ms 시각열을 만들고 resident가 긴 finite horizon을 내부
+9점/400 ms wire batch로 공급한다. q0 복귀와 arm route는 연속 finite leg로
+묶고, gripper open/close/release만 분리한다. firmware가 12회 연속 measured
+pair를 확인하고 resident가 terminal snapshot freshness와 오차를 검증한 뒤에만
+READY/HOLD로 전이한다.
 
 ## 무동작 resident gate
 
@@ -185,28 +160,33 @@ plan-only 출력의 SHA-256을 그대로 넣는다.
 python3 tools/run_top_pick_place_application_once.py   --validate-only   --plan artifacts/top_pick_place/2026-08-14/dynamic_plan_run01.json   --plan-sha256 <PLAN_SHA256>   --output artifacts/top_pick_place/2026-08-14/validate_run01.json
 ```
 
-`TOP_PICK_PLACE_DYNAMIC_VALIDATE_ONLY_PASS motion_commands=0`가 나와야 한다.
+`TOP_PICK_PLACE_DYNAMIC_VALIDATE_ONLY_PASS motion_commands=0 resident_services_called=0`가
+나와야 한다. validate-only는 resident status/anchor/command service를 만들거나
+호출하지 않으며 torque 상태를 바꾸지 않는다.
 
 ## 실기 승격 조건
 
 - 왼팔 선택: 새 dynamic plan의 실제 target/경로를 먼저 검토한다.
-- 오른팔 선택: 같은 place workcell 좌표의 높이와 접근 자세를 1회 별도 확인한 뒤
-  `RIGHT_PLACE_HEIGHT_VALIDATED` 토큰을 사용한다.
+- 오른팔 선택의 첫 실기는 기존 place workcell 좌표의 높이와 접근 자세를 확인하는
+  감독 commissioning이다. 아직 검증됐다고 선포하지 않고
+  `RUN_RIGHT_PLACE_HEIGHT_CHECK_ONCE` 토큰으로 1회를 승인한다. 성공 artifact와 작업자
+  육안 확인이 함께 있어야 이후 `right place validated` 증거로 승격한다.
 - plan 생성 후 300초가 지나면 실행기는 stale plan으로 거부한다.
 - 실행 명령은 plan-only 결과 검토 후 별도로 제공한다.
 
-## F8.7 end-to-end 실기 evidence
+## F8.9 end-to-end 실기 evidence
 
-2026-08-15에 동일한 source-agnostic resident 경로로 왼팔 카메라 Pick/Place를
-연속 두 번 완주했다. 두 실행 모두 automatic retry 0, fresh torque-off anchor,
-양팔 연속 q0 복귀, 6개 task action, 최종 epoch 7 armed READY/HOLD를 기록했다.
+2026-08-16 session03에서 schema 12의 fresh plan을 팔마다 새로 만들었다.
 
-| run | target x / width | q0 또는 arm 최대 terminal error | artifact SHA-256 |
-|---|---:|---:|---|
-| run20 | 225.8 / 640 | 35.282 mrad | `67d2d1de5035c937c670a5f23ed0447392479ec81145c607a00ec4ca41aebd1a` |
-| run22 | 246.1 / 640 | 21.476 mrad | `c887c8c723a5b870841cd404ab7673040f7dd0e26c58994ea068c45d0f1edd4c` |
+- 왼팔 화면 보정: 오른쪽 13.72 mm
+- 오른팔 화면 보정: 왼쪽 29.47 mm
+- 왼팔 execute: PASS/HOLD, 최대 arm error 28.176 mrad
+- 오른팔 execute: PASS/HOLD, 최대 arm error 13.806 mrad
+- 전체 결과: `LEFT_RIGHT_PEN_TRANSFER_ONCE_PASS`
+- automatic retry: 0
 
-두 값은 공통 arm terminal 계약 `46.020 mrad` 이내다. run20/run22는 각각
-`artifacts/top_pick_place/2026-08-15/application_run20.json`과
-`application_run22.json`에 보존되어 있다. 현재 evidence는 **왼팔 선택 task**의
-end-to-end 증거이며, 오른팔 선택 task-level place 높이/접근 자세 승격은 별도다.
+전체 journal SHA-256은
+`408c21d6e7211834351123c5058cf7a8be50b8d20d064ec3f861230099198fbc`다.
+세부 firmware·resident·stage 증거는
+[F8.9 resident와 양팔 펜 전달 수락 결과](test-results/2026-08-16-f89-bimanual-pen-transfer.md)에
+기록했다.

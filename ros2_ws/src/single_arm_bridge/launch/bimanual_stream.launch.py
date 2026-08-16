@@ -29,6 +29,14 @@ def generate_launch_description():
                 default_value="auto",
                 description="STM32 ST-LINK virtual serial port",
             ),
+            DeclareLaunchArgument(
+                "unarmed_feedback_refresh_period_s",
+                default_value="0.0",
+                description=(
+                    "Periodically recapture measured 12-axis feedback while "
+                    "motion is unauthorized; zero disables it"
+                ),
+            ),
             Node(
                 package="single_arm_bridge",
                 executable="bimanual_stream_node",
@@ -41,6 +49,9 @@ def generate_launch_description():
                             "motion_authorized"
                         ),
                         "serial_device": LaunchConfiguration("serial_device"),
+                        "unarmed_feedback_refresh_period_s": LaunchConfiguration(
+                            "unarmed_feedback_refresh_period_s"
+                        ),
                         "operational_limits_file": limits,
                     },
                 ],

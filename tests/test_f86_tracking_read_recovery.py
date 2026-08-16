@@ -22,12 +22,20 @@ ADAPTER = (
     / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
     "bimanual_stream_adapter.py"
 ).read_text()
+TRANSPORT = (
+    ROOT
+    / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
+    "stream_transport_v2.py"
+).read_text()
+SERVO = (
+    ROOT / "firmware/stm32_g474_single_arm/Core/Src/servo_bus.c"
+).read_text()
 
 
-def test_f87_preserves_f86_and_has_a_unique_firmware_identity() -> None:
+def test_f88_preserves_terminal_settle_and_has_a_unique_firmware_identity() -> None:
     assert "HOST_BINARY_FIRMWARE_VERSION=0x00024806UL" in CMAKE
-    assert "HOST_BINARY_FIRMWARE_VERSION=0x00024807UL" in CMAKE
-    assert "F8_FIRMWARE_VERSION = 0x00024807" in ADAPTER
+    assert "HOST_BINARY_FIRMWARE_VERSION=0x00024809UL" in CMAKE
+    assert "F8_FIRMWARE_VERSION = 0x00024809" in ADAPTER
 
 
 def test_tracking_read_failure_limit_is_exactly_three() -> None:
@@ -61,3 +69,24 @@ def test_measured_tracking_errors_remain_immediately_fail_closed() -> None:
     )
     stop_after_check = BINARY.index("Host_RequestV2CoordinatedStop();", tracking_check)
     assert stop_after_check > tracking_check
+
+
+def test_f88_disable_recovery_is_bounded_readback_verified_and_fail_closed() -> None:
+    assert "#define HOST_SERVO_DISABLE_READBACK_RECOVERY_BUILD 0U" in CONFIG
+    assert "HOST_SERVO_DISABLE_READBACK_RECOVERY_BUILD=1U" in CMAKE
+    branch = SERVO.split(
+        "#if HOST_SERVO_DISABLE_READBACK_RECOVERY_BUILD", 1
+    )[1].split("#else", 1)[0]
+    assert "attempt < 2U" in branch
+    assert "torque_readback[0] == 0U" in branch
+    assert "verified_disabled = 1U;" in branch
+    assert "if (verified_disabled == 0U)" in branch
+    assert "result = HAL_ERROR;" in branch
+    assert branch.count("Servo_WriteData(") == 2
+    assert branch.count("Servo_ReadData(") == 1
+
+
+def test_f88_shadow_timeout_covers_bounded_disable_recovery() -> None:
+    prepare = TRANSPORT.split("def prepare_shadow(", 1)[1]
+    prepare = prepare.split("\n    def ", 1)[0]
+    assert "timeout_s=6.0" in prepare

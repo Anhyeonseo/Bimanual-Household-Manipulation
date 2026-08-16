@@ -1639,6 +1639,13 @@ current-pose finite 2회 재사용과 Top-camera 왼팔 Pick/Place 2회를 자�
 [`2026-08-15 F8.7 수락 결과`](test-results/2026-08-15-f87-resident-top-camera-pick-place.md)에
 기록한다.
 
+F8.9 `0x00024809`는 arm 한계를 유지하면서 gripper 2축에만
+route/terminal `150,000 urad`, firmware hard cap `160,000 urad`를 적용한다.
+정상 물체 접촉 잔차와 arm tracking fault를 분리했으며 no-motion, current-pose
+hold 2회와 실제 left→right Top-camera 전달을 통과했다. 최종 증거는
+[`2026-08-16 F8.9 양팔 전달`](test-results/2026-08-16-f89-bimanual-pen-transfer.md)에
+기록한다.
+
 ### F3.1 — 제어 tick 을 TIM6 ISR 로
 
 - 보간·한계·속도제한·sync-write 기동을 ISR 로 이동

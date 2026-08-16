@@ -50,7 +50,8 @@ class ObbRuntimeConfig:
     iou_threshold: float
     maximum_detections: int
     class_names: tuple[str, ...]
-    pen_class_id: int
+    target_class_id: int
+    target_class_name: str
     holdout_manifest_sha256: str
 
 
@@ -142,11 +143,24 @@ def load_runtime_config(
         raise ValueError(f"output.layout must be {OUTPUT_LAYOUT}")
     if output.get("yaw_semantics") != YAW_SEMANTICS:
         raise ValueError(f"output.yaw_semantics must be {YAW_SEMANTICS}")
-    pen_class_id = int(output.get("pen_class_id", -1))
-    if not 0 <= pen_class_id < len(class_names):
-        raise ValueError("output.pen_class_id is outside class_names")
-    if class_names[pen_class_id] != "pen":
-        raise ValueError("pen_class_id must select the pen class")
+    # ``pen_class_id`` was the original, pen-specific schema. New bundles
+    # identify their operational class by name, so the same fail-closed runtime
+    # can host a can model without weakening validation of existing pen bundles.
+    target_class_name = output.get("target_class_name")
+    if target_class_name is None:
+        target_class_name = "pen"
+    if not isinstance(target_class_name, str) or not target_class_name:
+        raise ValueError("output.target_class_name must be a non-empty string")
+    if target_class_name not in class_names:
+        raise ValueError("output.target_class_name is not in class_names")
+    target_class_id = output.get("target_class_id", output.get("pen_class_id"))
+    if target_class_id is None:
+        target_class_id = class_names.index(target_class_name)
+    target_class_id = int(target_class_id)
+    if not 0 <= target_class_id < len(class_names):
+        raise ValueError("output.target_class_id is outside class_names")
+    if class_names[target_class_id] != target_class_name:
+        raise ValueError("output.target_class_id does not select target_class_name")
 
     confidence = float(thresholds.get("confidence", 0.0))
     iou = float(thresholds.get("iou", 0.0))
@@ -179,7 +193,8 @@ def load_runtime_config(
         iou_threshold=iou,
         maximum_detections=maximum,
         class_names=tuple(class_names),
-        pen_class_id=pen_class_id,
+        target_class_id=target_class_id,
+        target_class_name=target_class_name,
         holdout_manifest_sha256=holdout_hash,
     )
 
@@ -268,7 +283,12 @@ def decode_ultralytics_obb(
     iou_threshold: float,
     maximum_detections: int,
 ) -> list[dict]:
-    """Decode non-end-to-end Ultralytics xywhr+class ONNX output."""
+    """Decode non-end-to-end Ultralytics xywhr+class ONNX output.
+
+    ``pen_class_id`` is retained as a public keyword for compatibility; the
+    selected class may be any bundle target, including ``can``.
+    """
+    target_class_id = pen_class_id
     rows = _prediction_rows(output, class_count)
     boxes = []
     scores = []
@@ -277,7 +297,7 @@ def decode_ultralytics_obb(
         class_scores = row[4:4 + class_count]
         class_id = int(np.argmax(class_scores))
         confidence = float(class_scores[class_id])
-        if class_id != pen_class_id or confidence < confidence_threshold:
+        if class_id != target_class_id or confidence < confidence_threshold:
             continue
         center_x, center_y, width, height = (
             float(row[0]),
@@ -498,7 +518,7 @@ class OpenCvYoloObbDetector:
             output,
             transform,
             len(self.config.class_names),
-            self.config.pen_class_id,
+            self.config.target_class_id,
             self.config.confidence_threshold,
             self.config.iou_threshold,
             self.config.maximum_detections,

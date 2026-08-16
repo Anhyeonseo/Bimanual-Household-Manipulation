@@ -15,7 +15,7 @@ README = ROOT / "README.md"
 CURRENT_STATE = ROOT / "docs/CURRENT_STATE_AND_NEXT_ROADMAP.md"
 VERIFICATION_MATRIX = ROOT / "docs/VERIFICATION_MATRIX.md"
 FINAL_ACCEPTANCE = (
-    ROOT / "docs/test-results/2026-08-15-f87-resident-top-camera-pick-place.md"
+    ROOT / "docs/test-results/2026-08-16-f89-bimanual-pen-transfer.md"
 )
 
 
@@ -25,9 +25,9 @@ def sha256(path: Path) -> str:
 
 def test_contract_pins_the_current_resident_interfaces() -> None:
     contract = CONTRACT.read_text(encoding="utf-8")
-    assert "0x00024807" in contract
+    assert "0x00024809" in contract
     assert "0xEFFFFFFF" in contract
-    assert "9a9cd49247428478cae831d948977274d1188e9b0b0756d02de8c7c47fd431aa" in contract
+    assert "a916a5ade13200df3572717f1c0a86c207cb5b6e91344fd9b78d276c60a619b0" in contract
     assert sha256(COMMAND) in contract
     assert sha256(FEEDBACK) in contract
     assert sha256(LIMITS) in contract
@@ -78,7 +78,7 @@ def test_handoff_prompt_preserves_the_source_agnostic_safety_boundary() -> None:
         "refresh_anchor",
         "자동 reset/clear/retry",
         "46,020 µrad",
-        "90,000 µrad",
+        "150,000 µrad",
         "완전한 finite route 전체",
         "READY_ARMED_HOLD",
     ):
@@ -106,10 +106,10 @@ def test_contract_distinguishes_ros_finite_route_from_wire_batches() -> None:
 
 def test_readme_points_to_the_current_resident_contract() -> None:
     readme = README.read_text(encoding="utf-8")
-    assert "현재 resident 후보 firmware: `0x00024807`" in readme
+    assert "resident firmware: F8.9 `0x00024809`" in readme
     assert "docs/BIMANUAL_UPPER_APPLICATION_INTERFACE.md" in readme
-    assert "legacy `single_arm_bridge` 일반 trajectory backend는 계속 비승인" in readme
-    assert "docs/test-results/2026-08-15-f87-resident-top-camera-pick-place.md" in readme
+    assert "legacy `single_arm_bridge` 일반 trajectory backend는 비승인" in readme
+    assert "docs/test-results/2026-08-16-f89-bimanual-pen-transfer.md" in readme
 
 
 def test_final_acceptance_and_current_state_preserve_the_proven_boundary() -> None:
@@ -117,14 +117,13 @@ def test_final_acceptance_and_current_state_preserve_the_proven_boundary() -> No
     current = CURRENT_STATE.read_text(encoding="utf-8")
     matrix = VERIFICATION_MATRIX.read_text(encoding="utf-8")
     for required in (
-        "0x00024807",
-        "12회 연속 fresh measured joint pair",
-        "46,020 urad",
-        "90,000 urad",
-        "67d2d1de5035c937c670a5f23ed0447392479ec81145c607a00ec4ca41aebd1a",
-        "c887c8c723a5b870841cd404ab7673040f7dd0e26c58994ea068c45d0f1edd4c",
-        "1416 passed",
+        "0x00024809",
+        "90,000 µrad",
+        "150,000 µrad",
+        "160,000 µrad",
+        "408c21d6e7211834351123c5058cf7a8be50b8d20d064ec3f861230099198fbc",
+        "LEFT_RIGHT_PEN_TRANSFER_ONCE_PASS",
     ):
         assert required in acceptance
-    assert "finite trajectory 전체를 ROS 요청 하나로 제출" in current
-    assert "오른팔 task와 범용 policy 성능은 별도 gate" in matrix
+    assert "finite command" in current
+    assert "반복성 benchmark와 범용 policy 성능은 별도 gate" in matrix
