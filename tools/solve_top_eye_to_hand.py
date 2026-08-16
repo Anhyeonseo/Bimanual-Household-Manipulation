@@ -32,7 +32,6 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 from solve_top_base_visual_registration import (  # noqa: E402
-    JOINT_NAMES,
     load_yaml,
     urdf_fk,
     yaml_matrix,
@@ -51,6 +50,19 @@ VALIDATION_MAX_TRANSLATION_M = 0.005
 VALIDATION_MAX_ROTATION_RAD = math.radians(2.0)
 MAX_PNP_RMS_PX = 1.5
 MIN_IMAGE_BORDER_PX = 10.0
+ARM_JOINT_NAMES_BY_SIDE = {
+    side: tuple(
+        f"{side}_{joint}_joint"
+        for joint in (
+            "base",
+            "shoulder",
+            "elbow",
+            "wrist_flex",
+            "wrist_roll",
+        )
+    )
+    for side in ("left", "right")
+}
 
 
 @dataclass(frozen=True)
@@ -254,10 +266,11 @@ def capture_observation(
     camera_matrix: np.ndarray,
     distortion: np.ndarray,
     specification: TargetSpecification,
+    joint_names: tuple[str, ...] = ARM_JOINT_NAMES_BY_SIDE["left"],
 ) -> PoseObservation:
     capture_id = str(capture["id"])
     measured = np.asarray(capture["measured_arm_rad"], dtype=np.float64)
-    if measured.shape != (len(JOINT_NAMES),) or not np.all(
+    if measured.shape != (len(joint_names),) or not np.all(
         np.isfinite(measured)
     ):
         raise ValueError(f"{capture_id} has invalid measured_arm_rad")
@@ -287,7 +300,7 @@ def capture_observation(
         elif detected != marker_ids:
             raise RuntimeError(f"{capture_id} marker IDs changed between frames")
 
-    joint_positions = dict(zip(JOINT_NAMES, measured, strict=True))
+    joint_positions = dict(zip(joint_names, measured, strict=True))
     base_to_gripper = urdf_fk(
         urdf_xml,
         robot_frame,
@@ -507,6 +520,16 @@ def solve_document(
     if bool(session.get("motion_authorized", False)):
         raise RuntimeError("input session must remain motion_authorized=false")
     frames = session["frames"]
+    arm = str(session.get("arm", "left"))
+    if arm not in ARM_JOINT_NAMES_BY_SIDE:
+        raise ValueError(f"unsupported session arm: {arm}")
+    expected_frames = (f"{arm}_base_link", f"{arm}_gripper_frame_link")
+    if (str(frames["robot"]), str(frames["gripper"])) != expected_frames:
+        raise ValueError(
+            "session arm/frame mismatch: "
+            f"arm={arm} robot={frames['robot']} gripper={frames['gripper']}"
+        )
+    joint_names = ARM_JOINT_NAMES_BY_SIDE[arm]
     specification = parse_target(session)
     camera_matrix = yaml_matrix(camera_info, "camera_matrix", 3, 3)
     distortion = yaml_matrix(
@@ -527,6 +550,7 @@ def solve_document(
                 camera_matrix,
                 distortion,
                 specification,
+                joint_names,
             )
             for capture in session.get(key, [])
         ]
@@ -555,6 +579,7 @@ def solve_document(
         "status": status,
         "motion_authorized": False,
         "robot_target_available": False,
+        "arm": arm,
         "method": "tcp_gridboard_robot_world_hand_eye",
         "frames": dict(frames),
         "target": {
@@ -648,14 +673,18 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    session = load_yaml(args.session)
+    arm = str(session.get("arm", "left"))
+    if arm not in ARM_JOINT_NAMES_BY_SIDE:
+        raise ValueError(f"unsupported session arm: {arm}")
     urdf_xml = subprocess.run(
-        ["xacro", str(args.urdf_xacro)],
+        ["xacro", str(args.urdf_xacro), f"arm_slot:={arm}"],
         check=True,
         text=True,
         capture_output=True,
     ).stdout
     result = solve_document(
-        load_yaml(args.session),
+        session,
         args.session,
         load_yaml(args.camera_info),
         urdf_xml,

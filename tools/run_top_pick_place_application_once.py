@@ -51,16 +51,20 @@ from top_pick_place_application import (  # noqa: E402
 
 
 CONFIRMATION = "RUN_TOP_CAMERA_RESIDENT_PICK_PLACE_ONCE"
-RIGHT_PLACE_CONFIRMATION = "RIGHT_PLACE_HEIGHT_VALIDATED"
+OPEN_GRASP_HEIGHT_CHECK_CONFIRMATION = (
+    "RUN_TOP_CAMERA_OPEN_GRASP_HEIGHT_CHECK_ONCE"
+)
+RIGHT_PLACE_CONFIRMATION = "RUN_RIGHT_PLACE_HEIGHT_CHECK_ONCE"
 OWNER = "top_camera_pick_place_application"
 STATUS_SERVICE = "/bimanual_stream_adapter/status"
 REFRESH_ANCHOR_SERVICE = "/bimanual_stream_adapter/refresh_anchor"
 COMMAND_SERVICE = "/bimanual_stream_adapter/command"
 ANCHOR_TOPIC = "/bimanual_stream_adapter/anchor_joint_states"
 FEEDBACK_TOPIC = "/bimanual_stream_adapter/feedback"
-EXPECTED_FIRMWARES = frozenset(("0x00024807",))
+EXPECTED_FIRMWARES = frozenset(("0x00024809",))
 EXPECTED_PLAN_STATUS = "DYNAMIC_TOP_PICK_PLACE_PLAN_ONLY_PASS"
 MAXIMUM_PLAN_AGE_S = 300.0
+MAXIMUM_FALLBACK_FEEDBACK_AGE_MS = 150
 MAXIMUM_LOCKED_WRIST_ROLL_RAD = 1.0e-6
 MAXIMUM_ENDPOINT_RESIDUAL_M = 0.0021
 HOMING_INTERMEDIATE_TOLERANCE_RAD = 0.05
@@ -70,11 +74,19 @@ CONTINUOUS_SAMPLE_PERIOD_MS = 50
 CONTINUOUS_FIRST_POINT_MS = 80
 CONTINUOUS_COMMAND_RATE_RAD_S = 200.0 * RAW_STEP_RAD
 EXPECTED_BASELINE_PICK_GRASP_OFFSET_M = 0.011
-EXPECTED_PREVIOUS_PICK_GRASP_OFFSET_M = 0.005
-EXPECTED_PICK_GRASP_OFFSET_M = 0.002
+EXPECTED_PREVIOUS_PICK_GRASP_OFFSET_M = 0.002
+EXPECTED_PICK_GRASP_OFFSET_M = -0.001
 EXPECTED_PICK_GRASP_DOWNWARD_ADJUSTMENT_M = 0.003
-EXPECTED_PICK_GRASP_CUMULATIVE_DOWNWARD_ADJUSTMENT_M = 0.009
-EXPECTED_GRIPPER_OPEN_TARGET_RAW = 2009
+EXPECTED_PICK_GRASP_CUMULATIVE_DOWNWARD_ADJUSTMENT_M = 0.012
+EXPECTED_LEFT_SCREEN_X_CORRECTION_M = 0.01372
+EXPECTED_LEFT_SCREEN_X_CORRECTION_REASON = (
+    "operator_requested_left_target_13_72mm_screen_right"
+)
+EXPECTED_RIGHT_SCREEN_X_CORRECTION_M = -0.02947
+EXPECTED_RIGHT_SCREEN_X_CORRECTION_REASON = (
+    "operator_requested_right_target_29_47mm_screen_left"
+)
+EXPECTED_GRIPPER_OPEN_TARGET_RAW = 2048
 EXPECTED_GRIPPER_OPEN_TARGET_RAD = (
     2048 - EXPECTED_GRIPPER_OPEN_TARGET_RAW
 ) * RAW_STEP_RAD
@@ -97,6 +109,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--confirmation", default="")
     parser.add_argument("--right-place-validation", default="")
     parser.add_argument("--validate-only", action="store_true")
+    parser.add_argument("--open-grasp-height-check", action="store_true")
+    parser.add_argument("--hold-at-grasp-s", type=float, default=8.0)
     parser.add_argument("--timeout-s", type=float, default=15.0)
     parser.add_argument(
         "--plan",
@@ -122,9 +136,18 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.timeout_s <= 0.0:
         parser.error("--timeout-s must be positive")
+    if not 2.0 <= args.hold_at_grasp_s <= 15.0:
+        parser.error("--hold-at-grasp-s must be within 2..15 seconds")
     if not args.validate_only:
-        if args.confirmation != CONFIRMATION:
-            parser.error(f"execution requires --confirmation {CONFIRMATION}")
+        expected_confirmation = (
+            OPEN_GRASP_HEIGHT_CHECK_CONFIRMATION
+            if args.open_grasp_height_check
+            else CONFIRMATION
+        )
+        if args.confirmation != expected_confirmation:
+            parser.error(
+                f"execution requires --confirmation {expected_confirmation}"
+            )
         if len(args.plan_sha256) != 64:
             parser.error("execution requires --plan-sha256 with 64 hex characters")
     return args
@@ -141,7 +164,7 @@ def load_dynamic_plan(path: Path, expected_sha256: str, validate_only: bool):
     routing = plan.get("routing", {})
     side = routing.get("selected_arm")
     if (
-        plan.get("schema_version") != 9
+        plan.get("schema_version") != 12
         or plan.get("status") != EXPECTED_PLAN_STATUS
         or plan.get("execution_api_used") is not False
         or plan.get("motion_authorized") is not False
@@ -154,6 +177,83 @@ def load_dynamic_plan(path: Path, expected_sha256: str, validate_only: bool):
         or not plan["steps"]
     ):
         raise RuntimeError("dynamic camera plan contract is invalid")
+    lateral = plan.get("lateral_adjustment", {})
+    target_lock = plan.get("target_lock", {})
+    expected_correction_m = (
+        EXPECTED_LEFT_SCREEN_X_CORRECTION_M
+        if side == "left"
+        else EXPECTED_RIGHT_SCREEN_X_CORRECTION_M
+    )
+    expected_correction_reason = (
+        EXPECTED_LEFT_SCREEN_X_CORRECTION_REASON
+        if side == "left"
+        else EXPECTED_RIGHT_SCREEN_X_CORRECTION_REASON
+    )
+    unit = lateral.get("direction_unit_workcell_xy", ())
+    delta = lateral.get("delta_workcell_xy_m", ())
+    observed = lateral.get("observed_target_xy_m", ())
+    corrected = lateral.get("corrected_target_xy_m", ())
+    homography = lateral.get("homography", {})
+    homography_path = Path(str(homography.get("path", "")))
+    if (
+        lateral.get("applied") is not True
+        or lateral.get("selected_arm") != side
+        or lateral.get("screen_axis") != "positive_image_x"
+        or not math.isclose(
+            float(
+                lateral.get(
+                    "operator_requested_screen_x_correction_m", math.nan
+                )
+            ),
+            expected_correction_m,
+            abs_tol=1e-9,
+        )
+        or not math.isclose(
+            float(lateral.get("command_correction_m", math.nan)),
+            expected_correction_m,
+            abs_tol=1e-9,
+        )
+        or lateral.get("reason") != expected_correction_reason
+        or len(unit) != 2
+        or len(delta) != 2
+        or len(observed) != 2
+        or len(corrected) != 2
+        or not math.isclose(
+            math.hypot(*map(float, unit)), 1.0, abs_tol=1e-9
+        )
+        or not all(
+            math.isclose(
+                float(delta[index]),
+                float(unit[index]) * expected_correction_m,
+                abs_tol=1e-9,
+            )
+            for index in range(2)
+        )
+        or not all(
+            math.isclose(
+                float(corrected[index]),
+                float(observed[index]) + float(delta[index]),
+                abs_tol=1e-9,
+            )
+            for index in range(2)
+        )
+        or not math.isclose(
+            float(target_lock.get("x_m", math.nan)),
+            float(corrected[0]),
+            abs_tol=1e-9,
+        )
+        or not math.isclose(
+            float(target_lock.get("y_m", math.nan)),
+            float(corrected[1]),
+            abs_tol=1e-9,
+        )
+        or not homography_path.is_file()
+        or sha256_file(homography_path) != str(homography.get("sha256", ""))
+    ):
+        raise RuntimeError(
+            f"dynamic camera plan {side} lateral contract is invalid"
+        )
+
     pick_offsets = plan.get("pick_offsets_m", {})
     height_adjustment = plan.get("height_adjustment", {})
     if (
@@ -192,7 +292,7 @@ def load_dynamic_plan(path: Path, expected_sha256: str, validate_only: bool):
             abs_tol=1e-9,
         )
         or height_adjustment.get("reason")
-        != "operator_observed_run08_grasp_still_too_high"
+        != "operator_observed_run10_grasp_still_too_high"
     ):
         raise RuntimeError("dynamic camera plan grasp-height contract is invalid")
 
@@ -355,19 +455,81 @@ def status_document(node: Node, client, timeout_s: float) -> dict:
     return document
 
 
-def wait_for_anchor(node: Node, storage: list[JointState], timeout_s: float):
-    deadline = time.monotonic() + timeout_s
-    while not storage and time.monotonic() < deadline:
-        rclpy.spin_once(node, timeout_sec=0.1)
-    if not storage:
-        raise RuntimeError(f"timeout waiting for {ANCHOR_TOPIC}")
-    anchor = storage[-1]
-    if tuple(anchor.name) != CANONICAL_JOINTS:
-        raise RuntimeError(f"unexpected resident joint order: {anchor.name}")
-    if len(anchor.position) != 12:
-        raise RuntimeError("resident anchor does not contain 12 positions")
-    return anchor
+def feedback_positions(
+    feedback: BimanualJointFeedback,
+    *,
+    label: str,
+) -> tuple[float, ...]:
+    if tuple(feedback.joint_names) != CANONICAL_JOINTS:
+        raise RuntimeError(f"unexpected {label} feedback joint order")
+    positions = tuple(float(value) for value in feedback.positions)
+    ages = tuple(int(value) for value in feedback.sample_age_ms)
+    if (
+        len(positions) != 12
+        or len(ages) != 12
+        or not all(math.isfinite(value) for value in positions)
+        or int(feedback.present_mask) != 0x0FFF
+    ):
+        raise RuntimeError(f"incomplete {label} feedback snapshot")
+    maximum_age_ms = max(ages)
+    if maximum_age_ms > MAXIMUM_FALLBACK_FEEDBACK_AGE_MS:
+        raise RuntimeError(
+            f"stale {label} feedback: maximum_age_ms={maximum_age_ms}"
+        )
+    return positions
 
+
+def status_prepared_positions(
+    document: dict,
+    *,
+    label: str,
+    expected_epoch: int,
+    require_torque_hold: bool,
+) -> tuple[float, ...]:
+    if int(document.get("prepared_epoch", -1)) != expected_epoch:
+        raise RuntimeError(f"{label} prepared epoch mismatch")
+    if require_torque_hold and document.get("torque_hold_active") is not True:
+        raise RuntimeError(f"{label} status does not prove torque hold")
+    values = document.get("prepared_positions_rad")
+    if (
+        not isinstance(values, list)
+        or len(values) != 12
+        or not all(math.isfinite(float(value)) for value in values)
+    ):
+        raise RuntimeError(f"{label} status has no complete prepared anchor")
+    return tuple(float(value) for value in values)
+
+
+def wait_for_anchor(
+    node: Node,
+    storage: list[JointState],
+    feedback_messages: list[BimanualJointFeedback],
+    timeout_s: float,
+):
+    deadline = time.monotonic() + timeout_s
+    while not storage and not feedback_messages and time.monotonic() < deadline:
+        rclpy.spin_once(node, timeout_sec=0.1)
+    if storage:
+        anchor = storage[-1]
+        if tuple(anchor.name) != CANONICAL_JOINTS:
+            raise RuntimeError(f"unexpected resident joint order: {anchor.name}")
+        if len(anchor.position) != 12:
+            raise RuntimeError("resident anchor does not contain 12 positions")
+        return (
+            tuple(float(value) for value in anchor.position),
+            "resident_anchor",
+            None,
+        )
+    if feedback_messages:
+        feedback = feedback_messages[-1]
+        return (
+            feedback_positions(feedback, label="startup"),
+            "resident_fresh_feedback_fallback",
+            feedback,
+        )
+    raise RuntimeError(
+        f"timeout waiting for {ANCHOR_TOPIC} or fresh {FEEDBACK_TOPIC}"
+    )
 
 def terminal_anchor_settle_evidence(
     measured_positions: tuple[float, ...],
@@ -375,10 +537,11 @@ def terminal_anchor_settle_evidence(
     target_positions: tuple[float, ...],
     joint_indices,
     label: str,
+    measurement_source: str,
 ) -> dict:
     """Validate the measured terminal anchor emitted at READY transition.
 
-    F8.7 does not declare a finite trajectory complete immediately after the
+    F8.9 does not declare a finite trajectory complete immediately after the
     final setpoint. Firmware first requires twelve consecutive measured joint
     pairs inside its terminal-settle bound. The resident adapter then validates
     one complete, <=150 ms-old 12-axis snapshot and publishes that measured
@@ -404,7 +567,7 @@ def terminal_anchor_settle_evidence(
             f"{label} terminal anchor error={terminal_error:.6f}rad"
         )
     return {
-        "source": "resident_active_to_ready_measured_anchor",
+        "source": measurement_source,
         "firmware_consecutive_joint_pairs": 12,
         "resident_terminal_feedback_validated": True,
         "application_terminal_error_rad": terminal_error,
@@ -552,23 +715,65 @@ def wait_until_ready(
             and document.get("owner") == OWNER
             and document.get("arbiter_epoch") == epoch
         ):
+            if "prepared_positions_rad" in document:
+                measured = status_prepared_positions(
+                    document,
+                    label="terminal",
+                    expected_epoch=epoch,
+                    require_torque_hold=True,
+                )
+                topic_feedback = (
+                    feedback_messages[-1] if feedback_messages else None
+                )
+                return (
+                    history,
+                    measured,
+                    topic_feedback,
+                    "resident_status_terminal_anchor",
+                )
             anchor_deadline = min(deadline, time.monotonic() + 1.0)
             while not terminal_anchors and time.monotonic() < anchor_deadline:
                 rclpy.spin_once(node, timeout_sec=0.05)
-            if not terminal_anchors:
-                raise RuntimeError(
-                    "finite leg completed without a new measured terminal anchor"
+            if terminal_anchors:
+                anchor = terminal_anchors[-1]
+                if (
+                    tuple(anchor.name) != CANONICAL_JOINTS
+                    or len(anchor.position) != 12
+                    or not all(
+                        math.isfinite(float(value)) for value in anchor.position
+                    )
+                ):
+                    raise RuntimeError(f"invalid measured terminal anchor: {anchor}")
+                measured = tuple(float(value) for value in anchor.position)
+                topic_feedback = (
+                    feedback_messages[-1] if feedback_messages else None
                 )
-            anchor = terminal_anchors[-1]
-            if (
-                tuple(anchor.name) != CANONICAL_JOINTS
-                or len(anchor.position) != 12
-                or not all(math.isfinite(float(value)) for value in anchor.position)
-            ):
-                raise RuntimeError(f"invalid measured terminal anchor: {anchor}")
-            measured = tuple(float(value) for value in anchor.position)
-            topic_feedback = feedback_messages[-1] if feedback_messages else None
-            return history, measured, topic_feedback
+                return (
+                    history,
+                    measured,
+                    topic_feedback,
+                    "resident_terminal_anchor",
+                )
+
+            # READY proves firmware terminal settling. If cross-host DDS drops
+            # the transient-local anchor, require a newly received complete and
+            # fresh feedback sample instead of using an ACTIVE-era cache.
+            feedback_messages.clear()
+            feedback_deadline = min(deadline, time.monotonic() + 2.0)
+            while not feedback_messages and time.monotonic() < feedback_deadline:
+                rclpy.spin_once(node, timeout_sec=0.05)
+            if not feedback_messages:
+                raise RuntimeError(
+                    "finite leg completed without terminal anchor or fresh feedback"
+                )
+            topic_feedback = feedback_messages[-1]
+            measured = feedback_positions(topic_feedback, label="terminal")
+            return (
+                history,
+                measured,
+                topic_feedback,
+                "resident_ready_fresh_feedback_fallback",
+            )
         if document.get("state") not in ("active", "ready"):
             raise RuntimeError(f"unexpected resident state: {document}")
         time.sleep(0.02)
@@ -587,8 +792,42 @@ def main() -> int:
     plan, selected_arm, plan_sha256, plan_age_s = load_dynamic_plan(
         args.plan, args.plan_sha256, args.validate_only
     )
+    if args.validate_only:
+        result = {
+            "schema_version": 5,
+            "record_kind": "top_camera_resident_pick_place_once",
+            "operator_confirmation": args.confirmation,
+            "validate_only": True,
+            "plan": str(args.plan),
+            "plan_sha256": plan_sha256,
+            "plan_age_s": plan_age_s,
+            "selected_arm": selected_arm,
+            "routing": plan["routing"],
+            "target_lock": plan["target_lock"],
+            "homing": {
+                "measurement_required_at_execution": True,
+                "motion_commands": 0,
+            },
+            "legs": [],
+            "automatic_retry_count": 0,
+            "resident_services_called": 0,
+            "motion_commands": 0,
+            "overall_verdict": "TOP_PICK_PLACE_DYNAMIC_VALIDATE_ONLY_PASS",
+        }
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps(result, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        digest = sha256(args.output.read_bytes()).hexdigest()
+        print(
+            "TOP_PICK_PLACE_DYNAMIC_VALIDATE_ONLY_PASS "
+            f"selected_arm={selected_arm} motion_commands=0 "
+            f"resident_services_called=0 output={args.output} sha256={digest}"
+        )
+        return 0
     if (
-        not args.validate_only
+        not args.open_grasp_height_check
         and selected_arm == "right"
         and plan.get("place_target_source", {}).get(
             "right_arm_physical_place_validation_required"
@@ -597,7 +836,7 @@ def main() -> int:
     ):
         raise RuntimeError(
             "right-arm execution requires --right-place-validation "
-            f"{RIGHT_PLACE_CONFIRMATION} after the one-time height check"
+            f"{RIGHT_PLACE_CONFIRMATION} for the supervised first height check"
         )
 
     rclpy.init()
@@ -641,6 +880,17 @@ def main() -> int:
         "homing": {"legs": []},
         "legs": [],
         "automatic_retry_count": 0,
+        "right_place_height_check_mode": (
+            "supervised_first_execution"
+            if selected_arm == "right" and not args.open_grasp_height_check
+            else None
+        ),
+        "open_grasp_height_check": bool(args.open_grasp_height_check),
+        "hold_at_grasp_s": (
+            float(args.hold_at_grasp_s)
+            if args.open_grasp_height_check
+            else None
+        ),
     }
     try:
         for name, client in (
@@ -663,29 +913,82 @@ def main() -> int:
         ):
             raise RuntimeError(f"unexpected resident initial state: {initial}")
         anchors.clear()
-        refresh_response = call(
-            node,
-            refresh_anchor_client,
-            Trigger.Request(),
-            args.timeout_s,
-        )
-        if not refresh_response.success:
-            raise RuntimeError(
-                f"resident anchor refresh failed: {refresh_response}"
+        feedback_messages.clear()
+        if initial_owner is None:
+            refresh_response = call(
+                node,
+                refresh_anchor_client,
+                Trigger.Request(),
+                args.timeout_s,
             )
-        anchor = wait_for_anchor(node, anchors, args.timeout_s)
-        startup_anchor = tuple(float(value) for value in anchor.position)
+            if not refresh_response.success:
+                raise RuntimeError(
+                    f"resident anchor refresh failed: {refresh_response}"
+                )
+            anchor_refresh = json.loads(refresh_response.message)
+            if "prepared_positions_rad" in anchor_refresh:
+                startup_anchor = status_prepared_positions(
+                    anchor_refresh,
+                    label="unarmed refresh",
+                    expected_epoch=initial_epoch,
+                    require_torque_hold=False,
+                )
+                startup_feedback = None
+                initial_position_source = "resident_refresh_service_anchor"
+            else:
+                # Backward-compatible path while an older Pi resident is still
+                # running. A newly deployed resident returns the anchor directly
+                # in the reliable refresh service response.
+                feedback_messages.clear()
+                startup_anchor, startup_measurement_source, startup_feedback = (
+                    wait_for_anchor(
+                        node,
+                        anchors,
+                        feedback_messages,
+                        args.timeout_s,
+                    )
+                )
+                initial_position_source = (
+                    "resident_immediate_pre_motion_anchor"
+                    if startup_measurement_source == "resident_anchor"
+                    else "resident_immediate_pre_motion_fresh_feedback_fallback"
+                )
+            anchor_torque_state = "off"
+        else:
+            # The resident keeps the latest READY terminal measurement in its
+            # prepared state. Recover it through the reliable status service so
+            # repeat runs do not depend on transient-local DDS delivery or an
+            # aging feedback cache.
+            startup_anchor = status_prepared_positions(
+                initial,
+                label="same-owner startup",
+                expected_epoch=initial_epoch,
+                require_torque_hold=True,
+            )
+            startup_feedback = None
+            initial_position_source = "resident_armed_status_terminal_anchor"
+            anchor_refresh = {
+                "skipped": True,
+                "reason": "same_owner_armed_ready_reuses_status_terminal_anchor",
+                "state": initial["state"],
+                "owner": initial_owner,
+                "arbiter_epoch": initial_epoch,
+                "torque_enabled": True,
+            }
+            anchor_torque_state = "hold"
+        if startup_feedback is not None:
+            result["startup_feedback_age_max_ms"] = max(
+                int(value) for value in startup_feedback.sample_age_ms
+            )
         current_positions = startup_anchor
         result["initial_status"] = initial
         result["startup_anchor_rad"] = list(startup_anchor)
-        result["initial_position_source"] = (
-            "resident_immediate_pre_motion_anchor"
-        )
-        result["anchor_refresh"] = json.loads(refresh_response.message)
+        result["initial_position_source"] = initial_position_source
+        result["anchor_refresh"] = anchor_refresh
 
         print(
             "TOP_PICK_PLACE_FRESH_ANCHOR_PASS "
-            "source=resident_immediate_pre_motion_anchor torque=off"
+            f"source={initial_position_source} torque={anchor_torque_state}"
         )
 
         print(
@@ -761,13 +1064,15 @@ def main() -> int:
                 q0_request.points[-1].time_from_start.sec
                 + q0_request.points[-1].time_from_start.nanosec / 1e9
             )
-            history, q0_measured, feedback = wait_until_ready(
+            history, q0_measured, feedback, q0_settle_source = (
+                wait_until_ready(
                 node,
                 status_client,
                 anchors,
                 feedback_messages,
                 epoch=expected_epoch,
-                timeout_s=max(args.timeout_s, q0_duration_s + 5.0),
+                    timeout_s=max(args.timeout_s, q0_duration_s + 5.0),
+                )
             )
             resident_ready_for_hold = True
             q0_settle = terminal_anchor_settle_evidence(
@@ -775,6 +1080,7 @@ def main() -> int:
                 target_positions=q0_target,
                 joint_indices=BIMANUAL_ARM_INDICES,
                 label="bimanual q0",
+                measurement_source=q0_settle_source,
             )
             q0_residual = validate_bimanual_q0(q0_measured)
             result["homing"]["legs"] = [
@@ -793,7 +1099,7 @@ def main() -> int:
             print(
                 "TOP_PICK_PLACE_BIMANUAL_Q0_CONTINUOUS_HOLD_PASS "
                 f"maximum_residual_rad={q0_residual:.6f} "
-                "settle_source=resident_terminal_anchor "
+                f"settle_source={q0_settle_source} "
                 f"epoch={expected_epoch} torque_hold=true"
             )
             epoch = expected_epoch
@@ -807,7 +1113,9 @@ def main() -> int:
             gripper_index = 5 if selected_arm == "left" else 11
             actions = continuous_actions(plan)
             result["execution_style"] = (
-                "proven_three_continuous_arm_legs_with_gripper_stops"
+                "open_grasp_height_check_with_safe_pregrasp_return"
+                if args.open_grasp_height_check
+                else "proven_three_continuous_arm_legs_with_gripper_stops"
             )
             for action_index, action in enumerate(actions, start=1):
                 targets: list[tuple[float, ...]] = []
@@ -837,7 +1145,7 @@ def main() -> int:
                     request.points[-1].time_from_start.sec
                     + request.points[-1].time_from_start.nanosec / 1e9
                 )
-                history, measured, feedback = wait_until_ready(
+                history, measured, feedback, settle_source = wait_until_ready(
                     node,
                     status_client,
                     anchors,
@@ -853,6 +1161,7 @@ def main() -> int:
                         target_positions=targets[-1],
                         joint_indices=arm_indices,
                         label=str(action["label"]),
+                        measurement_source=settle_source,
                     )
                 terminal_error = max(
                     abs(measured[index] - targets[-1][index])
@@ -889,7 +1198,9 @@ def main() -> int:
                 result["legs"].append(
                     {
                         "action_index": action_index,
-                        "action_count": len(actions),
+                        "action_count": (
+                            3 if args.open_grasp_height_check else len(actions)
+                        ),
                         "kind": action["kind"],
                         "label": action["label"],
                         "source_step_indices": [
@@ -913,20 +1224,119 @@ def main() -> int:
                 )
                 epoch = expected_epoch
                 commanded = measured
-                settle_source = (
-                    "resident_terminal_anchor"
-                    if post_settle
-                    else "resident_terminal_anchor_gripper"
-                )
                 print(
                     "TOP_PICK_PLACE_CONTINUOUS_ACTION_PASS "
-                    f"arm={selected_arm} action={action_index}/{len(actions)} "
+                    f"arm={selected_arm} action={action_index}/"
+                    f"{3 if args.open_grasp_height_check else len(actions)} "
                     f"label={action['label']} "
                     f"points={len(request.points)} epoch={epoch} "
                     f"arm_error_mrad={terminal_error * 1000.0:.3f} "
                     "settle_source="
                     f"{settle_source}"
                 )
+
+                if args.open_grasp_height_check and action_index == 2:
+                    print(
+                        "TOP_OPEN_GRASP_HEIGHT_CHECK_HOLD "
+                        f"seconds={args.hold_at_grasp_s:.1f} "
+                        "gripper_commands_after_open=0 close_commands=0"
+                    )
+                    time.sleep(args.hold_at_grasp_s)
+                    pregrasp_target = step_target(
+                        commanded,
+                        {
+                            "kind": "arm",
+                            "target_positions_rad": plan["endpoints"]
+                            ["pick_pregrasp"]["final_joint_positions_rad"],
+                        },
+                        opposite_hold,
+                        arm=selected_arm,
+                    )
+                    q0_return_target = bimanual_q0_target(pregrasp_target)
+                    return_request = continuous_finite_request(
+                        commanded,
+                        [pregrasp_target, q0_return_target],
+                    )
+                    resident_ready_for_hold = False
+                    anchors.clear()
+                    feedback_messages.clear()
+                    response = call(
+                        node, command_client, return_request, args.timeout_s
+                    )
+                    return_epoch = epoch + 1
+                    if (
+                        not response.accepted
+                        or response.adapter_state != "active"
+                        or int(response.arbiter_epoch) != return_epoch
+                    ):
+                        raise RuntimeError(
+                            f"open grasp height-check return rejected: {response}"
+                        )
+                    return_duration_s = (
+                        return_request.points[-1].time_from_start.sec
+                        + return_request.points[-1].time_from_start.nanosec / 1e9
+                    )
+                    (
+                        return_history,
+                        return_measured,
+                        return_feedback,
+                        return_settle_source,
+                    ) = wait_until_ready(
+                        node,
+                        status_client,
+                        anchors,
+                        feedback_messages,
+                        epoch=return_epoch,
+                        timeout_s=max(
+                            args.timeout_s,
+                            return_duration_s + 5.0,
+                        ),
+                    )
+                    resident_ready_for_hold = True
+                    return_residual = validate_bimanual_q0(return_measured)
+                    return_settle = terminal_anchor_settle_evidence(
+                        return_measured,
+                        target_positions=q0_return_target,
+                        joint_indices=BIMANUAL_ARM_INDICES,
+                        label="open grasp height-check safe return",
+                        measurement_source=return_settle_source,
+                    )
+                    result["legs"].append(
+                        {
+                            "action_index": 3,
+                            "action_count": 3,
+                            "kind": "arm_route",
+                            "label": "open_grasp_to_pregrasp_to_q0",
+                            "source_step_indices": [],
+                            "epoch": return_epoch,
+                            "start_response": response_document(response),
+                            "trajectory_points": len(return_request.points),
+                            "duration_ms": round(return_duration_s * 1000.0),
+                            "terminal_positions_rad": list(return_measured),
+                            "arm_terminal_error_rad": return_residual,
+                            "gripper_residual_raw": None,
+                            "last_topic_feedback_age_max_ms": (
+                                max(
+                                    int(value)
+                                    for value in return_feedback.sample_age_ms
+                                )
+                                if return_feedback is not None
+                                else None
+                            ),
+                            "status_samples": len(return_history),
+                            "post_settle": return_settle,
+                        }
+                    )
+                    epoch = return_epoch
+                    commanded = return_measured
+                    result["height_check_close_commands"] = 0
+                    result["height_check_return_via_pregrasp"] = True
+                    print(
+                        "TOP_OPEN_GRASP_HEIGHT_CHECK_RETURN_PASS "
+                        f"epoch={epoch} q0_residual_rad={return_residual:.6f} "
+                        f"settle_source={return_settle_source}"
+                    )
+                    break
 
             final = status_document(node, status_client, args.timeout_s)
             if (
@@ -939,8 +1349,13 @@ def main() -> int:
             result["final_status"] = final
             result["torque_hold_active"] = True
             result["coordinated_stop_sent"] = False
+            if selected_arm == "right" and not args.open_grasp_height_check:
+                result["right_place_height_check_motion_completed"] = True
+                result["right_place_height_operator_observation_required"] = True
             result["overall_verdict"] = (
-                "TOP_CAMERA_RESIDENT_PICK_PLACE_ONCE_PASS_HOLDING"
+                "TOP_CAMERA_OPEN_GRASP_HEIGHT_CHECK_PASS_HOLDING"
+                if args.open_grasp_height_check
+                else "TOP_CAMERA_RESIDENT_PICK_PLACE_ONCE_PASS_HOLDING"
             )
 
         args.output.parent.mkdir(parents=True, exist_ok=True)

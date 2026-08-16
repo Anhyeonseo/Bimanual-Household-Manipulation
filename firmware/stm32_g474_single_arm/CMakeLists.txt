@@ -308,11 +308,12 @@ if(BIMANUAL_DMA_DISPATCH_CANDIDATE OR
                 target_compile_definitions(
                     "${TARGET_NAME}"
                     PRIVATE
-                        HOST_BINARY_FIRMWARE_VERSION=0x00024807UL
+                        HOST_BINARY_FIRMWARE_VERSION=0x00024809UL
                         HOST_BIMANUAL_RESIDENT_FINITE_BUILD=1U
                         HOST_BIMANUAL_FEEDBACK_SNAPSHOT_BUILD=1U
                         HOST_BIMANUAL_TERMINAL_SETTLE_BUILD=1U
                         HOST_BIMANUAL_GRIPPER_TERMINAL_SETTLE_BUILD=1U
+                        HOST_SERVO_DISABLE_READBACK_RECOVERY_BUILD=1U
                         ACTUATOR_ENABLE_BIMANUAL_FEEDBACK_SNAPSHOT_MESSAGES=1U
                 )
             elseif(BIMANUAL_TERMINAL_SETTLE_CANDIDATE)

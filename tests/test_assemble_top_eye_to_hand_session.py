@@ -33,6 +33,7 @@ class AssembleTopEyeToHandSessionTest(unittest.TestCase):
         *,
         marker_ids=(0, 1, 2, 3),
         motion_authorized=False,
+        arm="left",
     ) -> Path:
         directory = self.root / "captures" / capture_id
         directory.mkdir(parents=True)
@@ -48,6 +49,7 @@ class AssembleTopEyeToHandSessionTest(unittest.TestCase):
             "robot_target_available": False,
             "capture": {
                 "id": capture_id,
+                "arm": arm,
                 "measured_arm_rad": [0.1, 0.2, 0.3, 0.4, 0.5],
                 "joint_span_rad": [0.0] * 5,
                 "image_files": image_files,
@@ -149,6 +151,40 @@ class AssembleTopEyeToHandSessionTest(unittest.TestCase):
                 training,
                 validation[:1],
                 self.output,
+            )
+
+    def test_assembles_right_arm_frames(self):
+        training = [
+            self.make_capture(f"right_train_{index:02d}", arm="right")
+            for index in range(1, 9)
+        ]
+        validation = [
+            self.make_capture(f"right_validation_{index:02d}", arm="right")
+            for index in range(1, 3)
+        ]
+        document = MODULE.assemble_document(
+            "right_session_01",
+            training,
+            validation,
+            self.output,
+            "right",
+        )
+        self.assertEqual(document["arm"], "right")
+        self.assertEqual(document["frames"]["robot"], "right_base_link")
+        self.assertEqual(
+            document["frames"]["gripper"],
+            "right_gripper_frame_link",
+        )
+
+    def test_rejects_capture_from_other_arm(self):
+        training, validation = self.valid_inputs()
+        with self.assertRaisesRegex(ValueError, "session arm"):
+            MODULE.assemble_document(
+                "right_session_01",
+                training,
+                validation,
+                self.output,
+                "right",
             )
 
 

@@ -47,20 +47,20 @@
 | VIS-001 | 단계 6 | 작업대 위치 추정 | 위치 최대 10 mm, yaw 최대 5 deg | 통과 | [Top 물체 실제 좌표 검증](test-results/2026-07-30-top-object-ground-truth-validation.md) |
 | VIS-002 | 단계 7 준비 | base-frame shadow target 및 table–base 등록 | 두 위치 물리 검증, freshness/workspace 검사, 실행 가능 flag false | 통과 | [현재 작업대–왼팔 base 등록](test-results/2026-07-30-current-table-base-registration.md), [Top-base shadow target](test-results/2026-07-30-top-base-shadow-target.md) |
 | VIS-003 | 단계 8 | 시연 환경 강건 펜 검출 | 카메라 각도·높이·물체 Z 고정, 배경·조명·반사만 다른 조건에서 물체 1개와 위치/yaw·miss·false positive 기준 충족 | 통과 | [기준선 계약](test-results/2026-08-02-top-pen-detection-baseline-contract.md), [holdout·legacy 결과](test-results/2026-08-02-top-pen-holdout-legacy-baseline.md), [YOLO-OBB 후보](checklists/STAGE8_TOP_PEN_YOLO_OBB.md). 고정 holdout에서 miss 0%, false positive 0%, 중심 p95 5.29 px, yaw p95 2.79° |
-| TASK-001 | 단계 7/11 | Camera-selected Pick | 50회 중 90% 이상 | 부분 통과 | [F8.7 최종 수락](test-results/2026-08-15-f87-resident-top-camera-pick-place.md): Top YOLO-OBB 픽셀 routing, 왼팔 실제 Pick/Place run20/run22 2회 완주, 자동 재시도 0. 정식 반복성 benchmark와 오른팔 task는 미실행 |
-| TASK-002 | 단계 7/11 | Camera-selected Place | 50회 중 90% 이상 | 부분 통과 | [F8.7 최종 수락](test-results/2026-08-15-f87-resident-top-camera-pick-place.md): 왼팔 place/release/retreat/q0와 최종 HOLD 2회 통과. 정식 반복성 benchmark와 오른팔 place 높이 수락은 미실행 |
+| TASK-001 | 단계 7/11 | Camera-selected Pick | 50회 중 90% 이상 | 부분 통과 | [F8.9 양팔 전달](test-results/2026-08-16-f89-bimanual-pen-transfer.md): fresh left/right plan, 양팔 실제 Pick/Place와 자동 재시도 0 통과. 정식 반복성 benchmark는 미실행 |
+| TASK-002 | 단계 7/11 | Camera-selected Place | 50회 중 90% 이상 | 부분 통과 | [F8.9 양팔 전달](test-results/2026-08-16-f89-bimanual-pen-transfer.md): 왼팔 중간 배치와 오른팔 최종 place/release/retreat/q0, 최종 HOLD 통과. 정식 반복성 benchmark는 미실행 |
 | SYS-001 | 단계 9 | 부팅 | 반복 부팅 모두 무동작 STANDBY | 미실행 |  |
 | SYS-002 | 단계 9 | 장시간 시험 | 8시간 후 24시간 | 미실행 |  |
 | RIGHT-001 | 단계 10 | 오른팔 하드웨어·모델·안전 동등성 | 6축 identity/range/q0, model parity, read-only, 격리 이동과 fault gate | 통과 | [J0 desired envelope](test-results/2026-08-13-bimanual-j0-desired-envelope.md), [J1 limit candidate](test-results/2026-08-13-bimanual-j1-operational-limit-candidate.md), operator-approved full envelope, right-base bounded roundtrip, R4 12축 soak, F7/F8 paired dispatch·fault stop. Task 반복성은 RIGHT-002로 분리 |
-| RIGHT-002 | 단계 10/11 | 오른팔 선택 Pick/Place | 왼팔과 동일한 task·반복성·비명령 동작·충돌 기준 통과 | 미실행 | firmware/ROS backend는 공통 12축 경로를 사용하지만 오른팔 place 높이·접근 자세와 task-level 실기는 별도 수락 전 |
+| RIGHT-002 | 단계 10/11 | 오른팔 선택 Pick/Place | 왼팔과 동일한 task·반복성·비명령 동작·충돌 기준 통과 | 부분 통과 | F8.9 session03에서 오른팔 Pick/Place 1회와 place 높이·좌우 보정을 통과했다. 반복성 기준은 미실행 |
 | DUAL-001 | 단계 11 | 실제 paired dispatch 시작 시각 차이 | p99 < 50 us, 최대값 기록 | 통과 | [F7 paired DMA](test-results/2026-08-14-bimanual-dma-dispatch-f7.md): hold/base roundtrip 최대 2 us, 후속 resident 실행 최대 6 us |
 | DUAL-002 | 단계 11 | 연동 정지 | 한 팔 DMA/feedback/tracking fault 시 양팔 torque-off | 통과 | [F7 DMA fault stop](test-results/2026-08-14-bimanual-dma-dispatch-f7.md)과 [F8 tracking fault stop](test-results/2026-08-14-bimanual-tracking-feedback-f8.md) 실기 통과 |
-| DUAL-003 | 단계 11 | 양팔 firmware/ROS 통합 진입 gate | 운용 범위·unwrap·paired dispatch·tracking·resident finite·STOP 통과 | 통과 | F7/F8/F8.1과 [F8.7 최종 수락](test-results/2026-08-15-f87-resident-top-camera-pick-place.md). 양팔 협조 task/policy 성능은 별도 후속 gate |
-| MCU-009 | 단계 11 | F8.7 terminal settle과 transient read recovery | arm 46,020 urad, gripper 90,000 urad, 12 fresh pair; position read 3회 연속만 stop | 통과 | [F8.7 최종 수락](test-results/2026-08-15-f87-resident-top-camera-pick-place.md): no-motion, finite 2회, Top-camera task 2회 통과 |
-| APP-001 | 단계 11 | 상단 앱 interface boundary | serial 직접 접근 없이 ROS resident full finite route, owner/epoch/fresh-anchor/terminal contract 준수 | 통과 | [상단 인터페이스](BIMANUAL_UPPER_APPLICATION_INTERFACE.md), [인계 프롬프트](prompts/BIMANUAL_UPPER_APPLICATION_HANDOFF_PROMPT.md), [F8.7 reference app](test-results/2026-08-15-f87-resident-top-camera-pick-place.md) |
+| DUAL-003 | 단계 11 | 양팔 firmware/ROS 통합 진입 gate | 운용 범위·unwrap·paired dispatch·tracking·resident finite·STOP 통과 | 통과 | F7/F8/F8.1과 [F8.9 양팔 전달](test-results/2026-08-16-f89-bimanual-pen-transfer.md). 범용 policy 성능은 별도 후속 gate |
+| MCU-009 | 단계 11 | F8.9 terminal settle과 transient read recovery | arm 46,020 urad, gripper 150,000 urad, hard cap 160,000 urad, 12 fresh pair; position read 3회 연속만 stop | 통과 | [F8.9 양팔 전달](test-results/2026-08-16-f89-bimanual-pen-transfer.md): no-motion, finite 2회, 양팔 Top-camera task 통과 |
+| APP-001 | 단계 11 | 상단 앱 interface boundary | serial 직접 접근 없이 ROS resident full finite route, owner/epoch/fresh-anchor/terminal contract 준수 | 통과 | [상단 인터페이스](BIMANUAL_UPPER_APPLICATION_INTERFACE.md), [인계 프롬프트](prompts/BIMANUAL_UPPER_APPLICATION_HANDOFF_PROMPT.md), [F8.9 reference app](test-results/2026-08-16-f89-bimanual-pen-transfer.md) |
 | AI-001 | 단계 11 | policy 비교 | baseline 대비 개선 | 미실행 |  |
 
 `부분 통과`는 일부 실기 증거는 있으나 해당 행의 전체 합격 기준을 아직
 충족하지 않았다는 뜻이다. 오른팔 backend parity와 양팔 firmware/ROS 통합은
-통과했지만 오른팔 task와 범용 policy 성능은 별도 gate다. 기준을 바꾸면 ADR 또는
+통과했고 양팔 task 1회도 수락했다. 반복성 benchmark와 범용 policy 성능은 별도 gate다. 기준을 바꾸면 ADR 또는
 변경 사유를 남긴다.

@@ -341,6 +341,6 @@ class StreamValidationTransportV2:
             self._receive(
                 sequence,
                 StreamMessageTypeV2.SHADOW_SNAPSHOT,
-                timeout_s=3.0,
+                timeout_s=6.0,
             ).payload
         )

@@ -40,6 +40,10 @@ def generate_launch_description():
                 default_value=FROZEN_HOLDOUT_V2_SHA256,
             ),
             DeclareLaunchArgument("inference_hz", default_value="4.0"),
+            DeclareLaunchArgument(
+                "debug_image_topic",
+                default_value="/perception/top/yolo_obb_debug",
+            ),
             DeclareLaunchArgument("camera_info", default_value=default_camera_info),
             DeclareLaunchArgument("homography", default_value=default_homography),
             Node(
@@ -63,6 +67,9 @@ def generate_launch_description():
                             )
                         ),
                         "inference_hz": LaunchConfiguration("inference_hz"),
+                        "debug_image_topic": LaunchConfiguration(
+                            "debug_image_topic"
+                        ),
                     },
                 ],
             ),

@@ -84,9 +84,9 @@ def test_conservative_workspace_is_expressed_in_the_selected_arm_frame() -> None
     assert APP.workspace_coordinates_for_arm(0.40, -0.10, "left") == pytest.approx(
         (0.40, -0.10)
     )
-    assert APP.workspace_coordinates_for_arm(0.40, -0.10, "right") == pytest.approx(
-        (0.40, 0.132064146)
-    )
+    assert APP.workspace_coordinates_for_arm(
+        0.40, -0.10, "right", 0.0063
+    ) == pytest.approx((0.40, 0.132064146), abs=1e-9)
 
 
 def test_left_q0_is_required_but_right_arm_may_hold_any_valid_pose() -> None:
@@ -192,15 +192,19 @@ def test_gripper_contact_uses_the_existing_raw_threshold() -> None:
 
 def test_runtime_has_one_confirmation_no_retry_and_fail_closed_stop() -> None:
     assert 'CONFIRMATION = "RUN_TOP_CAMERA_RESIDENT_PICK_PLACE_ONCE"' in RUNNER_SOURCE
+    assert 'RIGHT_PLACE_CONFIRMATION = "RUN_RIGHT_PLACE_HEIGHT_CHECK_ONCE"' in RUNNER_SOURCE
+    assert '"right_place_height_check_mode"' in RUNNER_SOURCE
+    assert '"right_place_height_check_motion_completed"' in RUNNER_SOURCE
+    assert '"right_place_height_operator_observation_required"' in RUNNER_SOURCE
     assert '"automatic_retry_count": 0' in RUNNER_SOURCE
     assert "if motion_started and not successful_hold" in RUNNER_SOURCE
     assert "CONTINUOUS_COMMAND_RATE_RAD_S = 200.0 * RAW_STEP_RAD" in RUNNER_SOURCE
     assert "continuous_finite_request(commanded, [q0_target])" in RUNNER_SOURCE
     assert "terminal_anchor_settle_evidence" in RUNNER_SOURCE
-    assert "resident_active_to_ready_measured_anchor" in RUNNER_SOURCE
+    assert "resident_ready_fresh_feedback_fallback" in RUNNER_SOURCE
     assert "firmware_consecutive_joint_pairs" in RUNNER_SOURCE
     assert (
-        "finite leg completed without a new measured terminal anchor"
+        "finite leg completed without terminal anchor or fresh feedback"
         in RUNNER_SOURCE
     )
     assert "actions = continuous_actions(plan)" in RUNNER_SOURCE
@@ -218,27 +222,46 @@ def test_runtime_has_one_confirmation_no_retry_and_fail_closed_stop() -> None:
     assert "serial.Serial" not in RUNNER_SOURCE
     assert "current_positions = startup_anchor" in RUNNER_SOURCE
     assert "resident_immediate_pre_motion_anchor" in RUNNER_SOURCE
+    assert "resident_armed_status_terminal_anchor" in RUNNER_SOURCE
+    assert "same_owner_armed_ready_reuses_status_terminal_anchor" in RUNNER_SOURCE
+    assert "if initial_owner is None:" in RUNNER_SOURCE
     assert 'REFRESH_ANCHOR_SERVICE = "/bimanual_stream_adapter/refresh_anchor"' in RUNNER_SOURCE
     assert "TOP_PICK_PLACE_FRESH_ANCHOR_PASS" in RUNNER_SOURCE
-    assert "history, q0_measured, feedback = wait_until_ready(" in RUNNER_SOURCE
+    assert "q0_settle_source" in RUNNER_SOURCE
     assert "open_exclusive_serial" not in RUNNER_SOURCE
 
 
-def test_runtime_uses_each_epoch_terminal_anchor_not_aging_feedback() -> None:
+def test_validate_only_returns_before_ros_and_resident_access() -> None:
+    start = RUNNER_SOURCE.index("    if args.validate_only:", RUNNER_SOURCE.index("def main()"))
+    ros_init = RUNNER_SOURCE.index("    rclpy.init()", start)
+    validate_only = RUNNER_SOURCE[start:ros_init]
+    assert '"resident_services_called": 0' in validate_only
+    assert '"motion_commands": 0' in validate_only
+    assert "return 0" in validate_only
+    assert "create_client" not in validate_only
+    assert "refresh_anchor" not in validate_only
+
+
+def test_runtime_prefers_terminal_anchor_and_bounds_fresh_feedback_fallback() -> None:
     ready = RUNNER_SOURCE[
         RUNNER_SOURCE.index("def wait_until_ready("):
         RUNNER_SOURCE.index("\ndef stop_request()")
     ]
     assert "terminal_anchors: list[JointState]" in ready
-    assert "finite leg completed without a new measured terminal anchor" in ready
-    assert "anchor.position" in ready
-    assert "sample_age_ms" not in ready
+    assert "if terminal_anchors:" in ready
+    assert "feedback_messages.clear()" in ready
+    assert "resident_status_terminal_anchor" in ready
+    assert "status_prepared_positions(" in ready
+    assert "resident_ready_fresh_feedback_fallback" in ready
+    assert "feedback_positions(topic_feedback, label=\"terminal\")" in ready
+    assert "MAXIMUM_FALLBACK_FEEDBACK_AGE_MS = 150" in RUNNER_SOURCE
+    assert "int(feedback.present_mask) != 0x0FFF" in RUNNER_SOURCE
+    assert "maximum_age_ms > MAXIMUM_FALLBACK_FEEDBACK_AGE_MS" in RUNNER_SOURCE
     assert RUNNER_SOURCE.count("anchors.clear()") >= 2
-
 
 def test_runtime_requires_q0_locked_wrist() -> None:
     assert "REQUIRED_ENDPOINTS" in RUNNER_SOURCE
-    assert 'plan.get("schema_version") != 9' in RUNNER_SOURCE
+    assert 'plan.get("schema_version") != 12' in RUNNER_SOURCE
     assert (
         'endpoint.get("wrist_roll_yaw_correction_applied") is not False'
         in RUNNER_SOURCE
@@ -251,17 +274,41 @@ def test_runtime_requires_q0_locked_wrist() -> None:
 
 def test_runtime_requires_the_reviewed_third_three_mm_lower_grasp() -> None:
     assert "EXPECTED_BASELINE_PICK_GRASP_OFFSET_M = 0.011" in RUNNER_SOURCE
-    assert "EXPECTED_PREVIOUS_PICK_GRASP_OFFSET_M = 0.005" in RUNNER_SOURCE
-    assert "EXPECTED_PICK_GRASP_OFFSET_M = 0.002" in RUNNER_SOURCE
+    assert "EXPECTED_PREVIOUS_PICK_GRASP_OFFSET_M = 0.002" in RUNNER_SOURCE
+    assert "EXPECTED_PICK_GRASP_OFFSET_M = -0.001" in RUNNER_SOURCE
     assert (
-        "EXPECTED_PICK_GRASP_CUMULATIVE_DOWNWARD_ADJUSTMENT_M = 0.009"
+        "EXPECTED_PICK_GRASP_CUMULATIVE_DOWNWARD_ADJUSTMENT_M = 0.012"
         in RUNNER_SOURCE
     )
     assert "dynamic camera plan grasp-height contract is invalid" in RUNNER_SOURCE
 
 
+
+def test_each_arm_plan_requires_operator_screen_lateral_correction() -> None:
+    planner_source = (
+        ROOT / "tools/plan_top_camera_pick_place_once.py"
+    ).read_text(encoding="utf-8")
+    assert "LEFT_SCREEN_X_CORRECTION_M = 0.01372" in planner_source
+    assert "RIGHT_SCREEN_X_CORRECTION_M = -0.02947" in planner_source
+    assert "screen_positive_x_unit_workcell" in planner_source
+    assert '"schema_version": 12' in planner_source
+    assert "EXPECTED_LEFT_SCREEN_X_CORRECTION_M = 0.01372" in RUNNER_SOURCE
+    assert "EXPECTED_RIGHT_SCREEN_X_CORRECTION_M = -0.02947" in RUNNER_SOURCE
+    assert "dynamic camera plan {side} lateral contract is invalid" in RUNNER_SOURCE
+
+def test_open_grasp_height_check_never_closes_and_returns_via_pregrasp() -> None:
+    assert "OPEN_GRASP_HEIGHT_CHECK_CONFIRMATION" in RUNNER_SOURCE
+    assert "--open-grasp-height-check" in RUNNER_SOURCE
+    assert "TOP_OPEN_GRASP_HEIGHT_CHECK_HOLD" in RUNNER_SOURCE
+    assert "height_check_close_commands" in RUNNER_SOURCE
+    assert "height_check_return_via_pregrasp" in RUNNER_SOURCE
+    assert "pick_pregrasp" in RUNNER_SOURCE
+    assert "[pregrasp_target, q0_return_target]" in RUNNER_SOURCE
+    assert "TOP_CAMERA_OPEN_GRASP_HEIGHT_CHECK_PASS_HOLDING" in RUNNER_SOURCE
+
+
 def test_runtime_requires_the_deeper_reviewed_gripper_target() -> None:
-    assert "EXPECTED_GRIPPER_OPEN_TARGET_RAW = 2009" in RUNNER_SOURCE
+    assert "EXPECTED_GRIPPER_OPEN_TARGET_RAW = 2048" in RUNNER_SOURCE
     assert "EXPECTED_GRIPPER_CLOSE_TARGET_RAW = 1948" in RUNNER_SOURCE
     assert 'plan["steps"][0] is not pick_open_steps[0]' in RUNNER_SOURCE
     assert 'action["label"] in ("pick_open", "place_release")' in RUNNER_SOURCE

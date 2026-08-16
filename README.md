@@ -2,7 +2,7 @@
 
 Raspberry Pi 5, ROS 2 Jazzy, STM32G474, 두 대의 SO-ARM101과 세 대의 USB 카메라를 통합하는 멀티카메라 듀얼암 로봇 프로젝트다.
 
-첫 생산 기준선은 왼팔의 재현 가능한 마커펜 Pick and Place다. 오른팔은 현재 물리적으로 정상 동작하며, 왼팔 기준선을 완성한 뒤 같은 단독 수락 gate를 통과시키고 양팔로 통합한다.
+현재 기준선은 상단 카메라로 마커펜을 왼팔이 집어 중간에 놓고 오른팔이 다시 집어 옮기는 양팔 연속 Pick and Place다. 다음 범위는 누운 캔 한 개의 수직 접근 파지이며, 캔→쓰레기통과 handover는 이후 PR로 분리한다.
 
 ## 핵심 원칙
 
@@ -15,39 +15,29 @@ Raspberry Pi 5, ROS 2 Jazzy, STM32G474, 두 대의 SO-ARM101과 세 대의 USB �
 
 ## 현재 상태
 
-- 양팔 하드웨어: NUCLEO-G474RE 한 대가 좌 USART1, 우 UART4를 통해 팔별
-  Waveshare servo bus driver와 STS3215 6축씩, 총 12축을 제어한다.
-- 현재 resident 후보 firmware: `0x00024807`, protocol `2`, joints `12`, capabilities
-  `0xEFFFFFFF`, 좌우 calibration hash `0x2D90167E`.
-- deterministic backend: 공통 5 ms executor, 양팔 paired DMA dispatch,
-  operational limits, branch-aware shoulder unwrap, heartbeat/timeout/tracking fault의
-  coordinated torque-off/stop latch를 실기 검증했다.
-- F8.7은 F8.6의 tracking 보호를 유지하고 gripper terminal contact residual만
-  `90,000 µrad`까지 분리 허용한다. 실측 tracking error 초과·DMA·dispatch·heartbeat
-  fault는 즉시 정지하고,
-  in-motion 위치 read 실패만 3회 연속일 때 정지한다. 단발/2회 실패 뒤 성공한
-  pair가 오면 streak를 0으로 복구하며 누적 `failed_pairs`는 진단으로 남긴다.
-- Pi resident ROS adapter: finite/open horizon, APPEND, continuity SPLICE, owner/epoch,
-  explicit STOP을 하나의 serial owner에서 처리한다. 최초 motion 직전 torque-off
-  anchor를 재취득하며, stale anchor 기반 경로는 ARM 전에 거부한다.
-- 실측 feedback: canonical 12축 rad, 관절별 sample age, present mask와 firmware
-  tick을 20 Hz ROS topic으로 제공한다.
-- F8.1 최종 실기: direct no-output `present_mask=0x0FFF`, launch 0; 실제 양팔 base
-  `+0.03 rad` rolling 왕복에서 feedback 8 sample, age max 27 ms, 7개 command,
-  epoch `1,1,2,2,2,2,2`, coordinated STOP을 통과했다.
-- firmware/ROS 하위 경계는 source-agnostic이다. 학습은 외부에서 끝내고 Pi에는
-  pretrained policy inference, MoveIt/FSM과 단일 상단 command arbiter만 올린다.
-- reference consumer인 Top-camera one-shot 앱은 F8.7에서 fresh anchor, 양팔 연속
-  q0, 왼팔 pick/lift/place/release, 최종 armed READY/HOLD를 automatic retry 없이
-  두 번 완주했다(`application_run20`, `application_run22`). 이는 하위 인터페이스와
-  한 개 task adapter의 실기 증거이며 운영용 범용 상단 arbiter 완성을 뜻하지 않는다.
-- legacy `single_arm_bridge` 일반 trajectory backend는 계속 비승인이다. 양팔 motion은
-  `bimanual_stream_adapter` 경로만 사용한다.
-- 다음 개발 범위: 상단 MoveIt/FSM/policy adapter, observation freshness supervisor,
-  양팔 URDF/base transform 정밀화, inter-arm collision, 카메라 보정과 task-level
-  반복성이다. 이는 firmware stream gate와 분리한다.
-- 상단 개발의 canonical 진입점은
-  [양팔 상단 애플리케이션 인터페이스 계약](docs/BIMANUAL_UPPER_APPLICATION_INTERFACE.md)이다.
+- resident firmware: F8.9 `0x00024809`, protocol 2, 12 joints,
+  capabilities `0xEFFFFFFF`.
+- STM32는 공통 5 ms executor, paired DMA dispatch, operational limits,
+  measured tracking, heartbeat/watchdog와 coordinated torque-off를 소유한다.
+- Pi의 `bimanual_stream_adapter`만 serial을 소유하며 fresh anchor,
+  owner/epoch, finite trajectory와 terminal feedback을 ROS로 제공한다.
+- 팔 관절 route tracking 한계는 90,000 µrad로 유지한다. 물체 접촉 시
+  그리퍼만 150,000 µrad를 허용하며 firmware hard cap은 160,000 µrad다.
+- 상단 카메라/작업대 보정과 오른팔 data-fit URDF를 적용했다.
+- 계획 스키마 12는 화면축 좌우 보정을 homography와 plan SHA에 고정한다.
+  왼팔은 화면 오른쪽 13.72 mm, 오른팔은 화면 왼쪽 29.47 mm다.
+- F8.9 no-motion, current-pose hold 2회와
+  왼팔→오른팔 펜 전달을 automatic retry 없이 완주했다.
+- legacy `single_arm_bridge` 일반 trajectory backend는 비승인이다.
+  양팔 motion은 resident adapter 경로만 사용한다.
+- 다음 PR은 Top YOLO-OBB, 수직 접근, 캔 장축에 수직인 gripper closing axis,
+  nearest-equivalent wrist roll과 감독 1회 파지만 다룬다.
+
+규범 경계는
+[양팔 상단 애플리케이션 인터페이스](docs/BIMANUAL_UPPER_APPLICATION_INTERFACE.md),
+최종 실기 결과는
+[F8.9 resident와 양팔 펜 전달](docs/test-results/2026-08-16-f89-bimanual-pen-transfer.md)에
+기록했다.
 
 ## 새 개발 환경 준비
 
@@ -115,6 +105,7 @@ cp bridge.local.yaml.example bridge.local.yaml
 - [양팔 상단 애플리케이션 인터페이스 계약](docs/BIMANUAL_UPPER_APPLICATION_INTERFACE.md)
 - [상단 애플리케이션 개발 인계 프롬프트](docs/prompts/BIMANUAL_UPPER_APPLICATION_HANDOFF_PROMPT.md)
 - [F8.7 resident·Top 카메라 Pick/Place 최종 수락 결과](docs/test-results/2026-08-15-f87-resident-top-camera-pick-place.md)
+- [F8.9 resident·양팔 펜 전달 최종 수락 결과](docs/test-results/2026-08-16-f89-bimanual-pen-transfer.md)
 - [프로젝트 헌장](docs/PROJECT_CHARTER.md)
 - [현재 분기점과 남은 로드맵](docs/CURRENT_STATE_AND_NEXT_ROADMAP.md)
 - [전체 로드맵](docs/ROADMAP.md)

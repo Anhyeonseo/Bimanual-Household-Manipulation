@@ -20,6 +20,7 @@ from sensor_msgs.msg import Image
 
 from so101_interfaces.msg import TopObjectPose
 
+from .debug_overlay import render_debug_overlay
 from .detector import (
     DetectionError,
     DetectorConfig,
@@ -70,6 +71,12 @@ class TopObjectPoseNode(Node):
             "diagnostics_topic",
             "/perception/top/diagnostics",
         ).value
+        self._debug_image_topic = str(
+            self.declare_parameter(
+                "debug_image_topic",
+                "/perception/top/yolo_obb_debug",
+            ).value
+        )
         self._output_frame_id = self.declare_parameter(
             "output_frame_id",
             "top_board",
@@ -197,6 +204,11 @@ class TopObjectPoseNode(Node):
             diagnostics_topic,
             10,
         )
+        self._debug_image_publisher = self.create_publisher(
+            Image,
+            self._debug_image_topic,
+            qos_profile_sensor_data,
+        )
         self._subscription = self.create_subscription(
             Image,
             image_topic,
@@ -219,13 +231,14 @@ class TopObjectPoseNode(Node):
             )
         self.get_logger().info(
             "TOP_PERCEPTION_READY input=%s output=%s frame=%s "
-            "backend=%s inference_hz=%.3f motion_authorized=false"
+            "backend=%s inference_hz=%.3f debug=%s motion_authorized=false"
             % (
                 image_topic,
                 pose_topic,
                 self._output_frame_id,
                 self._detector_backend,
                 self._inference_hz,
+                self._debug_image_topic,
             )
         )
 
@@ -243,6 +256,8 @@ class TopObjectPoseNode(Node):
             raise ValueError("diagnostics_period_s must be positive")
         if self._inference_hz <= 0.0:
             raise ValueError("inference_hz must be positive")
+        if not self._debug_image_topic:
+            raise ValueError("debug_image_topic must not be empty")
 
     @staticmethod
     def _decode_image(message: Image) -> np.ndarray:
@@ -345,6 +360,14 @@ class TopObjectPoseNode(Node):
                 error.code,
                 str(error),
             )
+            self._publish_debug_image(
+                message,
+                image,
+                pose=None,
+                code=error.code,
+                reason=str(error),
+                frame_age_s=frame_age_s,
+            )
             return
         except Exception as error:
             self._inference_metrics.record(
@@ -356,6 +379,14 @@ class TopObjectPoseNode(Node):
                 DiagnosticStatus.ERROR,
                 "PROCESSING_ERROR",
                 str(error),
+            )
+            self._publish_debug_image(
+                message,
+                image,
+                pose=None,
+                code="PROCESSING_ERROR",
+                reason=str(error),
+                frame_age_s=frame_age_s,
             )
             return
         self._inference_metrics.record(
@@ -384,12 +415,21 @@ class TopObjectPoseNode(Node):
         )
         output.motion_authorized = False
         output.robot_target_available = False
-        output.detector_status = (
+        detector_status = (
             "TRACKING_BOARD_ONLY"
             if footprint_inside
             else "TRACKING_CENTER_CALIBRATED_FULLY_VISIBLE"
         )
+        output.detector_status = detector_status
         self._pose_publisher.publish(output)
+        self._publish_debug_image(
+            message,
+            image,
+            pose=pose,
+            code=detector_status,
+            reason="one valid board-relative observation",
+            frame_age_s=frame_age_s,
+        )
 
         self._last_frame_age_s = frame_age_s
         if footprint_inside:
@@ -406,6 +446,45 @@ class TopObjectPoseNode(Node):
                 "center is calibrated and the full object is visible",
                 pose=pose,
             )
+
+    def _publish_debug_image(
+        self,
+        source: Image,
+        image_bgr: np.ndarray,
+        *,
+        pose: dict | None,
+        code: str,
+        reason: str,
+        frame_age_s: float,
+    ) -> None:
+        if self._debug_image_publisher.get_subscription_count() == 0:
+            return
+        try:
+            annotated = render_debug_overlay(
+                image_bgr,
+                pose=pose,
+                code=code,
+                reason=reason,
+                frame_age_s=frame_age_s,
+                detector_backend=self._detector_backend,
+            )
+            rgb = np.ascontiguousarray(
+                cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+            )
+        except Exception as error:
+            self.get_logger().error(
+                f"TOP_PERCEPTION_DEBUG_RENDER_ERROR reason={error}"
+            )
+            return
+        output = Image()
+        output.header = source.header
+        output.height = int(rgb.shape[0])
+        output.width = int(rgb.shape[1])
+        output.encoding = "rgb8"
+        output.is_bigendian = 0
+        output.step = int(rgb.shape[1] * 3)
+        output.data = rgb.tobytes()
+        self._debug_image_publisher.publish(output)
 
     @staticmethod
     def _value(key: str, value: object) -> KeyValue:

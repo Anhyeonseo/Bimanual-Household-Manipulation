@@ -1060,6 +1060,68 @@ HAL_StatusTypeDef Servo_DisableTorqueAll(void)
     uint8_t torque_off[1] = {0U};
     HAL_StatusTypeDef result = HAL_OK;
 
+#if HOST_SERVO_DISABLE_READBACK_RECOVERY_BUILD
+    /*
+     * Torque removal is proven by register-40 readback, not by the write
+     * response alone.  STS3215 may apply a write even when its status reply is
+     * lost during a power-domain/UART recovery edge, so do not convert that
+     * transient into a permanent stop before physical state is verified.
+     */
+    for (uint8_t i = 0U; i < servo_joint_count; i++)
+    {
+        (void)Servo_WriteData(
+            servo_joints[i].id,
+            40U,
+            torque_off,
+            sizeof(torque_off)
+        );
+    }
+
+    HAL_Delay(5U);
+
+    /*
+     * A failed or non-zero readback receives one bounded per-ID rewrite and
+     * one final readback.  The function remains fail-closed: every servo must
+     * report Torque Enable == 0 or the caller latches the existing fault.
+     */
+    for (uint8_t i = 0U; i < servo_joint_count; i++)
+    {
+        uint8_t verified_disabled = 0U;
+
+        for (uint8_t attempt = 0U; attempt < 2U; attempt++)
+        {
+            uint8_t torque_readback[1] = {1U};
+
+            if ((Servo_ReadData(
+                    servo_joints[i].id,
+                    40U,
+                    sizeof(torque_readback),
+                    torque_readback
+                ) == HAL_OK) &&
+                (torque_readback[0] == 0U))
+            {
+                verified_disabled = 1U;
+                break;
+            }
+
+            if (attempt == 0U)
+            {
+                (void)Servo_WriteData(
+                    servo_joints[i].id,
+                    40U,
+                    torque_off,
+                    sizeof(torque_off)
+                );
+                HAL_Delay(SERVO_BUS_RECOVERY_QUIET_MS);
+            }
+        }
+
+        if (verified_disabled == 0U)
+        {
+            result = HAL_ERROR;
+        }
+    }
+#else
     /*
      * Continue through all six IDs even after one failure.  A partial bus
      * failure must not prevent the remaining joints from receiving the
@@ -1100,6 +1162,7 @@ HAL_StatusTypeDef Servo_DisableTorqueAll(void)
             result = HAL_ERROR;
         }
     }
+#endif
 
     return result;
 }

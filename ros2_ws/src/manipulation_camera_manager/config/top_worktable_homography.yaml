@@ -1,6 +1,7 @@
 schema_version: 1
 status: TABLE_BASE_VALIDATED_MOTION_STILL_NOT_AUTHORIZED
 motion_authorized: false
+robot_target_available: false
 camera:
   name: so101_top
   image_width: 640
@@ -9,59 +10,73 @@ camera:
   camera_info_file: top_camera_info.yaml
   camera_info_sha256: dd7297be6e78d02721cb39915f8fe728ca44ac8d9e6a28167ab8c297d1a43936
 capture:
-  method: current planar GridBoard IDs 10-29 at two table positions
-  validation_file: docs/test-results/evidence/2026-07-30-top-base-table-validation.yaml
-  validation_sha256: c820eb5f709b9f7accc46db514289599a294e047941e88be0482bcbb6d80df34
+  method: six_position_common_plane_fit_plus_two_independent_validations
+  validation_file: artifacts/top_table_calibration/2026-08-16/full_table_session01/validation.yaml
   image_sha256:
-  - 1c792d3b271a961ce50791da49ba1a08d0e56c221624bbf7166ec26dff5ae02d
-  - 573cbbdcb9f2ca0e20482ce988a079182d61b254669d0a715dd3956e8ed2bc83
+  - e786ab1d07b79bff77849de62e8a46c0ee3b18c9e08d60a0f9ddf91ac88b0802
+  - b0eb3d5c2d83cc15d1145fd02f8bb5bc1bbe151b07f8613e0e8ef88af48f5c87
+  - 99ce19692d0753352760fa1b9bbcc7ca407dde6cc304493da04ec36bdb036052
+  - 965344165b94c303c3407e25955e595466afe8e726b5f83671f22a819d777f1b
+  - 41effddede49d81cca9ebd576cc92fc005fdc3f6762a7c7dc0668bd2840b1737
+  - e5086099dab89b16ecc51e7937c06ec7189bf6b1703c639fcf62c003ba09dd45
+  - 20dd023c42f60251cba5dafbbf97030b724cf82a4ad78b0fbc3468ea6f314de6
+  - a06ff24504d049787dc30f9e316989cff70c9e12395464e833bded6ca72f89c9
+  validation_sha256: 084c12ee8565393a2f285721e3dfd97a2c0a35821441aa7279c92aa342a0cda9
 board:
-  origin: left_base_link aligned camera-safe region minimum
+  origin: left_base_link aligned region inside multi-position coverage hull
   positive_x: parallel to left_base_link +X
   positive_y: parallel to left_base_link +Y
   calibrated_span_m:
-  - 0.18
-  - 0.28
+  - 0.29017602778267015
+  - 0.3928584761917591
   origin_in_left_base_link_xy_m:
-  - 0.34
-  - -0.28
+  - 0.3596486143024932
+  - -0.323992710262537
   table_z_in_left_base_link_m: -0.005
 homography:
   rectified_pixel_to_board_m:
     rows: 3
     cols: 3
     data:
-    - - -8.858708968076542e-05
-      - -0.002025525698038689
-      - 0.84379362597074
-    - - -0.0017271699752076774
-      - 0.0005401973787598214
-      - 0.6527693302785658
-    - - 0.00011870143138495284
-      - 0.0030308697610713963
+    - - -8.618766734752038e-05
+      - -0.0020053379757478517
+      - 0.8061671605760846
+    - - -0.0016972131870768169
+      - 0.0006354279378209028
+      - 0.6890545314377566
+    - - 0.0001071050177928262
+      - 0.0028448489795727967
       - 1.0
   board_m_to_rectified_pixel:
     rows: 3
     cols: 3
     data:
-    - - 179.8010495080812
-      - -572.927816918734
-      - 222.27472783023433
-    - - -225.60487688773287
-      - 23.595735697990946
-      - 174.96138451677487
-    - - 0.6624363573681387
-      - -0.0035082498687637152
-      - 0.4433305019587722
+    - - 179.40434388224284
+      - -582.1257227956129
+      - 256.4864766562333
+    - - -239.82557696873903
+      - 23.363806901947715
+      - 177.24056740098575
+    - - 0.6630524424713565
+      - -0.004117916326255901
+      - 0.4683063640445171
 fit_quality:
-  planar_gridboard_pnp_rms_px_max: 0.649687
-  plane_normal_disagreement_deg: 0.846624
-  height_mean_disagreement_mm: 1.549545
-  grid_corner_metric_error_max_mm: 4.503808
-  tabletop_position_error_max_mm: 8.880034
-  tabletop_yaw_error_max_deg: 1.945985
+  normal_before_correction:
+  - -0.01869458719584299
+  - -0.0010568391822601275
+  - 0.9998246823821264
+  centroid_before_correction_m:
+  - 0.4997387206761169
+  - -0.12487854410268008
+  - -0.011053257034995323
+  roll_pitch_correction_deg: 1.0728938501829275
+  plane_fit_rms_mm: 1.167681938770508
+  plane_fit_max_mm: 2.46047103704949
+  pnp_rms_px_max: 0.732728941912138
+  validation_metric_error_max_mm: 2.4634385159942536
+  validation_plane_height_error_max_mm: 1.9056100842985528
 base_registration:
-  status: CURRENT_PLANAR_GRIDBOARD_TWO_POSITION_VALIDATED
+  status: MULTI_POSITION_COMMON_PLANE_INDEPENDENTLY_VALIDATED
   transform_validated: true
   motion_authorized: false
   reference: left_base_link
@@ -72,11 +87,11 @@ base_registration:
     - - 1.0
       - 0.0
       - 0.0
-      - 0.34
+      - 0.3596486143024932
     - - 0.0
       - 1.0
       - 0.0
-      - -0.28
+      - -0.323992710262537
     - - 0.0
       - 0.0
       - 1.0
@@ -85,5 +100,4 @@ base_registration:
       - 0.0
       - 0.0
       - 1.0
-  rejected_mixed_reference_disagreement_mm: 118.216
-required_next_gate: plan-only grasp candidate validation; robot motion remains disabled
+required_next_gate: plan-only can pose validation; robot motion remains disabled

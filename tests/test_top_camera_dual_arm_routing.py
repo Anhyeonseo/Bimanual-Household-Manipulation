@@ -39,7 +39,11 @@ def test_dual_moveit_has_independent_left_and_right_groups() -> None:
         ROOT / "ros2_ws/src/so101_moveit_config/config/so101_dual.srdf"
     ).getroot()
     groups = {group.attrib["name"]: group for group in root.findall("group")}
-    assert set(groups) == {"left_arm", "right_arm"}
+    assert set(groups) == {"left_arm", "right_arm", "both_arms"}
+    assert [child.attrib for child in groups["both_arms"].findall("group")] == [
+        {"name": "left_arm"},
+        {"name": "right_arm"},
+    ]
     assert groups["left_arm"].find("chain").attrib == {
         "base_link": "left_base_link",
         "tip_link": "left_gripper_frame_link",
@@ -97,19 +101,22 @@ def test_dynamic_planner_routes_by_pixels_and_remains_plan_only() -> None:
     assert '"nonselected_arm_behavior": "hold_bimanual_q0"' in source
     assert "workspace_coordinates_for_arm" in source
     assert "GraspYawKinematics" in source
+    assert "point_in_base_frame" in source
+    assert "SO101_DUAL_URDF_PATH" in source
+    assert '"robot_description"' in source
     assert "least_squares" in source
     assert "solve_endpoint_pose_with_locked_wrist" in source
     assert "locked_wrist_roll = 0.0" in source
     assert '"wrist_roll_yaw_correction_applied": False' in source
     assert '"wrist_roll_policy": "hold_bimanual_q0"' in source
-    assert '"schema_version": 9' in source
+    assert '"schema_version": 12' in source
     assert "BASELINE_PICK_GRASP_OFFSET_M = 0.011" in source
-    assert "PREVIOUS_PICK_GRASP_OFFSET_M = 0.005" in source
-    assert "PICK_GRASP_OFFSET_M = 0.002" in source
+    assert "PREVIOUS_PICK_GRASP_OFFSET_M = 0.002" in source
+    assert "PICK_GRASP_OFFSET_M = -0.001" in source
     assert "PICK_GRASP_CUMULATIVE_DOWNWARD_ADJUSTMENT_M" in source
     assert '"height_adjustment"' in source
     assert "DYNAMIC_PICK_HEIGHT_OFFSET_PASS" in source
-    assert "GRIPPER_OPEN_TARGET_RAW = 2009" in source
+    assert "GRIPPER_OPEN_TARGET_RAW = 2048" in source
     assert "GRIPPER_CLOSE_TARGET_RAW = 1948" in source
     assert '"phase": "pick_open"' in source
     assert '"gripper_contract"' in source
@@ -149,11 +156,39 @@ def test_dynamic_plan_opens_before_approach_and_closes_at_grasp() -> None:
         "place_grasp_to_retreat",
     ]
     assert steps[0]["target_position_rad"] == pytest.approx(
-        (2048 - 2009) * planner.RAW_STEP_RAD
+        (2048 - 2048) * planner.RAW_STEP_RAD
     )
     assert steps[2]["target_position_rad"] == pytest.approx(
         (2048 - 1948) * planner.RAW_STEP_RAD
     )
+
+
+def test_interarm_place_is_fixed_and_left_stage_only() -> None:
+    path = ROOT / "tools/plan_top_camera_pick_place_once.py"
+    spec = importlib.util.spec_from_file_location(
+        "plan_top_camera_pick_place_interarm_test", path
+    )
+    planner = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = planner
+    spec.loader.exec_module(planner)
+
+    targets, source = planner.select_place_targets(
+        ROOT / "artifacts/stage7/2026-08-10/place_pose_plan_only_offset014.json",
+        interarm_place=True,
+        side="left",
+    )
+    assert targets["pregrasp"][:2] == pytest.approx((0.420, -0.170))
+    assert targets["grasp"][:2] == pytest.approx((0.420, -0.170))
+    assert source["mode"] == "left_to_right_interarm_stage"
+    assert source["expected_next_selected_arm"] == "right"
+    assert source["right_routing_margin_px"] > 9.0
+
+    with pytest.raises(RuntimeError, match="left-arm first stage"):
+        planner.select_place_targets(
+            ROOT / "artifacts/stage7/2026-08-10/place_pose_plan_only_offset014.json",
+            interarm_place=True,
+            side="right",
+        )
 
 
 def test_endpoint_solver_locks_wrist_roll_at_bimanual_q0() -> None:
@@ -168,7 +203,11 @@ def test_endpoint_solver_locks_wrist_roll_at_bimanual_q0() -> None:
     joint_names = ("base", "shoulder", "elbow", "flex", "roll")
 
     class FakeKinematics:
-        
+
+        def point_in_base_frame(self, point, root_link):
+            assert root_link == "workcell_base_link"
+            return np.asarray(point, dtype=float)
+
         def tcp_position(self, positions):
             return np.array(
                 [positions[name] for name in joint_names[:3]], dtype=float

@@ -9,6 +9,7 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 
 import rclpy
+from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
@@ -55,6 +56,7 @@ class BimanualStreamNode(Node):
         self.declare_parameter("feedback_period_s", 0.05)
         self.declare_parameter("heartbeat_period_s", 0.1)
         self.declare_parameter("response_timeout_s", 0.12)
+        self.declare_parameter("unarmed_feedback_refresh_period_s", 0.0)
 
         self._lease = None
         self._serial = None
@@ -72,6 +74,24 @@ class BimanualStreamNode(Node):
         )
         if not 0.02 <= heartbeat_period_s <= 0.2:
             raise ValueError("heartbeat_period_s must be within 0.02..0.2")
+        unarmed_feedback_refresh_period_s = float(
+            self.get_parameter("unarmed_feedback_refresh_period_s").value
+        )
+        if (
+            unarmed_feedback_refresh_period_s != 0.0
+            and not 0.25 <= unarmed_feedback_refresh_period_s <= 10.0
+        ):
+            raise ValueError(
+                "unarmed_feedback_refresh_period_s must be zero or within "
+                "0.25..10.0"
+            )
+        motion_authorized = bool(
+            self.get_parameter("motion_authorized").value
+        )
+        if unarmed_feedback_refresh_period_s > 0.0 and motion_authorized:
+            raise ValueError(
+                "unarmed feedback refresh requires motion_authorized=false"
+            )
         try:
             ros_domain_id = int(os.environ.get("ROS_DOMAIN_ID", "0"))
             self._lease = acquire_backend_lease("stm32", ros_domain_id)
@@ -99,9 +119,7 @@ class BimanualStreamNode(Node):
             self._adapter = ResidentBimanualStreamAdapter(
                 transport,
                 limits,
-                motion_authorized=bool(
-                    self.get_parameter("motion_authorized").value
-                ),
+                motion_authorized=motion_authorized,
             )
             prepared = self._adapter.prepare()
         except Exception:
@@ -162,11 +180,19 @@ class BimanualStreamNode(Node):
             feedback_period_s,
             self._publish_feedback,
         )
+        self._unarmed_feedback_refresh_timer = None
+        if unarmed_feedback_refresh_period_s > 0.0:
+            self._unarmed_feedback_refresh_timer = self.create_timer(
+                unarmed_feedback_refresh_period_s,
+                self._refresh_unarmed_feedback,
+            )
         self._publish_feedback()
         self.get_logger().info(
             "resident bimanual stream ready "
             f"firmware=0x{F8_FIRMWARE_VERSION:08X} motion_authorized="
-            f"{str(bool(self.get_parameter('motion_authorized').value)).lower()}"
+            f"{str(motion_authorized).lower()} "
+            "unarmed_feedback_refresh_period_s="
+            f"{unarmed_feedback_refresh_period_s:.3f}"
         )
 
     def _publish_anchor(self, prepared) -> None:
@@ -281,6 +307,7 @@ class BimanualStreamNode(Node):
             adapter.keepalive()
         except Exception as error:
             self.get_logger().error(f"resident keepalive stopped: {error}")
+        prepared = adapter.prepared_state
         response.success = adapter.state is not AdapterState.FAULTED
         response.message = json.dumps(
             {
@@ -292,6 +319,16 @@ class BimanualStreamNode(Node):
                 ),
                 "firmware_version": f"0x{F8_FIRMWARE_VERSION:08X}",
                 "fault_diagnostic": adapter.fault_diagnostic,
+                "prepared_epoch": adapter.epoch,
+                "prepared_positions_rad": (
+                    [value / 1_000_000.0 for value in prepared.positions_urad]
+                    if prepared is not None
+                    else None
+                ),
+                "torque_hold_active": bool(
+                    adapter.heartbeat_required
+                    and adapter.state is AdapterState.READY
+                ),
             },
             separators=(",", ":"),
             sort_keys=True,
@@ -314,6 +351,11 @@ class BimanualStreamNode(Node):
                     "firmware_version": f"0x{F8_FIRMWARE_VERSION:08X}",
                     "joint_count": len(prepared.positions_urad),
                     "torque_enabled": False,
+                    "prepared_epoch": adapter.epoch,
+                    "prepared_positions_rad": [
+                        value / 1_000_000.0
+                        for value in prepared.positions_urad
+                    ],
                 },
                 separators=(",", ":"),
                 sort_keys=True,
@@ -338,6 +380,19 @@ class BimanualStreamNode(Node):
         except Exception as error:
             self.get_logger().error(f"resident keepalive stopped: {error}")
 
+    def _refresh_unarmed_feedback(self) -> None:
+        """Refresh the measured cache while both arms remain torque-disabled."""
+        adapter = self._adapter
+        if adapter is None or adapter.state is not AdapterState.READY:
+            return
+        try:
+            prepared = adapter.refresh_unarmed_anchor()
+            self._publish_anchor(prepared)
+        except Exception as error:
+            self.get_logger().error(
+                f"resident unarmed feedback refresh stopped: {error}"
+            )
+
     def _publish_feedback(self) -> None:
         adapter = self._adapter
         if adapter is None or adapter.state in (
@@ -345,6 +400,15 @@ class BimanualStreamNode(Node):
             AdapterState.FAULTED,
             AdapterState.STOPPED,
         ):
+            return
+        # A full 12-axis feedback snapshot is a comparatively expensive UART
+        # transaction. Do not let the periodic visualization feed compete
+        # with finite-plan refill or the 500 ms firmware heartbeat watchdog
+        # while torque is held. The poll path takes one fresh terminal snapshot
+        # before transitioning back to armed READY and publishes that terminal
+        # anchor, so motion completion remains measured. Unarmed READY retains
+        # periodic feedback for calibration and manual pose capture.
+        if adapter.heartbeat_required:
             return
         try:
             snapshot = adapter.feedback_snapshot()
@@ -355,7 +419,14 @@ class BimanualStreamNode(Node):
             self.get_logger().error(f"resident feedback stopped: {error}")
             return
 
-        stamp = self.get_clock().now().to_msg()
+        # JointState has one header stamp for all axes. Use the oldest axis so
+        # consumers cannot mistake a repeatedly published cache for a fresh
+        # measurement. This is conservative for the paired tracking sweeps.
+        maximum_sample_age_ms = max(snapshot.sample_age_ms)
+        stamp = (
+            self.get_clock().now()
+            - Duration(nanoseconds=maximum_sample_age_ms * 1_000_000)
+        ).to_msg()
         positions = [value / 1_000_000.0 for value in snapshot.positions_urad]
 
         joint_state = JointState()

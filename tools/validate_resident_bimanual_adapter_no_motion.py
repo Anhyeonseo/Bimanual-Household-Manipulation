@@ -142,7 +142,7 @@ def main() -> int:
             or initial_document.get("arbiter_epoch") != 0
             or initial_document.get("motion_authorized") is not False
             or initial_document.get("firmware_version")
-            != "0x00024807"
+            != "0x00024809"
         ):
             raise RuntimeError(
                 f"unexpected initial adapter status: {initial_status}"
@@ -161,7 +161,7 @@ def main() -> int:
         refresh_document = json.loads(refreshed.message)
         if (
             refresh_document.get("state") != "ready"
-            or refresh_document.get("firmware_version") != "0x00024807"
+            or refresh_document.get("firmware_version") != "0x00024809"
             or refresh_document.get("joint_count") != 12
             or refresh_document.get("torque_enabled") is not False
         ):

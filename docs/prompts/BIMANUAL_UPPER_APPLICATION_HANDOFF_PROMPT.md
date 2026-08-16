@@ -26,7 +26,7 @@ daemon으로 복사하지 말고 상태/실패/torque-hold 패턴을 재사용�
 
 ## 고정된 하위 계약
 
-- STM32 firmware `0x00024807`
+- STM32 firmware `0x00024809`
 - protocol 2, 12 joints, capabilities `0xEFFFFFFF`
 - left/right calibration hash `0x2D90167E`
 - firmware HEX SHA-256
@@ -49,7 +49,7 @@ daemon으로 복사하지 말고 상태/실패/torque-hold 패턴을 재사용�
 - firmware는 MoveIt/FSM/policy source를 구분하지 않는다. source arbitration은
   반드시 상단 앱에서 끝낸다.
 - arm terminal acceptance는 `46,020 µrad`, gripper contact-hold acceptance는
-  `90,000 µrad`다. 앱에서 더 엄격한 30 mrad 같은 중복 판정을 만들지 않는다.
+  `150,000 µrad`다. 앱에서 더 엄격한 30 mrad 같은 중복 판정을 만들지 않는다.
 - ROS `START_FINITE`는 **완전한 finite route 전체**를 받는다. 9 points/400 ms는
   resident가 내부에서 관리하는 STM32 wire window이며 ROS finite route 제한이 아니다.
 
@@ -97,7 +97,7 @@ daemon으로 복사하지 말고 상태/실패/torque-hold 패턴을 재사용�
 
 6. **Supervisor and shutdown**
    - startup status가 `ready`, owner null, epoch 0, motion 권한 true, firmware
-     `0x00024807`인지 확인
+     `0x00024809`인지 확인
    - 정상 task 종료, 사용자 중지, SIGINT/SIGTERM, source crash, camera/policy stale,
      planning 실패가 모두 같은 coordinated STOP 경로로 수렴
    - STOP 뒤 state `stopped` 확인. 자동 reset/clear/retry loop는 만들지 않음
@@ -141,7 +141,7 @@ ROS status와 마지막 command response로 증명되어야 한다.
 - policy delta/velocity가 absolute rad로 변환되고 limit에서 clamp 또는 reject
 - SIGINT/SIGTERM과 producer exception에서 STOP exactly once
 - arm terminal `42,951 µrad`는 수락하고 `47,000 µrad`는 거부하며,
-  gripper는 별도 `90,000 µrad` 경계를 쓰는지 확인
+  gripper는 별도 `150,000 µrad` 경계를 쓰는지 확인
 - armed READY의 post-terminal task rejection이 새 motion을 막되 torque hold를
   보존하고, 작업자 STOP 뒤 `stopped`를 새 session으로 재사용하지 않는지 확인
 - `motion_authorized=false` integration에서 모든 motion command 거부
@@ -177,7 +177,14 @@ Mock 시험은 service response, status transition, feedback age를 모두 모�
 9. policy deployment bundle contract(model SHA, input/output, control period,
    preprocessing, camera order)
 10. 실제 하드웨어에 명령을 보내지 않는 dry-run artifact
-11. F8.7 reference evidence와의 compatibility report:
+11. F8.9 current reference evidence와의 compatibility report:
+    - `artifacts/resident_adapter/2026-08-16/f89_no_motion_run01.json`
+      SHA-256 `248ee592fa6dd9f68134574afd4a21ff5679bf939cffa01c7e8d7cd652c687d8`
+    - `artifacts/resident_adapter/2026-08-16/f89_armed_ready_soak_run01.json`
+      SHA-256 `860f626d2e8a6e5ec5a5bcc5f3a38952ce67ef751b482950168dc6ff562a5f41`
+    - `artifacts/top_pick_place/2026-08-16/pen_interarm_continuous_session03/transfer_journal.json`
+      SHA-256 `408c21d6e7211834351123c5058cf7a8be50b8d20d064ec3f861230099198fbc`
+12. F8.7 predecessor evidence와의 compatibility report:
     - `artifacts/resident_adapter/2026-08-15/no_motion_fresh_anchor_24807_run01.json`
       SHA-256 `ff3c168d178b165b1dccebf62fa6bf663a4ca2ae7ebccb8e78331989f9cddb84`
     - `artifacts/resident_adapter/2026-08-15/current_pose_hold_twice_fresh_anchor_24807_run01.json`

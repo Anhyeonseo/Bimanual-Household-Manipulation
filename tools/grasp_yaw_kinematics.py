@@ -177,6 +177,23 @@ class GraspYawKinematics:
         _, translation = self._compose(self._tcp_chain, positions)
         return translation
 
+    def point_in_base_frame(
+        self,
+        point_in_root: np.ndarray,
+        root_link: str = "workcell_base_link",
+    ) -> np.ndarray:
+        """Transform a root-frame XYZ point into this arm's base frame."""
+        point = np.asarray(point_in_root, dtype=float)
+        if point.shape != (3,) or not np.all(np.isfinite(point)):
+            raise ValueError("point_in_root must be one finite XYZ vector")
+        chain = self._build_chain(root_link, f"{self.prefix}base_link")
+        root_from_base_rotation, root_from_base_translation = self._compose(
+            chain, {}
+        )
+        return root_from_base_rotation.T @ (
+            point - root_from_base_translation
+        )
+
     def tcp_error_m(
         self,
         commanded: dict[str, float],

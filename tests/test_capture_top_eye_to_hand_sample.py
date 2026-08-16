@@ -47,6 +47,20 @@ class CaptureTopEyeToHandSampleTest(unittest.TestCase):
         positions = MODULE.ordered_arm_positions(message)
         self.assertEqual(positions.tolist(), [1.0, 2.0, 3.0, 4.0, 5.0])
 
+    def test_right_joint_positions_are_reordered_by_contract(self):
+        message = SimpleNamespace(
+            name=[
+                "right_wrist_roll_joint",
+                "right_elbow_joint",
+                "right_base_joint",
+                "right_wrist_flex_joint",
+                "right_shoulder_joint",
+            ],
+            position=[5.0, 3.0, 1.0, 4.0, 2.0],
+        )
+        positions = MODULE.ordered_arm_positions(message, "right")
+        self.assertEqual(positions.tolist(), [1.0, 2.0, 3.0, 4.0, 5.0])
+
     def test_generated_gridboard_is_recognized_only_when_complete(self):
         generator_spec = importlib.util.spec_from_file_location(
             "generate_top_eye_to_hand_gridboard_for_capture_test",
@@ -78,6 +92,55 @@ class CaptureTopEyeToHandSampleTest(unittest.TestCase):
             MODULE.detect_expected_gridboard(occluded),
             MODULE.EXPECTED_MARKER_IDS,
         )
+
+    def test_camera_model_and_visual_pose_span_are_metric(self):
+        camera_info = (
+            Path(__file__).resolve().parents[1]
+            / "ros2_ws/src/manipulation_camera_manager/config/"
+            "top_camera_info.yaml"
+        )
+        camera_matrix, distortion = MODULE.load_camera_model(camera_info)
+        self.assertEqual(camera_matrix.shape, (3, 3))
+        self.assertEqual(distortion.shape, (5,))
+
+        half_degree = np.deg2rad(0.5)
+        rotations = [
+            np.eye(3),
+            np.asarray(
+                [
+                    [np.cos(half_degree), -np.sin(half_degree), 0.0],
+                    [np.sin(half_degree), np.cos(half_degree), 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+        ]
+        translation_span, rotation_span = MODULE.maximum_target_pose_span(
+            [np.zeros(3), np.asarray([0.002, 0.0, 0.0])],
+            rotations,
+        )
+        self.assertAlmostEqual(translation_span, 0.002)
+        self.assertAlmostEqual(np.rad2deg(rotation_span), 0.5)
+
+    def test_visual_stability_defaults_are_fail_closed(self):
+        source = (TOOLS / "capture_top_eye_to_hand_sample.py").read_text()
+        self.assertIn('"--max-pnp-rms-px", type=float, default=1.5', source)
+        self.assertIn('"--max-target-translation-span-mm"', source)
+        self.assertIn('"--max-target-rotation-span-deg"', source)
+        self.assertIn("calibration target moved during capture", source)
+
+    def test_capture_window_spans_exposes_one_visual_outlier(self):
+        joints = [np.zeros(5) for _ in range(5)]
+        translations = [np.zeros(3) for _ in range(4)] + [
+            np.asarray([0.003, 0.0, 0.0])
+        ]
+        rotations = [np.eye(3) for _ in range(5)]
+        span, maximum, translation_mm, rotation_deg = (
+            MODULE.capture_window_spans(joints, translations, rotations)
+        )
+        np.testing.assert_allclose(span, 0.0)
+        self.assertEqual(maximum, 0.0)
+        self.assertAlmostEqual(translation_mm, 3.0)
+        self.assertAlmostEqual(rotation_deg, 0.0)
 
 
 if __name__ == "__main__":

@@ -110,6 +110,7 @@ class CanObservation:
     center_x_m: float
     center_y_m: float
     long_axis_yaw_rad: float
+    image_long_axis_yaw_rad: float
     major_axis_m: float
     minor_axis_m: float
     center_x_px: float
@@ -145,6 +146,7 @@ def validate_observation(
         observation.center_x_m,
         observation.center_y_m,
         observation.long_axis_yaw_rad,
+        observation.image_long_axis_yaw_rad,
         observation.major_axis_m,
         observation.minor_axis_m,
         observation.center_x_px,
@@ -282,7 +284,7 @@ def build_task_space_plan(
         raise LyingCanContractError(
             "nearest equivalent wrist rotation exceeds the commissioned bound"
         )
-    image_axis = wrap_undirected_axis(top.long_axis_yaw_rad)
+    image_axis = wrap_undirected_axis(top.image_long_axis_yaw_rad)
     image_orientation = (
         "horizontal"
         if abs(math.cos(image_axis)) >= abs(math.sin(image_axis))

@@ -1,5 +1,5 @@
 schema_version: 1
-status: SHADOW_ONLY_TABLE_BASE_VALIDATED_HARDWARE_WORKSPACE_0X00021600
+status: SHADOW_ONLY_FULL_TABLE_BASE_VALIDATED_HARDWARE_WORKSPACE_F8_8
 motion_authorized: false
 robot_target_available: false
 reference_generation_compatible: true
@@ -15,11 +15,11 @@ transform:
     - - 1.0
       - 0.0
       - 0.0
-      - 0.34
+      - 0.3596486143024932
     - - 0.0
       - 1.0
       - 0.0
-      - -0.28
+      - -0.323992710262537
     - - 0.0
       - 0.0
       - 1.0
@@ -28,17 +28,17 @@ transform:
       - 0.0
       - 0.0
       - 1.0
-  planar_gridboard_pnp_rms_px_max: 0.649687
-  plane_normal_disagreement_deg: 0.846624
-  plane_height_mean_disagreement_mm: 1.549545
+  planar_gridboard_pnp_rms_px_max: 0.732728941912138
+  plane_normal_disagreement_deg: 1.0728938501829275
+  plane_height_mean_disagreement_mm: 1.9056100842985528
   rejected_mixed_reference_disagreement_mm: 118.216
 object:
   type: rigid_black_pen
   center_height_above_board_m: 0.0113
 source_gate:
   board_span_xy_m:
-  - 0.18
-  - 0.28
+  - 0.29017602778267015
+  - 0.3928584761917591
   max_frame_age_s: 0.2
   future_tolerance_s: 0.05
   minimum_confidence: 0.7
@@ -57,9 +57,10 @@ workspace:
   radial_min_m: 0.18
   radial_max_m: 0.46
 sources:
-  eye_to_hand_candidate_sha256: b0e251a159f86a76915b1ae437e37a325ba42e9161da186d9173e36df549ea37
+  full_table_session: artifacts/top_table_calibration/2026-08-16/full_table_session01
   camera_info_sha256: dd7297be6e78d02721cb39915f8fe728ca44ac8d9e6a28167ab8c297d1a43936
-  table_base_validation_sha256: c820eb5f709b9f7accc46db514289599a294e047941e88be0482bcbb6d80df34
+  table_base_validation_sha256: 084c12ee8565393a2f285721e3dfd97a2c0a35821441aa7279c92aa342a0cda9
+  homography_config_sha256: e5c1678196a64b70b0bb64196b9cabef88aa08787f34f02391215f3b2dac18b7
 required_next_gate: fresh center, image visibility, transform, confidence and
   workspace validation; hash-pinned phase execution remains separately gated
   and never becomes automatically authorized by this shadow output

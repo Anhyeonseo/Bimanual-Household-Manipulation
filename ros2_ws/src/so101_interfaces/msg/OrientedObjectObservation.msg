@@ -8,6 +8,7 @@ float32 frame_age_s
 float64 center_x_m
 float64 center_y_m
 float64 long_axis_yaw_rad
+float64 image_long_axis_yaw_rad
 float64 major_axis_m
 float64 minor_axis_m
 float32 center_x_px
