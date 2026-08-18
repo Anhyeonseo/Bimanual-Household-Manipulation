@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "status": "INTRINSIC_CANDIDATE_INDEPENDENT_VALIDATION_REQUIRED",
+  "motion_authorized": false,
+  "camera_name": "so101_top",
+  "resolution": {
+    "width": 1280,
+    "height": 960
+  },
+  "pattern": {
+    "physical_squares": [
+      10,
+      7
+    ],
+    "inner_corners": [
+      9,
+      6
+    ],
+    "square_size_m": 0.025
+  },
+  "source": {
+    "archive": "calibrationdata.tar.gz",
+    "archive_sha256": "9e5018548263d918e48a2a438f600e65df270d80fe90c93c9cfd636f455daeb6",
+    "captured_views": 82
+  },
+  "selection": {
+    "retained_count": 78,
+    "excluded_count": 4,
+    "excluded_views": [
+      "left-0001.png",
+      "left-0003.png",
+      "left-0011.png",
+      "left-0078.png"
+    ],
+    "exclusion_rule": "baseline per-view RMS above median + 3*1.4826*MAD; persistent held-out pose-only reprojection outlier",
+    "retained_views": [
+      "left-0000.png",
+      "left-0002.png",
+      "left-0004.png",
+      "left-0005.png",
+      "left-0006.png",
+      "left-0007.png",
+      "left-0008.png",
+      "left-0009.png",
+      "left-0010.png",
+      "left-0012.png",
+      "left-0013.png",
+      "left-0014.png",
+      "left-0015.png",
+      "left-0016.png",
+      "left-0017.png",
+      "left-0018.png",
+      "left-0019.png",
+      "left-0020.png",
+      "left-0021.png",
+      "left-0022.png",
+      "left-0023.png",
+      "left-0024.png",
+      "left-0025.png",
+      "left-0026.png",
+      "left-0027.png",
+      "left-0028.png",
+      "left-0029.png",
+      "left-0030.png",
+      "left-0031.png",
+      "left-0032.png",
+      "left-0033.png",
+      "left-0034.png",
+      "left-0035.png",
+      "left-0036.png",
+      "left-0037.png",
+      "left-0038.png",
+      "left-0039.png",
+      "left-0040.png",
+      "left-0041.png",
+      "left-0042.png",
+      "left-0043.png",
+      "left-0044.png",
+      "left-0045.png",
+      "left-0046.png",
+      "left-0047.png",
+      "left-0048.png",
+      "left-0049.png",
+      "left-0050.png",
+      "left-0051.png",
+      "left-0052.png",
+      "left-0053.png",
+      "left-0054.png",
+      "left-0055.png",
+      "left-0056.png",
+      "left-0057.png",
+      "left-0058.png",
+      "left-0059.png",
+      "left-0060.png",
+      "left-0061.png",
+      "left-0062.png",
+      "left-0063.png",
+      "left-0064.png",
+      "left-0065.png",
+      "left-0066.png",
+      "left-0067.png",
+      "left-0068.png",
+      "left-0069.png",
+      "left-0070.png",
+      "left-0071.png",
+      "left-0072.png",
+      "left-0073.png",
+      "left-0074.png",
+      "left-0075.png",
+      "left-0076.png",
+      "left-0077.png",
+      "left-0079.png",
+      "left-0080.png",
+      "left-0081.png"
+    ]
+  },
+  "fit_quality": {
+    "opencv_rms_px": 0.7484242346275527,
+    "per_view_mean_px": 0.733478938921904,
+    "per_view_median_px": 0.7471027374267578,
+    "per_view_p95_px": 0.9450751245021811,
+    "per_view_max_px": 1.071051836013794
+  },
+  "camera_matrix": {
+    "rows": 3,
+    "cols": 3,
+    "data": [
+      1473.7029626405733,
+      0.0,
+      679.0599827229372,
+      0.0,
+      1481.6437902649657,
+      437.1112533869239,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "distortion_coefficients": {
+    "rows": 1,
+    "cols": 5,
+    "data": [
+      -0.458353918592104,
+      0.2684245666874371,
+      -0.0017904056017029137,
+      -0.005346929880883198,
+      0.0
+    ]
+  },
+  "rectification_matrix": {
+    "rows": 3,
+    "cols": 3,
+    "data": [
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ]
+  },
+  "projection_matrix": {
+    "rows": 3,
+    "cols": 4,
+    "data": [
+      1338.87548828125,
+      0.0,
+      679.9230065065494,
+      0.0,
+      0.0,
+      1403.957275390625,
+      431.0834351420708,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0
+    ]
+  },
+  "optimal_new_camera_matrix_roi": [
+    0,
+    0,
+    1279,
+    959
+  ],
+  "required_next_gate": "independent checkerboard views plus left/center/right physical ArUco metric validation before replacing runtime calibration"
+}
