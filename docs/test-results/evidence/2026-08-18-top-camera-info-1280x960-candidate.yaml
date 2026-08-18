@@ -1,0 +1,41 @@
+# SO101 fixed Top camera intrinsic calibration candidate.
+# Resolution/format: 1280x960 MJPEG
+# Pattern: 10x7 physical chessboard (9x6 inner corners), 0.025 m squares
+# Captured views: 82; retained: 78; excluded: 4
+# OpenCV RMS: 0.748424235 px
+# Per-view RMS: mean 0.733478939, median 0.747102737,
+#               p95 0.945075125, max 1.071051836 px
+# Status: CANDIDATE; independent validation required before runtime promotion.
+
+image_width: 1280
+image_height: 960
+camera_name: so101_top
+
+camera_matrix:
+  rows: 3
+  cols: 3
+  data:
+    [1473.702962641, 0.0, 679.059982723,
+     0.0, 1481.643790265, 437.111253387,
+     0.0, 0.0, 1.0]
+
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [-0.458353919, 0.268424567, -0.001790406, -0.005346930, 0.000000000]
+
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0,
+         0.0, 1.0, 0.0,
+         0.0, 0.0, 1.0]
+
+projection_matrix:
+  rows: 3
+  cols: 4
+  data:
+    [1338.875488281, 0.0, 679.923006507, 0.0,
+     0.0, 1403.957275391, 431.083435142, 0.0,
+     0.0, 0.0, 1.0, 0.0]

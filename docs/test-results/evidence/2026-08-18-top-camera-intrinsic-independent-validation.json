@@ -1,0 +1,306 @@
+{
+  "schema_version": 1,
+  "status": "PASS",
+  "motion_authorized": false,
+  "candidate_file": "top_camera_info_1280x960_candidate.yaml",
+  "candidate_sha256": "0af615c5e9a46aaf17c38ed5eaba5ec80c33c6e26899827f1b6c70c5d20dcbdb",
+  "pattern": {
+    "physical_squares": [
+      10,
+      7
+    ],
+    "inner_corners": [
+      9,
+      6
+    ],
+    "square_size_m": 0.025
+  },
+  "image_resolution": [
+    1280,
+    960
+  ],
+  "capture_count": 13,
+  "retained_count": 12,
+  "excluded_views": [
+    {
+      "name": "tilt_bottom.png",
+      "reason": "persistent non-planar/over-foreshortened target residual; bottom checkerboard row and right column dominated error"
+    }
+  ],
+  "fit_quality": {
+    "retained_mean_rms_px": 0.6868762398759524,
+    "retained_median_rms_px": 0.6974184811115265,
+    "retained_p95_rms_px": 0.8417025595903396,
+    "retained_max_rms_px": 0.9516276121139526,
+    "flat_mean_rms_px": 0.6840862565570407,
+    "flat_max_rms_px": 0.7517638802528381,
+    "tilted_mean_rms_px": 0.6952461898326874,
+    "tilted_max_rms_px": 0.9516276121139526,
+    "center_coverage_x_px": [
+      280.0599365234375,
+      904.425048828125
+    ],
+    "center_coverage_y_px": [
+      186.61959838867188,
+      690.689697265625
+    ]
+  },
+  "gates": {
+    "all_13_checkerboards_detected": true,
+    "retained_view_count_at_least_10": true,
+    "retained_mean_rms_at_most_1px": true,
+    "retained_p95_rms_at_most_1_5px": true,
+    "retained_max_rms_at_most_1px": true,
+    "flat_left_and_right_present": true
+  },
+  "views": [
+    {
+      "name": "bottom_flat.png",
+      "sha256": "fd239b5707ead722555e1f359a077656a98b7c9cacdf8a693ab040b1b092641d",
+      "included": true,
+      "rms_px": 0.5981394052505493,
+      "p95_px": 1.0127295613288878,
+      "max_px": 1.1141771078109741,
+      "sharpness_laplacian_variance": 127.42902954522707,
+      "checkerboard_center_px": [
+        528.5918579101562,
+        649.5776977539062
+      ],
+      "checkerboard_bbox_px": [
+        207.26744079589844,
+        472.3672180175781,
+        833.0531005859375,
+        837.215087890625
+      ]
+    },
+    {
+      "name": "center_flat.png",
+      "sha256": "4423e4e7bc4db094d9667a4e9a162085cfc11845e319c4f7cff4dca37a247df0",
+      "included": true,
+      "rms_px": 0.6786478757858276,
+      "p95_px": 1.2087841391563414,
+      "max_px": 1.3088469505310059,
+      "sharpness_laplacian_variance": 108.80451011759442,
+      "checkerboard_center_px": [
+        579.0961303710938,
+        503.86419677734375
+      ],
+      "checkerboard_bbox_px": [
+        275.0338439941406,
+        351.158935546875,
+        880.0631713867188,
+        668.5092163085938
+      ]
+    },
+    {
+      "name": "left_flat.png",
+      "sha256": "703c0d43647e924c32595e191e34e694143ef77dd59210e069fc78c0248720b2",
+      "included": true,
+      "rms_px": 0.6702259182929993,
+      "p95_px": 1.1375682592391967,
+      "max_px": 1.4974758625030518,
+      "sharpness_laplacian_variance": 133.46079787728783,
+      "checkerboard_center_px": [
+        356.4478454589844,
+        496.3321838378906
+      ],
+      "checkerboard_bbox_px": [
+        58.095584869384766,
+        342.33636474609375,
+        643.4268188476562,
+        670.4244384765625
+      ]
+    },
+    {
+      "name": "lower_left_flat.png",
+      "sha256": "066d3344cf6c58e2829c6cfc6f9033c9de70b0b3026c8ef2c86db8109edfceb8",
+      "included": true,
+      "rms_px": 0.6670649647712708,
+      "p95_px": 1.034400314092636,
+      "max_px": 1.3086174726486206,
+      "sharpness_laplacian_variance": 126.55155992823444,
+      "checkerboard_center_px": [
+        391.1956787109375,
+        580.019775390625
+      ],
+      "checkerboard_bbox_px": [
+        82.63358306884766,
+        411.940185546875,
+        687.624267578125,
+        766.1233520507812
+      ]
+    },
+    {
+      "name": "lower_right_flat.png",
+      "sha256": "339f7549f7e908be0cd1f1b54aa17d748fc8988b8d76225e0e7e26b1fa6ca4a4",
+      "included": true,
+      "rms_px": 0.6119625568389893,
+      "p95_px": 1.0750082910060876,
+      "max_px": 1.1947964429855347,
+      "sharpness_laplacian_variance": 99.1998917408619,
+      "checkerboard_center_px": [
+        904.425048828125,
+        690.689697265625
+      ],
+      "checkerboard_bbox_px": [
+        590.5418090820312,
+        511.3946838378906,
+        1201.4283447265625,
+        871.2260131835938
+      ]
+    },
+    {
+      "name": "right_flat.png",
+      "sha256": "91331645bdca18c5131c8951c8fe47cfd735d2b6febbdcaccf2b1949da1abc40",
+      "included": true,
+      "rms_px": 0.7316222786903381,
+      "p95_px": 1.2933972418308255,
+      "max_px": 1.3814092874526978,
+      "sharpness_laplacian_variance": 95.96061099989146,
+      "checkerboard_center_px": [
+        806.2352294921875,
+        460.76898193359375
+      ],
+      "checkerboard_bbox_px": [
+        507.7356262207031,
+        303.004150390625,
+        1094.44140625,
+        623.9500122070312
+      ]
+    },
+    {
+      "name": "tilt_bottom.png",
+      "sha256": "efddfbdb5ff1c4f8179e917fffe237e57b560fd8f1f569dd48e60b3670dcca46",
+      "included": false,
+      "rms_px": 1.5205358266830444,
+      "p95_px": 2.7194147825241055,
+      "max_px": 3.468494415283203,
+      "sharpness_laplacian_variance": 134.9986498402886,
+      "checkerboard_center_px": [
+        512.8936767578125,
+        490.6106262207031
+      ],
+      "checkerboard_bbox_px": [
+        166.87277221679688,
+        354.3969421386719,
+        825.2784423828125,
+        642.8268432617188
+      ]
+    },
+    {
+      "name": "tilt_left.png",
+      "sha256": "15577698b61540346509930d9898f06413b8e5a9255f685935cff6ca9a325880",
+      "included": true,
+      "rms_px": 0.9516276121139526,
+      "p95_px": 1.6110422909259783,
+      "max_px": 2.5180840492248535,
+      "sharpness_laplacian_variance": 140.63123720664706,
+      "checkerboard_center_px": [
+        627.8418579101562,
+        432.6040954589844
+      ],
+      "checkerboard_bbox_px": [
+        281.165283203125,
+        185.71902465820312,
+        914.1228637695312,
+        677.8788452148438
+      ]
+    },
+    {
+      "name": "tilt_right.png",
+      "sha256": "796a832269a050dbced6e23ba0b03525c2ef02d60aeda7255ee73d04779c2550",
+      "included": true,
+      "rms_px": 0.7161890864372253,
+      "p95_px": 1.2963199853897094,
+      "max_px": 1.6375269889831543,
+      "sharpness_laplacian_variance": 142.79301967906358,
+      "checkerboard_center_px": [
+        674.7222290039062,
+        453.20172119140625
+      ],
+      "checkerboard_bbox_px": [
+        366.5855712890625,
+        236.8950958251953,
+        1003.6170654296875,
+        665.7281494140625
+      ]
+    },
+    {
+      "name": "tilt_top.png",
+      "sha256": "272e7d4bfb563e47fede017aef29cb0694cd53cc0edb8aeccb031aed8d729a07",
+      "included": true,
+      "rms_px": 0.41792187094688416,
+      "p95_px": 0.7267166405916212,
+      "max_px": 1.0044608116149902,
+      "sharpness_laplacian_variance": 164.00892199123632,
+      "checkerboard_center_px": [
+        629.07861328125,
+        431.93756103515625
+      ],
+      "checkerboard_bbox_px": [
+        318.8660888671875,
+        243.2709197998047,
+        937.09716796875,
+        625.3954467773438
+      ]
+    },
+    {
+      "name": "top_flat.png",
+      "sha256": "b8261a3d7720972fc0b7b7c831aa5607c722a0e5cd036068fbec6eff72bd2bf6",
+      "included": true,
+      "rms_px": 0.7281346917152405,
+      "p95_px": 1.315574550628662,
+      "max_px": 1.5478849411010742,
+      "sharpness_laplacian_variance": 106.7804896612797,
+      "checkerboard_center_px": [
+        587.61767578125,
+        223.04544067382812
+      ],
+      "checkerboard_bbox_px": [
+        309.1221923828125,
+        100.30459594726562,
+        843.8457641601562,
+        361.502685546875
+      ]
+    },
+    {
+      "name": "upper_left_flat.png",
+      "sha256": "35357426389703dff739a314a139e97e654666ed565e2226e8f69766fe3c62aa",
+      "included": true,
+      "rms_px": 0.7192147374153137,
+      "p95_px": 1.3157691836357113,
+      "max_px": 1.4693145751953125,
+      "sharpness_laplacian_variance": 120.62440702105562,
+      "checkerboard_center_px": [
+        280.0599365234375,
+        192.53880310058594
+      ],
+      "checkerboard_bbox_px": [
+        22.427593231201172,
+        79.05094909667969,
+        525.6453857421875,
+        312.8001403808594
+      ]
+    },
+    {
+      "name": "upper_right_flat.png",
+      "sha256": "54ca5d14cdea4743ad903461a23ee1cf0b5fd3143468048c341b5e3b6d8b7bcc",
+      "included": true,
+      "rms_px": 0.7517638802528381,
+      "p95_px": 1.368894302845001,
+      "max_px": 1.6043986082077026,
+      "sharpness_laplacian_variance": 101.01453486289975,
+      "checkerboard_center_px": [
+        875.9968872070312,
+        186.61959838867188
+      ],
+      "checkerboard_bbox_px": [
+        625.9999389648438,
+        66.68241119384766,
+        1133.2850341796875,
+        315.8522033691406
+      ]
+    }
+  ],
+  "required_next_gate": "20 mm ArUco left/center/right physical metric validation, then rebuild eye-to-hand/base-plane/homography for 1280x960"
+}
