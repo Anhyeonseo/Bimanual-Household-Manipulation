@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "record_kind": "can_pick_contract",
+  "status": "COMMISSIONING_REQUIRED",
+  "motion_authorized": false,
+  "scope": "left_arm_can_pick_only_no_place_no_handover",
+  "scope_reason": "v1 은 왼팔 pick 까지만이다. 왼팔은 제안된 쓰레기통 지점에 88.27 mm 부족해 닿지 않으므로 place 와 핸드오버는 별도 단계로 남긴다.",
+  "target_class": "can",
+  "selected_arm": "left",
+  "can": {
+    "length_mm": 132.44,
+    "diameter_mm": 53.0,
+    "mass_g": 13.0,
+    "measurement_source": "operator_reported_physical_measurement",
+    "measured_on": "2026-08-15",
+    "tolerances_commissioned": false
+  },
+  "perception": {
+    "topic": "/perception/top/can_obb/object_pose_board",
+    "bundle_manifest": "artifacts/top_can_obb/2026-08-16/runtime_bundle/can_obb_bundle.json",
+    "yaw_semantics": "undirected_long_axis_modulo_pi",
+    "holdout_yaw_error_deg": {"mean": 0.98, "p95": 2.36, "max": 3.08},
+    "holdout_images": 23
+  },
+  "jaw": {
+    "provenance": "not_measured",
+    "measurement_artifact": null,
+    "open_gap_mm": null,
+    "grasp_gap_mm": 44.0,
+    "open_command_rad": null,
+    "grasp_command_rad": null,
+    "contact_threshold_raw": null,
+    "release_tolerance_raw": null,
+    "grasp_gap_note": "44 mm 는 작업자가 2026-08-17 에 보고한 '캔을 눌러 문 상태'의 폭이다. 지름 53 mm 캔이 9 mm 눌린다. command rad 는 tools/commission_can_jaw_gap_map_once.py 실측 표에서 온다.",
+    "open_gap_note": "개방 폭은 캔 지름이 아니라 crossing_tolerance_deg 가 정한다. required_jaw_width_mm(tolerance) 이상이어야 하며 CanPickPolicy.require_open_gap_covers_tolerance() 가 검사한다.",
+    "commanded_axis": "canonical index 5 (left_gripper_joint)",
+    "semantic_raw_convention": "rad = (2048 - raw) * 2*pi/4096; raw 가 커지면 열린다",
+    "approved_command_envelope_raw": [1872, 3257]
+  },
+  "acceptance_limits": {
+    "crossing_tolerance_deg": 6.0,
+    "crossing_tolerance_reason": "인식 yaw p95 2.36 도와 최대 3.08 도 위에 계획 잔차와 서보 정착 여유를 얹었다. 6 도에서 필요한 개방은 66.5 mm 다.",
+    "position_tolerance_m": 0.0021,
+    "position_tolerance_reason": "펜 계획기의 PLAN_RESIDUAL_BOUND_M 과 같은 값",
+    "maximum_approach_tilt_deg": null,
+    "maximum_approach_tilt_reason": "아래쪽 finger 가 작업대에 닿기 전까지 허용되는 기울기를 M3 에서 실측한다. 접근축은 이 작업대에서 수직이 될 수 없고 보정 영역에서 21~73 도 기운다."
+  },
+  "motion_contract": {
+    "approach": "measured_tilt_recorded_per_plan",
+    "approach_rejects": "vertical_from_above 는 이 팔이 이 작업대에서 만들 수 없는 자세다. 최소 기울기도 51.5 도다.",
+    "descent": "vertical_only",
+    "floor_sweep_authorized": false,
+    "gripper_closing_line": "perpendicular_to_can_long_axis",
+    "wrist_roll_branch": "nearest_in_limit_branch_then_joint_position_crossing_solve",
+    "wrist_roll_locked_during_descent": true,
+    "wrist_roll_locked_reason": "TCP 가 roll 축에서 7.9 mm 편심돼 있어 roll 을 돌리면 TCP 가 최대 13.3 mm 움직인다. 하강 중 roll 을 바꾸면 파지점이 어긋난다.",
+    "successful_terminal": "q0_torque_hold"
+  },
+  "commissioning_gates": [
+    "jaw gap mm 대 semantic raw 대응표를 실측한다 (tools/commission_can_jaw_gap_map_once.py)",
+    "그 표에서 open_command_rad 와 grasp_command_rad 를 채운다",
+    "캔 몸통 접촉 잔차 raw 를 실측한다. 펜의 contact_threshold_raw 14 를 상속하지 않는다",
+    "기울어진 접근에서 아래쪽 finger 간섭 한계를 재어 maximum_approach_tilt_deg 를 채운다",
+    "plan-only 와 validate-only 를 통과한 뒤에만 감독 실기 1 회를 한다"
+  ]
+}

@@ -262,6 +262,107 @@ class GraspYawKinematics:
             "limit_upper_rad": upper_rad,
         }
 
+    def solve_wrist_roll_branches(
+        self,
+        positions: dict[str, float],
+        target_yaw_rad: float,
+        lower_rad: float,
+        upper_rad: float,
+        samples: int = 721,
+    ) -> dict[str, object]:
+        """가동 범위 안의 wrist_roll 해를 **전부** 찾아 가까운 순으로 돌려준다.
+
+        `solve_wrist_roll` 은 `roll_new = roll_now + Δfinger_yaw`, 즉 gain 1 을
+        가정한다. 그 가정은 회전축(=접근축)이 연직일 때만 맞다. 이 팔은 작업대
+        높이에서 접근축이 수직에서 51~77도 기울어 있어 실제 gain 은 0.43~0.61
+        이다. 그래서 해석식 대신 `finger_yaw(roll) = target` 을 수치로 푼다.
+
+        분기가 둘인 이유. 손가락 축은 선이라 180도마다 같은 자세가 되는데,
+        이 팔의 roll 가동 범위는 195~198도로 180도보다 넓다. 따라서 어떤 캔
+        방향에서는 한계 안에 해가 두 개 있고, 그때 가까운 쪽을 고르지 않으면
+        쓸데없이 반바퀴를 돈다. 반대로 대부분의 방향에서는 해가 하나뿐이고
+        수학적으로 더 가까운 분기는 한계 밖이다. **그래서 한계 검사가 분기
+        선택보다 먼저다.**
+        """
+        if samples < 3:
+            raise ValueError("samples must be at least 3")
+        if not lower_rad < upper_rad:
+            raise ValueError("wrist roll limits must satisfy lower < upper")
+
+        current = dict(positions)
+        current_roll = current.get(self._wrist_roll_joint, 0.0)
+        target = wrap_half_turn(target_yaw_rad)
+
+        def error(roll: float) -> float:
+            probe = dict(current)
+            probe[self._wrist_roll_joint] = roll
+            return wrap_half_turn(self.finger_yaw(probe) - target)
+
+        grid = [
+            lower_rad + (upper_rad - lower_rad) * index / (samples - 1)
+            for index in range(samples)
+        ]
+        values = [error(roll) for roll in grid]
+
+        roots: list[float] = []
+        for index in range(samples - 1):
+            low_value, high_value = values[index], values[index + 1]
+            if low_value == 0.0:
+                roots.append(grid[index])
+                continue
+            if low_value * high_value >= 0.0:
+                continue
+            # (-pi/2, pi/2] 로 감긴 오차는 근이 아닌 곳에서도 부호가 뒤집힌다.
+            # 진짜 근은 두 표본이 붙어 있고, wrap 도약은 pi 에 가깝다.
+            if abs(low_value - high_value) > math.pi / 2.0:
+                continue
+            lower_bound, upper_bound = grid[index], grid[index + 1]
+            lower_value = low_value
+            for _ in range(80):
+                middle = 0.5 * (lower_bound + upper_bound)
+                middle_value = error(middle)
+                if lower_value * middle_value <= 0.0:
+                    upper_bound = middle
+                else:
+                    lower_bound, lower_value = middle, middle_value
+            roots.append(0.5 * (lower_bound + upper_bound))
+        if values[-1] == 0.0:
+            roots.append(grid[-1])
+
+        unique: list[float] = []
+        for root in roots:
+            if all(abs(root - kept) > 1.0e-6 for kept in unique):
+                unique.append(root)
+        unique.sort(key=lambda root: abs(root - current_roll))
+
+        branches = []
+        for root in unique:
+            probe = dict(current)
+            probe[self._wrist_roll_joint] = root
+            branches.append(
+                {
+                    "wrist_roll_rad": root,
+                    "rotation_from_current_rad": root - current_roll,
+                    "achieved_finger_yaw_rad": self.finger_yaw(probe),
+                    "residual_rad": abs(error(root)),
+                    "limit_margin_rad": min(
+                        root - lower_rad, upper_rad - root
+                    ),
+                }
+            )
+
+        return {
+            "present_finger_yaw_rad": self.finger_yaw(current),
+            "present_wrist_roll_rad": current_roll,
+            "target_yaw_rad": target,
+            "branches": branches,
+            "branch_count": len(branches),
+            "selected": branches[0] if branches else None,
+            "limit_lower_rad": lower_rad,
+            "limit_upper_rad": upper_rad,
+            "samples": samples,
+        }
+
 
 def wrap_half_turn(angle_rad: float) -> float:
     """(-pi/2, pi/2] 로 감는다. 그리퍼 손가락 축은 선이지 화살표가 아니다."""

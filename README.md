@@ -103,6 +103,7 @@ cp bridge.local.yaml.example bridge.local.yaml
 ## 문서 안내
 
 - [양팔 상단 애플리케이션 인터페이스 계약](docs/BIMANUAL_UPPER_APPLICATION_INTERFACE.md)
+- [캔 → 쓰레기통 계획 (개정판)](docs/PLAN_CAN_TO_BIN.md)
 - [상단 애플리케이션 개발 인계 프롬프트](docs/prompts/BIMANUAL_UPPER_APPLICATION_HANDOFF_PROMPT.md)
 - [F8.7 resident·Top 카메라 Pick/Place 최종 수락 결과](docs/test-results/2026-08-15-f87-resident-top-camera-pick-place.md)
 - [F8.9 resident·양팔 펜 전달 최종 수락 결과](docs/test-results/2026-08-16-f89-bimanual-pen-transfer.md)
