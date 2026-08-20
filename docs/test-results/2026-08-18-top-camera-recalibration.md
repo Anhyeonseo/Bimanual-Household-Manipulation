@@ -16,7 +16,7 @@ eye-to-hand 등록을 다시 수행했다.
 | YOLO OBB 좌표 재검증 | 미실시 | 전체 좌표계 재구축 뒤 수행 |
 
 모든 산출물은 `motion_authorized: false`를 유지한다. 이번 eye-to-hand
-candidate는 합격하지 않았으므로 책상 정리 motion 목표 좌표에 연결하면 안 된다.
+candidate는 합격하지 않았으므로 수건 조작 motion 목표 좌표에 연결하면 안 된다.
 
 ## 카메라 스트림 정리
 
