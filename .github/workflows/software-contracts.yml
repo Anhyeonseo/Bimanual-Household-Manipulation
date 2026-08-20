@@ -1,0 +1,38 @@
+name: Software contracts
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  hardware-free:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install host test dependencies
+        run: python -m pip install -r requirements/host.txt
+      - name: Run towel software tests
+        run: python -m pytest -c config/pytest.ini --rootdir=. -q tests/test_towel_*.py
+      - name: Validate repository contracts
+        run: |
+          python tools/run/validate_protocol_manifest.py
+          python tools/run/validate_camera_schedule.py
+          python tools/run/validate_towel_contract.py
+          python tools/run/validate_towel_schemas.py
+          python tools/run/validate_towel_dataset.py config/towel_annotation.example.json
+      - name: Rebuild motion-free example artifacts
+        run: |
+          python tools/run/plan_towel_task_once.py config/towel_observation.example.json --output tmp/towel_plan.json
+          python tools/run/replay_towel_task.py config/towel_replay.example.json --output tmp/towel_replay.json
+          python tools/run/select_towel_fake_reachability.py config/towel_fake_reachability.example.json --output tmp/towel_fake_reachability.json
+      - name: Assert motion remains locked
+        run: |
+          python -c "import json; from pathlib import Path; files=Path('tmp').glob('*.json'); assert all(not json.loads(p.read_text())['motion_authorized'] and json.loads(p.read_text())['motion_commands'] == 0 for p in files)"

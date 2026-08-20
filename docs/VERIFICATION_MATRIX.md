@@ -6,16 +6,16 @@
 | T1 | 양팔 URDF, operational limits, FK와 충돌 모델 | 자동 | 유지 |
 | T2 | 상단·손목 intrinsic과 timestamp/freshness | 실기+오프라인 | 일부 재검증 필요 |
 | T3 | eye-to-hand와 작업대 metric 좌표계 | 실기+오프라인 | REJECTED/재구축 필요 |
-| T4 | 수건 task contract와 데이터 분리 | 리뷰+자동 | 미구현 |
-| T5 | segmentation mask와 상태 분류 | 오프라인 | 미구현 |
-| T6 | corner, boundary, height/flatness 오차 | 오프라인+실기 | 미구현 |
+| T4 | 수건 task contract와 데이터 분리 | 리뷰+자동 | synthetic 자동검증 통과 |
+| T5 | segmentation mask와 상태 분류 | 오프라인 | annotation backend만 구현 |
+| T6 | corner, boundary, height/flatness 오차 | 오프라인+실기 | 순수 기하만 구현 |
 | T7 | grasp/jaw/장력/속도 계약 | 실기 | 미구현 |
-| T8 | primitive plan-only, joint/collision/SHA | 자동+MoveIt | 미구현 |
+| T8 | primitive plan-only, joint/collision/SHA | 자동+MoveIt | fold 기하/SHA만 구현 |
 | T9 | supervised primitive와 사후 관측 | 실기 | 미구현 |
 | T10 | 거친 펼치기와 정밀 평탄화 | 실기 | 미구현 |
 | T11 | 첫 번째 fold와 중간 형상 검증 | 실기 | 미구현 |
 | T12 | 두 번째 fold와 최종 형상 검증 | 실기 | 미구현 |
-| T13 | 제한 복구와 유한 종료 | 자동+실기 | 미구현 |
+| T13 | 제한 복구와 유한 종료 | 자동+실기 | offline replay만 구현 |
 | T14 | 30회 반복성, fault injection과 soak | 실기 | 미구현 |
 
 ## 단계별 핵심 수치

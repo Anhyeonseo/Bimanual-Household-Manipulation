@@ -20,12 +20,19 @@
 ```powershell
 python tools/run/validate_protocol_manifest.py
 python tools/run/validate_camera_schedule.py
-python tools/run/plan_can_pick_left_once.py --help
+python tools/run/validate_towel_contract.py
+python tools/run/validate_towel_schemas.py
+python tools/run/select_towel_fake_reachability.py config/towel_fake_reachability.example.json --output tmp/towel_fake_reachability.json
+python tools/run/validate_towel_dataset.py config/towel_annotation.example.json --output tmp/towel_dataset_manifest.json
+python tools/run/plan_towel_task_once.py config/towel_observation.example.json --output tmp/towel_plan.json
+python tools/run/replay_towel_task.py config/towel_replay.example.json --output tmp/towel_replay.json
 ```
 
 실제 모터를 움직일 수 있는 도구는 파일의 confirmation·전원 조건을 우회하지
 않는다. 현재 승인 상태와 실행 전 gate는 `docs/CURRENT_STATUS.md`와
 `docs/VERIFICATION_MATRIX.md`를 따른다.
 
-수건 전용 도구는 `docs/ROADMAP.md`의 해당 단계가 시작될 때 추가한다. 계획된
-이름과 역할은 `docs/TOWEL_FOLDING.md`의 저장소 구성 절을 따른다.
+수건의 motion-locked contract validator, annotation→metric observation,
+유한 replay와 동기 반원 fold arc를 포함한 기하 plan-only 도구는 구현됐다.
+perception backend와 executor는 `docs/ROADMAP.md`의 해당 gate가 시작될 때
+추가한다. 남은 순서는 `docs/HARDWARE_FREE_BACKLOG.md`를 따른다.

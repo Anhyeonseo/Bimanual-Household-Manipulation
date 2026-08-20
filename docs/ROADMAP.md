@@ -4,7 +4,7 @@
 [수건 접기 설계](TOWEL_FOLDING.md), 단계별 승격은
 [검증 매트릭스](VERIFICATION_MATRIX.md)를 따른다.
 
-## R0 — 태스크 계약과 데이터 규약
+## R0 — 태스크 계약과 데이터 규약 (진행 중)
 
 - 목표 수건의 한 변, 두께, 질량, 재질과 허용 편차 기록
 - 시작 workspace, 카메라 시야, fold 방향과 최종 형상 고정
@@ -12,16 +12,24 @@
 - `CRUMPLED`부터 `FOLD_2_COMPLETE`까지 상태 annotation 규약 작성
 - 대표 구김·부분 펼침·평탄·접힘 데이터 수집
 
+현재 candidate task contract, annotation schema, validator, deterministic
+manifest와 synthetic observation은 구현됐다. 실제 수건 규격과 실제 dataset
+수집·분할은 남아 있다.
+
 완료 조건: candidate task contract와 train/validation/test 분리 데이터셋이
 재현 가능하고, 모든 실제 동작 임계값의 provenance가 기록된다.
 
-## R1 — 수건 관측과 상태 추정
+## R1 — 수건 관측과 상태 추정 (순수 기하 기반 착수)
 
 - segmentation mask와 경계 추출
 - 높이·주름·겹침 feature 또는 RGB 다중 시점 대체 절차
 - 노출 모서리와 grasp 후보 신뢰도
 - 예상 전체 면적, 변·대각선, 평탄도와 작업대 축 회전 추정
 - motion command가 없는 상태기계 입력 artifact
+
+현재 reviewed polygon annotation→workcell observation backend, 네 corner의
+변·대각선·축 정렬 metric, 단일 상태 분류와 3-frame 안정화 gate가 구현됐다.
+실제 image mask inference backend는 남아 있다.
 
 완료 조건: held-out 구김 상태에서 mask, corner, flatness와 상태 분류가
 검증 임계값을 통과하고 불확실한 입력을 fail-closed한다.
@@ -65,6 +73,9 @@
 - 반대쪽 모서리와 정렬하며 lay-down/release
 - 중간 직사각형, 접힘선, layer twist 검증
 
+현재 중심선, moving corner/target, expected footprint와 synchronized semicircle
+arc는 plan-only로 생성된다. arm assignment, 도달성, 충돌과 실행은 미검증이다.
+
 완료 조건: 첫 번째 fold가 모서리·접힘선 오차 기준을 통과하고 실패한 중간
 형상에서는 두 번째 fold가 실행되지 않는다.
 
@@ -85,6 +96,9 @@
 - corner drag 모서리당 최대 2회
 - fold placement 보정 단계당 최대 1회
 - 동일 원인 반복, stale 관측, fault의 즉시 종료
+
+현재 observation replay용 유한 상태기계, recovery ledger와 terminal artifact가
+구현됐다. 실제 primitive outcome과 measured feedback 연결은 남아 있다.
 
 완료 조건: 모든 경로가 유한하게 `COMPLETE` 또는 `FAILED`로 끝나며 자동
 복구가 confirmation, attempt counter와 artifact를 남긴다.

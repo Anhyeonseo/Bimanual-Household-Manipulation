@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_state_observation",
+  "observation_id": "synthetic-aligned-example",
+  "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "calibration_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "visible_area_ratio": 0.96,
+  "topology_confidence": 0.95,
+  "flatness_score": 0.93,
+  "fold_count": 0,
+  "outline_iou": null,
+  "stale": false,
+  "corners": [
+    {"point_xy_m": [0.2, 0.2], "confidence": 0.96, "visible": true, "graspable": true},
+    {"point_xy_m": [0.6, 0.2], "confidence": 0.97, "visible": true, "graspable": true},
+    {"point_xy_m": [0.6, -0.2], "confidence": 0.95, "visible": true, "graspable": true},
+    {"point_xy_m": [0.2, -0.2], "confidence": 0.96, "visible": true, "graspable": true}
+  ],
+  "fold_axis_costs": {"x": 1.0, "y": 1.2},
+  "fold_direction_costs": {
+    "x_positive_to_negative": 1.0,
+    "x_negative_to_positive": 1.3,
+    "y_positive_to_negative": 1.1,
+    "y_negative_to_positive": 1.2
+  }
+}

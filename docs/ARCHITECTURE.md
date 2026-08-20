@@ -29,6 +29,23 @@ Top + wrist cameras
 | Resident adapter | 12축 owner/epoch, finite stream, feedback | 복수 serial owner |
 | STM32 | 동기 출력, tracking, heartbeat, stop/latch | 수건 상태 판단 |
 
+## 현재 연결된 motion-free 경로
+
+```text
+reviewed pixel annotation
+  → homography 기반 metric observation
+  → fail-closed state estimate
+  → bounded task decision / offline replay
+  → two orthogonal FoldSpec
+  → synchronized geometric semicircle
+  → fake reachability candidate selection
+  → JSON artifact (motion_authorized=false, motion_commands=0)
+```
+
+이 경로는 executor, ROS action client, serial과 motor API를 생성하지 않는다.
+기하 arc와 fake reachability 결과는 설계·회귀용이며 IK, self/world collision,
+장력 또는 실제 도달성을 증명하지 않는다.
+
 ## 변형체 상태 모델
 
 ```text

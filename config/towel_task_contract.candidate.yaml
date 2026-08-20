@@ -1,0 +1,99 @@
+schema_version: 1
+record_kind: towel_task_contract
+status: SOFTWARE_CONTRACT_ONLY
+motion_authorized: false
+scope: crumpled_square_towel_unfold_then_two_orthogonal_half_folds
+
+towel:
+  shape: square
+  nominal_side_mm: null
+  side_tolerance_mm: null
+  thickness_mm: null
+  mass_g: null
+  material: null
+  measurement_artifact: null
+  provenance: not_measured
+
+workspace:
+  frame: workcell_base_link
+  start_fully_inside_workspace: true
+  start_fully_visible_from_top: true
+  other_objects_allowed: false
+  knots_allowed: false
+  multiple_towels_allowed: false
+
+fold_policy:
+  first_axis: lowest_planning_cost_of_workcell_x_or_y
+  second_axis: orthogonal_to_first_axis
+  first_direction: lowest_planning_cost
+  target_area_ratio_after_first_fold: 0.5
+  target_area_ratio_after_second_fold: 0.25
+
+perception_candidate_limits:
+  provenance: software_acceptance_candidate_requires_dataset_validation
+  minimum_corner_confidence: 0.8
+  minimum_topology_confidence: 0.8
+  partially_open_visible_area_ratio: 0.55
+  flat_visible_area_ratio: 0.9
+  maximum_edge_relative_spread: 0.08
+  maximum_diagonal_relative_difference: 0.08
+  minimum_flatness_score: 0.85
+  maximum_axis_alignment_error_deg: 5.0
+  minimum_intermediate_outline_iou: 0.82
+  minimum_final_outline_iou: 0.85
+
+recovery_limits:
+  maximum_task_decisions: 32
+  corner_redetection: 3
+  lift_and_unfold: 2
+  corner_drag_per_corner: 2
+  fold_placement_correction_per_fold: 1
+  retry_after_fault: 0
+  retry_after_workspace_exit: 0
+
+hardware_limits:
+  provenance: not_measured
+  jaw_open_command_rad: null
+  cloth_contact_command_rad: null
+  cloth_contact_threshold_raw: null
+  maximum_tension_proxy: null
+  maximum_tcp_separation_m: null
+  maximum_bimanual_speed_difference_m_s: null
+  controlled_shake_amplitude_m: null
+  controlled_shake_frequency_hz: null
+  controlled_shake_cycles: null
+  towel_table_friction: null
+
+acceptance:
+  benchmark_trials: 30
+  minimum_end_to_end_success_rate: 0.9
+  maximum_final_mean_corner_error_mm: 25.0
+  minimum_final_outline_iou: 0.85
+  maximum_mean_fold_line_error_mm: 20.0
+  maximum_collisions: 0
+  maximum_uncommanded_motions: 0
+  maximum_towel_drops: 0
+  maximum_workspace_exits: 0
+  every_run_requires_artifact: true
+
+commissioning_gates:
+  - measure and review the physical towel specification
+  - validate perception candidate limits on a held-out towel dataset
+  - independently validate top and wrist camera calibration
+  - measure every null hardware limit with supervised evidence
+  - pass primitive plan-only and validate-only gates
+  - execute each primitive supervised once before integrated motion
+
+software_artifacts:
+  annotation_schema: config/towel_annotation.schema.json
+  runtime_observation_schema: config/towel_state_observation.schema.json
+  geometry_module: tools/lib/towel_geometry.py
+  fold_path_module: tools/lib/towel_fold_path.py
+  dataset_module: tools/lib/towel_dataset.py
+  perception_module: tools/lib/towel_perception.py
+  runtime_module: tools/lib/towel_task_runtime.py
+  replay_module: tools/lib/towel_task_replay.py
+  fake_reachability_module: tools/lib/towel_fake_reachability.py
+  planner: tools/run/plan_towel_task_once.py
+  contract_validator: tools/run/validate_towel_contract.py
+  task_design: docs/TOWEL_FOLDING.md

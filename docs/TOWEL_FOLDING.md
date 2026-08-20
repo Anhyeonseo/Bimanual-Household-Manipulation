@@ -214,27 +214,46 @@ release 뒤 필요하면 제한된 `release_and_smooth`를 실행하고 다음�
 | 수건 낙하·작업대 이탈 | 0회 |
 | 무한 또는 미기록 복구 | 0회 |
 
-## 13. 계획된 저장소 구성
+## 13. 구현된 소프트웨어 기반과 후속 구성
 
 ```text
 config/
   towel_task_contract.candidate.yaml
-  towel_perception.yaml
+  towel_annotation.schema.json
+  towel_state_observation.schema.json
+  towel_observation.example.json
+  towel_annotation.example.json
+  towel_replay.example.json
+  towel_fake_reachability.example.json
 docs/
   TOWEL_FOLDING.md
 tools/
   lib/towel_geometry.py
+  lib/towel_fold_path.py
+  lib/towel_dataset.py
+  lib/towel_perception.py
   lib/towel_task_runtime.py
-  run/plan_towel_fold_once.py
-  run/run_towel_fold_once.py
-  setup/towel_perception/
-  diagnostics/inspect_towel_state.py
+  lib/towel_task_planning.py
+  lib/towel_task_replay.py
+  lib/towel_fake_reachability.py
+  run/validate_towel_contract.py
+  run/validate_towel_schemas.py
+  run/validate_towel_dataset.py
+  run/plan_towel_task_once.py
+  run/replay_towel_task.py
+  run/select_towel_fake_reachability.py
 tests/
   test_towel_geometry.py
-  test_towel_state_estimation.py
-  test_towel_fold_plan.py
-  test_towel_fold_executor.py
+  test_towel_fold_path.py
+  test_towel_dataset.py
+  test_towel_perception.py
+  test_towel_task_runtime.py
+  test_towel_task_planning.py
+  test_towel_task_replay.py
+  test_towel_fake_reachability.py
+  test_towel_schemas.py
 ```
 
-파일은 해당 로드맵 단계가 시작될 때 추가한다. 빈 구현이나 실제로 사용하지
-않는 placeholder를 먼저 만들지 않는다.
+위 목록은 현재 구현된 motion-free 기반이다. 이후 실제 mask backend,
+`run_towel_task_once.py`, perception 진단 도구와 fold executor는 해당 로드맵
+gate가 시작될 때만 추가하며 빈 placeholder를 먼저 만들지 않는다.

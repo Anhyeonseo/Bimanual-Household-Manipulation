@@ -4,4 +4,5 @@ opencv-python-headless==4.10.0.84
 scipy>=1.11,<2
 PyYAML>=6,<7
 pytest>=8,<9
+jsonschema>=4.23,<5
 pyserial==3.5

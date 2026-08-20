@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_fake_reachability_fixture",
+  "candidates": [
+    {
+      "candidate_id": "x-pos-left-first",
+      "axis": "x",
+      "direction": "positive_to_negative",
+      "arm_assignment": "left_to_first_corner",
+      "reachable": true,
+      "collision_free": true,
+      "costs": {
+        "joint_distance": 1.0,
+        "crossing_penalty": 0.0,
+        "workspace_margin_penalty": 0.2
+      }
+    },
+    {
+      "candidate_id": "x-pos-right-first",
+      "axis": "x",
+      "direction": "positive_to_negative",
+      "arm_assignment": "right_to_first_corner",
+      "reachable": true,
+      "collision_free": false,
+      "costs": {
+        "joint_distance": 0.8,
+        "crossing_penalty": 1.0,
+        "workspace_margin_penalty": 0.2
+      }
+    },
+    {
+      "candidate_id": "y-neg-left-first",
+      "axis": "y",
+      "direction": "negative_to_positive",
+      "arm_assignment": "left_to_first_corner",
+      "reachable": true,
+      "collision_free": true,
+      "costs": {
+        "joint_distance": 1.1,
+        "crossing_penalty": 0.0,
+        "workspace_margin_penalty": 0.3
+      }
+    }
+  ]
+}

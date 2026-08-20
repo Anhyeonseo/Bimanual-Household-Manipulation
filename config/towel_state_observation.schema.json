@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Anhyeonseo/Bimanual-Household-Manipulation/blob/main/config/towel_state_observation.schema.json",
+  "title": "Motion-free towel runtime observation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_kind", "observation_id", "source_sha256",
+    "calibration_sha256", "visible_area_ratio", "topology_confidence",
+    "flatness_score", "fold_count", "outline_iou", "stale", "corners"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_kind": {"const": "towel_state_observation"},
+    "observation_id": {"type": "string", "minLength": 1},
+    "source_sha256": {"$ref": "#/$defs/sha256"},
+    "calibration_sha256": {"$ref": "#/$defs/sha256"},
+    "visible_area_ratio": {"$ref": "#/$defs/unit"},
+    "topology_confidence": {"$ref": "#/$defs/unit"},
+    "flatness_score": {"$ref": "#/$defs/unit"},
+    "fold_count": {"type": "integer", "minimum": 0, "maximum": 2},
+    "outline_iou": {"oneOf": [{"$ref": "#/$defs/unit"}, {"type": "null"}]},
+    "stale": {"type": "boolean"},
+    "corners": {
+      "type": "array", "maxItems": 4,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["point_xy_m", "confidence"],
+        "properties": {
+          "point_xy_m": {"$ref": "#/$defs/point"},
+          "confidence": {"$ref": "#/$defs/unit"},
+          "visible": {"type": "boolean"},
+          "graspable": {"type": "boolean"}
+        }
+      }
+    },
+    "fold_axis_costs": {
+      "type": "object", "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {"x": {"$ref": "#/$defs/cost"}, "y": {"$ref": "#/$defs/cost"}}
+    },
+    "fold_direction_costs": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "x_positive_to_negative", "x_negative_to_positive",
+        "y_positive_to_negative", "y_negative_to_positive"
+      ],
+      "properties": {
+        "x_positive_to_negative": {"$ref": "#/$defs/cost"},
+        "x_negative_to_positive": {"$ref": "#/$defs/cost"},
+        "y_positive_to_negative": {"$ref": "#/$defs/cost"},
+        "y_negative_to_positive": {"$ref": "#/$defs/cost"}
+      }
+    },
+    "backend": {"type": "string", "minLength": 1},
+    "height_available": {"type": "boolean"},
+    "fault": {"type": "boolean"},
+    "workspace_exit": {"type": "boolean"}
+  },
+  "$defs": {
+    "unit": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "cost": {"type": "number", "minimum": 0.0},
+    "point": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "prefixItems": [{"type": "number"}, {"type": "number"}]
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

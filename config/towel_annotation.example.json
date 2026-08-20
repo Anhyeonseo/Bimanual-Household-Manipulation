@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "synthetic-aligned-annotation-example",
+  "split": "test",
+  "state_label": "ALIGNED",
+  "image_width_px": 640,
+  "image_height_px": 480,
+  "segmentation_polygon_px": [[120, 40], [520, 40], [520, 440], [120, 440]],
+  "corners": [
+    {"label": "top_left", "point_px": [120, 40], "visible": true, "graspable": true, "confidence": 0.96},
+    {"label": "top_right", "point_px": [520, 40], "visible": true, "graspable": true, "confidence": 0.97},
+    {"label": "bottom_right", "point_px": [520, 440], "visible": true, "graspable": true, "confidence": 0.95},
+    {"label": "bottom_left", "point_px": [120, 440], "visible": true, "graspable": true, "confidence": 0.96}
+  ],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": null,
+  "source": {
+    "image_path": "images/synthetic-aligned-example.png",
+    "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "capture_id": null
+  }
+}

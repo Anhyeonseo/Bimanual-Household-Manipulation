@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_task_replay_input",
+  "observations": [
+    {
+      "schema_version": 1,
+      "record_kind": "towel_state_observation",
+      "observation_id": "replay-01-crumpled",
+      "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "calibration_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "visible_area_ratio": 0.3,
+      "topology_confidence": 0.9,
+      "flatness_score": 0.1,
+      "fold_count": 0,
+      "outline_iou": null,
+      "stale": false,
+      "corners": []
+    },
+    {
+      "schema_version": 1,
+      "record_kind": "towel_state_observation",
+      "observation_id": "replay-02-aligned",
+      "source_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "calibration_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "visible_area_ratio": 0.96,
+      "topology_confidence": 0.95,
+      "flatness_score": 0.95,
+      "fold_count": 0,
+      "outline_iou": null,
+      "stale": false,
+      "corners": [
+        {"point_xy_m": [0.2, 0.2], "confidence": 0.95},
+        {"point_xy_m": [0.6, 0.2], "confidence": 0.95},
+        {"point_xy_m": [0.6, -0.2], "confidence": 0.95},
+        {"point_xy_m": [0.2, -0.2], "confidence": 0.95}
+      ]
+    },
+    {
+      "schema_version": 1,
+      "record_kind": "towel_state_observation",
+      "observation_id": "replay-03-fold-one",
+      "source_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "calibration_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "visible_area_ratio": 0.5,
+      "topology_confidence": 0.95,
+      "flatness_score": 0.9,
+      "fold_count": 1,
+      "outline_iou": 0.9,
+      "stale": false,
+      "corners": []
+    },
+    {
+      "schema_version": 1,
+      "record_kind": "towel_state_observation",
+      "observation_id": "replay-04-fold-two",
+      "source_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "calibration_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "visible_area_ratio": 0.25,
+      "topology_confidence": 0.95,
+      "flatness_score": 0.9,
+      "fold_count": 2,
+      "outline_iou": 0.9,
+      "stale": false,
+      "corners": []
+    }
+  ]
+}

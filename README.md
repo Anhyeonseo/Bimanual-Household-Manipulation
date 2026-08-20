@@ -48,9 +48,10 @@ primitive가 끝날 때마다 상단·손목 카메라로 상태를 다시 추�
 수집과 보정 도구는 구현돼 있다. 캔 OBB와 파지 계획 코드는 강체 물체 단계에서
 만든 선행 실험으로 유지하지만 최종 태스크는 아니다.
 
-수건 segmentation, 구김 상태 추정, 모서리 복원, 펼치기 primitive와 두 단계
-fold executor는 아직 구현되지 않았다. 따라서 현재 상태는 기반 재사용 범위를
-확정한 `ROADMAP_DEFINED`이며 수건 동작은 승인되지 않았다.
+실제 영상 segmentation과 모서리 복원, 펼치기 primitive, 두 단계 fold
+executor는 아직 구현되지 않았다. 다만 annotation→metric observation 변환,
+구김 상태 추정, 유한 상태기계, 직교 2회 접기 기하·반원 arc와 offline replay는
+구현됐다. 현재 상태는 `SOFTWARE_FOUNDATION`이며 수건 동작은 승인되지 않았다.
 
 정확한 구현 상태는 [현재 상태](docs/CURRENT_STATUS.md), 개발 순서는
 [최종 로드맵](docs/ROADMAP.md), 승인 기준은
@@ -63,22 +64,45 @@ py -3.11 -m venv .venv-host
 .\.venv-host\Scripts\Activate.ps1
 python -m pip install -r requirements/host.txt
 python -m pytest -c config/pytest.ini --rootdir=. -q `
+  tests/test_towel_geometry.py `
+  tests/test_towel_fold_path.py `
+  tests/test_towel_fake_reachability.py `
+  tests/test_towel_dataset.py `
+  tests/test_towel_perception.py `
+  tests/test_towel_task_runtime.py `
+  tests/test_towel_task_planning.py `
+  tests/test_towel_task_replay.py `
+  tests/test_towel_schemas.py `
   tests/test_desk_task_runtime.py `
   tests/test_can_grasp_roll_branches.py `
   tests/test_can_pick_application.py
 python tools\run\validate_protocol_manifest.py
 python tools\run\validate_camera_schedule.py
+python tools\run\validate_towel_contract.py
+python tools\run\validate_towel_schemas.py
+python tools\run\select_towel_fake_reachability.py `
+  config/towel_fake_reachability.example.json `
+  --output tmp/towel_fake_reachability.json
+python tools\run\validate_towel_dataset.py `
+  config/towel_annotation.example.json `
+  --output tmp/towel_dataset_manifest.json
+python tools\run\plan_towel_task_once.py `
+  config/towel_observation.example.json `
+  --output tmp/towel_plan_example.json
+python tools\run\replay_towel_task.py `
+  config/towel_replay.example.json `
+  --output tmp/towel_replay_example.json
 ```
 
-위 시험은 현재 공통 기반과 선행 기하 코드의 회귀 확인이다. 수건 전용 시험은
-로드맵 R1부터 추가한다. 전체 firmware/ROS/MoveIt 연동 시험은 ROS 2 Jazzy,
+위 시험은 현재 공통 기반, 수건 순수 기하·상태·plan-only 계약과 선행 기하
+코드의 회귀 확인이다. 전체 firmware/ROS/MoveIt 연동 시험은 ROS 2 Jazzy,
 OpenCV, xacro, ARM toolchain과 workspace overlay가 준비된 Linux/Pi 환경에서
 실행한다.
 
 ## 저장소 구조
 
 ```text
-config/                         # 운용 한계, 카메라와 향후 수건 task 계약
+config/                         # 운용 한계, 카메라와 motion-locked 수건 task 계약
 docs/                           # 범위, 설계, 현재 상태, 로드맵, 검증 기준
 firmware/                       # STM32 12축 resident 제어 기반
 hardware/                       # 배선과 하드웨어 자료
@@ -102,11 +126,13 @@ adapter 하나로 제한한다.
 ## 핵심 문서
 
 - [수건 접기 최종 설계](docs/TOWEL_FOLDING.md)
+- [하드웨어 없는 개발 백로그](docs/HARDWARE_FREE_BACKLOG.md)
 - [프로젝트 범위](docs/SCOPE.md)
 - [시스템 구조](docs/ARCHITECTURE.md)
 - [현재 상태](docs/CURRENT_STATUS.md)
 - [최종 로드맵](docs/ROADMAP.md)
 - [검증 매트릭스](docs/VERIFICATION_MATRIX.md)
+- [최신 software foundation 검증 결과](docs/test-results/2026-08-20-towel-software-foundation.md)
 - [선행 캔 파지 파이프라인](docs/CAN_TO_BIN.md)
 - [도구 구조와 진입점](tools/README.md)
 - [제3자 고지](docs/THIRD_PARTY_NOTICES.md)

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Anhyeonseo/Bimanual-Household-Manipulation/blob/main/config/towel_annotation.schema.json",
+  "title": "Square towel dataset annotation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "record_kind", "observation_id", "split",
+    "state_label", "image_width_px", "image_height_px",
+    "segmentation_polygon_px", "corners", "source"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_kind": {"const": "towel_observation_annotation"},
+    "observation_id": {"type": "string", "minLength": 1},
+    "split": {"enum": ["train", "validation", "test"]},
+    "state_label": {
+      "enum": [
+        "CRUMPLED", "PARTIALLY_OPEN", "TWO_CORNERS_VISIBLE",
+        "FOUR_CORNERS_VISIBLE", "FLAT_BUT_ROTATED", "ALIGNED",
+        "FOLD_1_COMPLETE", "FOLD_2_COMPLETE", "AMBIGUOUS"
+      ]
+    },
+    "image_width_px": {"type": "integer", "minimum": 1},
+    "image_height_px": {"type": "integer", "minimum": 1},
+    "segmentation_polygon_px": {
+      "type": "array", "minItems": 3, "uniqueItems": true,
+      "items": {"$ref": "#/$defs/point"}
+    },
+    "corners": {
+      "type": "array", "maxItems": 4,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["label", "point_px", "visible", "graspable", "confidence"],
+        "properties": {
+          "label": {"enum": ["top_left", "top_right", "bottom_right", "bottom_left"]},
+          "point_px": {"$ref": "#/$defs/point"},
+          "visible": {"type": "boolean"},
+          "graspable": {"type": "boolean"},
+          "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+        }
+      }
+    },
+    "fold_lines_px": {
+      "type": "array", "maxItems": 2,
+      "items": {
+        "type": "array", "minItems": 2, "maxItems": 2,
+        "prefixItems": [
+          {"$ref": "#/$defs/point"}, {"$ref": "#/$defs/point"}
+        ]
+      }
+    },
+    "height_available": {"type": "boolean"},
+    "occluded": {"type": "boolean"},
+    "ambiguous_reason": {"type": ["string", "null"]},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["image_path", "sha256"],
+      "properties": {
+        "image_path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "capture_id": {"type": ["string", "null"]}
+      }
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "prefixItems": [{"type": "number"}, {"type": "number"}]
+    },
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
