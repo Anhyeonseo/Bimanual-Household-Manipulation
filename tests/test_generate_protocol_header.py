@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from tools.generate_protocol_header import render_header
+from tools.setup.firmware.generate_protocol_header import render_header
 
 
 ROOT = Path(__file__).parents[1]

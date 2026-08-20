@@ -108,7 +108,7 @@ def test_f7_fault_candidate_is_build_isolated_and_deterministic() -> None:
     config = text(STM32 / "Core/Inc/single_arm_config.h")
     dispatch = text(STM32 / "Core/Src/bimanual_servo_dispatch.c")
     control = text(STM32 / "Core/Src/binary_control.c")
-    tool = text(ROOT / "tools/validate_f7_bimanual_right_dma_fault_stop_once.py")
+    tool = text(ROOT / "tools/contract_evidence/validate_f7_bimanual_right_dma_fault_stop_once.py")
     assert "BIMANUAL_DMA_FAULT_INJECTION_CANDIDATE" in cmake
     assert "HOST_BINARY_FIRMWARE_VERSION=0x00024605UL" in cmake
     assert "HOST_BIMANUAL_DMA_FAULT_INJECTION_BUILD=1U" in cmake
@@ -127,10 +127,10 @@ def test_f7_fault_candidate_is_build_isolated_and_deterministic() -> None:
 
 
 def test_f7_hardware_tools_freeze_no_output_then_zero_delta_hold() -> None:
-    no_output = text(ROOT / "tools/validate_f7_bimanual_dma_no_output.py")
-    hold = text(ROOT / "tools/execute_f7_bimanual_current_pose_hold_once.py")
+    no_output = text(ROOT / "tools/contract_evidence/validate_f7_bimanual_dma_no_output.py")
+    hold = text(ROOT / "tools/contract_evidence/execute_f7_bimanual_current_pose_hold_once.py")
     roundtrip = text(
-        ROOT / "tools/execute_f7_bimanual_base_small_roundtrip_once.py"
+        ROOT / "tools/contract_evidence/execute_f7_bimanual_base_small_roundtrip_once.py"
     )
     for source in (no_output, hold, roundtrip):
         assert "EXPECTED_FIRMWARE_VERSION = 0x00024604" in source

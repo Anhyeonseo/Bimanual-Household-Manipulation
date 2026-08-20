@@ -37,8 +37,8 @@ Windows에서 CMake가 `PATH`에 없다면 Visual Studio Developer PowerShell에
 ## 자동으로 생성되는 protocol header
 
 ~~~powershell
-python tools/generate_protocol_header.py
-python tools/generate_protocol_header.py --check
+python tools/setup/firmware/generate_protocol_header.py
+python tools/setup/firmware/generate_protocol_header.py --check
 ~~~
 
 저장소에 포함된 header는 사람이 직접 수정하는 문서가 아니다. `protocol/message_ids.json`에 있는 기계 판독용 정의와 항상 일치해야 한다.

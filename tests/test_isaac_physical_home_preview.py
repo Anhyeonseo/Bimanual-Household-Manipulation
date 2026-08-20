@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 
-MODULE_PATH = Path("tools/isaac_preview_physical_home.py")
+MODULE_PATH = Path("tools/setup/isaac/isaac_preview_physical_home.py")
 SPEC = importlib.util.spec_from_file_location(
     "isaac_preview_physical_home",
     MODULE_PATH,

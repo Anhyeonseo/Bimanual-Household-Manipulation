@@ -27,7 +27,7 @@ candidate는 합격하지 않았으므로 책상 정리 motion 목표 좌표에 
 - 카메라 지원 형식은 MJPEG `1280x960 @ 30 fps`이다.
 - 캘리브레이션 중 Pi camera manager는 디코드 부하와 네트워크 전송량을
   제한하기 위해 `/camera/top/image_raw`를 약 `2 Hz`로 발행했다.
-- 노트북의 `tools/top_camera_qos_relay.py`가 BEST_EFFORT 원본을 받아
+- 노트북의 `tools/diagnostics/top_camera_qos_relay.py`가 BEST_EFFORT 원본을 받아
   `/camera/top/calibration_image`로 중계했다. 초기 DDS 발견 지연 뒤 약
   `1.9 Hz`가 확인됐다.
 - ROS 2 공통 설정은 `ROS_DOMAIN_ID=30`, 기본 RMW를 사용했다.

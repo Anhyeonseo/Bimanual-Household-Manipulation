@@ -14,13 +14,13 @@ import sys
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT))
 
 pytest.importorskip("rclpy")
 pytest.importorskip("so101_interfaces.srv")
 pytest.importorskip("single_arm_bridge.bimanual_stream_adapter")
 
-from commission_can_jaw_gap_map_once import (  # noqa: E402
+from tools.setup.can_perception.commission_can_jaw_gap_map_once import (  # noqa: E402
     approved_gripper_raw_bounds,
     interpolate_raw_for_gap,
     parse_raw_steps,
@@ -42,10 +42,6 @@ def test_semantic_mapping_round_trips():
 
 
 def test_opening_is_the_negative_rad_direction():
-    """펜 경로가 open=2048, close=1948 을 쓰므로 raw 가 크면 열린다.
-
-    그 규약이 뒤집히면 이 도구가 내는 모든 명령의 의미가 반대가 된다.
-    """
     assert semantic_raw_to_rad(2500) < semantic_raw_to_rad(2048)
     assert semantic_raw_to_rad(1948) > semantic_raw_to_rad(2048)
 
@@ -61,10 +57,6 @@ def test_approved_bounds_match_the_envelope_file():
 
 
 def test_left_envelope_clears_a_53mm_can():
-    """펜의 개방값 2048 은 개방 범위의 거의 닫힌 끝이다.
-
-    캔에 필요한 개방이 승인된 envelope 안에 있는지가 이 작업의 전제다.
-    """
     minimum, maximum = approved_gripper_raw_bounds("left")
     assert minimum < 2048 < maximum
     assert maximum - 2048 > 1000

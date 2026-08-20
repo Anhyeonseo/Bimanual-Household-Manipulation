@@ -3,7 +3,7 @@ from pathlib import Path
 import struct
 import unittest
 
-from tools.actuator_protocol import (
+from tools.lib.actuator_protocol import (
     Frame,
     MessageType,
     ProtocolError,

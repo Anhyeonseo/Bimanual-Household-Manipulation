@@ -20,11 +20,11 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "tools/setup/camera_calibration"))
 
 _spec = importlib.util.spec_from_file_location(
     "capture_top_shadow_target_once",
-    ROOT / "tools" / "capture_top_shadow_target_once.py",
+    ROOT / "tools/setup/camera_calibration/capture_top_shadow_target_once.py",
 )
 MODULE = importlib.util.module_from_spec(_spec)
 sys.modules["capture_top_shadow_target_once"] = MODULE
@@ -89,7 +89,7 @@ def test_promotion_never_authorizes_motion_by_itself() -> None:
     assert document["motion_authorized"] is False
     assert "operator approves" in document["promotion_gate"]
     source = (
-        ROOT / "tools" / "capture_top_shadow_target_once.py"
+        ROOT / "tools/setup/camera_calibration/capture_top_shadow_target_once.py"
     ).read_text(encoding="utf-8")
     # 동작 API 를 쓰지 않는다.
     for forbidden in ("ActionClient", "send_goal", "FollowJointTrajectory"):
@@ -161,7 +161,7 @@ def test_spread_limits_are_far_inside_the_measured_perception_error() -> None:
 
 
 def test_a_long_object_outside_the_board_rectangle_is_accepted() -> None:
-    """펜은 보정 보드보다 길다. 그것이 정상이다.
+    """긴 물체는 보정 보드보다 길 수 있다. 그것이 정상이다.
 
     검출기의 `allow_partial_footprint_observation: true` 가 이 모드를 켠다.
     중심이 보정 영역에 있고 물체 전체가 화면 안이면 좌표를 믿을 수 있다.

@@ -12,7 +12,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / 'tools' / 'calibrate_top_base_table.py'
+MODULE_PATH = ROOT / 'tools/setup/camera_calibration/calibrate_top_base_table.py'
 SPEC = importlib.util.spec_from_file_location(
     'calibrate_top_base_table',
     MODULE_PATH,

@@ -9,7 +9,7 @@ CMAKE = (FIRMWARE / "CMakeLists.txt").read_text()
 CONFIG = (FIRMWARE / "Core/Inc/single_arm_config.h").read_text()
 BINARY = (FIRMWARE / "Core/Src/binary_control.c").read_text()
 PROTOCOL = (ROOT / "firmware/stm32_actuator/src/protocol.c").read_text()
-TOOL = (ROOT / "tools/validate_protocol_v2_executor_no_motion.py").read_text()
+TOOL = (ROOT / "tools/contract_evidence/validate_protocol_v2_executor_no_motion.py").read_text()
 
 
 def _function_body(name: str, next_name: str) -> str:

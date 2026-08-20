@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 
-MODULE_PATH = Path("tools/solve_top_base_visual_registration.py")
+MODULE_PATH = Path("tools/setup/camera_calibration/solve_top_base_visual_registration.py")
 SPEC = importlib.util.spec_from_file_location(
     "solve_top_base_visual_registration",
     MODULE_PATH,

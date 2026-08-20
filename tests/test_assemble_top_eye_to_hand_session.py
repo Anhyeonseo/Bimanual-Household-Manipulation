@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 
-TOOLS = Path(__file__).resolve().parents[1] / "tools"
+TOOLS = Path(__file__).resolve().parents[1] / "tools/setup/camera_calibration"
 SPEC = importlib.util.spec_from_file_location(
     "assemble_top_eye_to_hand_session",
     TOOLS / "assemble_top_eye_to_hand_session.py",

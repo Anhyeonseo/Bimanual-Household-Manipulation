@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 
-MODULE_PATH = Path("tools/isaac_preview_gripper_state.py")
+MODULE_PATH = Path("tools/setup/isaac/isaac_preview_gripper_state.py")
 SPEC = importlib.util.spec_from_file_location(
     "isaac_preview_gripper_state",
     MODULE_PATH,

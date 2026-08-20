@@ -143,17 +143,12 @@ def load_runtime_config(
         raise ValueError(f"output.layout must be {OUTPUT_LAYOUT}")
     if output.get("yaw_semantics") != YAW_SEMANTICS:
         raise ValueError(f"output.yaw_semantics must be {YAW_SEMANTICS}")
-    # ``pen_class_id`` was the original, pen-specific schema. New bundles
-    # identify their operational class by name, so the same fail-closed runtime
-    # can host a can model without weakening validation of existing pen bundles.
     target_class_name = output.get("target_class_name")
-    if target_class_name is None:
-        target_class_name = "pen"
     if not isinstance(target_class_name, str) or not target_class_name:
         raise ValueError("output.target_class_name must be a non-empty string")
     if target_class_name not in class_names:
         raise ValueError("output.target_class_name is not in class_names")
-    target_class_id = output.get("target_class_id", output.get("pen_class_id"))
+    target_class_id = output.get("target_class_id")
     if target_class_id is None:
         target_class_id = class_names.index(target_class_name)
     target_class_id = int(target_class_id)
@@ -278,17 +273,12 @@ def decode_ultralytics_obb(
     output: np.ndarray,
     transform: LetterboxTransform,
     class_count: int,
-    pen_class_id: int,
+    target_class_id: int,
     confidence_threshold: float,
     iou_threshold: float,
     maximum_detections: int,
 ) -> list[dict]:
-    """Decode non-end-to-end Ultralytics xywhr+class ONNX output.
-
-    ``pen_class_id`` is retained as a public keyword for compatibility; the
-    selected class may be any bundle target, including ``can``.
-    """
-    target_class_id = pen_class_id
+    """Decode non-end-to-end Ultralytics xywhr+class ONNX output."""
     rows = _prediction_rows(output, class_count)
     boxes = []
     scores = []

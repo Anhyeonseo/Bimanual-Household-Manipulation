@@ -17,7 +17,7 @@ BRIDGE_IDENTITY = (
     ROOT
     / "ros2_ws/src/single_arm_bridge/single_arm_bridge/hardware_identity.py"
 ).read_text()
-TOOL_PATH = ROOT / "tools/stress_f25_host_link_no_motion.py"
+TOOL_PATH = ROOT / "tools/diagnostics/stress_f25_host_link_no_motion.py"
 SPEC = importlib.util.spec_from_file_location("f25_host_link", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
 TOOL = importlib.util.module_from_spec(SPEC)

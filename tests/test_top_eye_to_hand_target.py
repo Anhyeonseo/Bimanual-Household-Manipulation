@@ -6,7 +6,7 @@ from pathlib import Path
 import cv2
 
 
-TOOLS = Path(__file__).resolve().parents[1] / "tools"
+TOOLS = Path(__file__).resolve().parents[1] / "tools/setup/camera_calibration"
 SPEC = importlib.util.spec_from_file_location(
     "generate_top_eye_to_hand_gridboard",
     TOOLS / "generate_top_eye_to_hand_gridboard.py",

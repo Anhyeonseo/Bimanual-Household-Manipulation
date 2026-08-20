@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 
-MODULE_PATH = Path("tools/stm32_raw_range_observer.py")
+MODULE_PATH = Path("tools/diagnostics/stm32_raw_range_observer.py")
 SPEC = importlib.util.spec_from_file_location("stm32_raw_range_observer", MODULE_PATH)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

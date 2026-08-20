@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-GENERATOR = ROOT / "tools/generate_isaac_overhead_workcell.py"
+GENERATOR = ROOT / "tools/setup/isaac/generate_isaac_overhead_workcell.py"
 ISAAC_ROOT = ROOT / "isaac_sim/assets/so101_new_calib/so101_new_calib.usda"
 MESH_DIR = ROOT / "ros2_ws/src/so101_description/meshes"
 

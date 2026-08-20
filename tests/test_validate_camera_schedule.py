@@ -3,7 +3,7 @@ import json
 import unittest
 from pathlib import Path
 
-from tools.validate_camera_schedule import validate_schedule
+from tools.run.validate_camera_schedule import validate_schedule
 
 
 SCHEDULE_PATH = Path(__file__).parents[1] / "config" / "camera_schedule.json"

@@ -1,2 +1,1 @@
-"""Repository-local validation and benchmark helpers."""
-
+"""Desk-organization development and validation tools."""

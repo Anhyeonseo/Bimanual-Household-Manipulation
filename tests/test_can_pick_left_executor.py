@@ -16,13 +16,11 @@ import time
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT))
 
 pytest.importorskip("rclpy")
 pytest.importorskip("so101_interfaces.srv")
-pytest.importorskip("top_pick_place_application")
-
-import run_can_pick_left_once as executor  # noqa: E402
+from tools.run import run_can_pick_left_once as executor  # noqa: E402
 
 OPEN_RAD = -0.9235
 GRASP_RAD = -0.5000
@@ -189,8 +187,7 @@ def test_a_crossing_error_over_tolerance_is_rejected(tmp_path):
         executor.load_can_plan(path, digest)
 
 
-def test_the_pen_wrist_policy_is_rejected(tmp_path):
-    """펜은 roll 을 q0 에 고정한다. 그 계획이 캔 실행기로 들어오면 안 된다."""
+def test_a_fixed_wrist_policy_is_rejected(tmp_path):
     plan = _plan()
     plan["endpoints"]["pick_grasp"]["wrist_roll_policy"] = "hold_bimanual_q0"
     path, digest = _write(tmp_path, plan)
@@ -257,11 +254,8 @@ def test_validate_only_document_reports_no_resident_contact(tmp_path):
     assert document["status"] == "CAN_PICK_LEFT_VALIDATE_ONLY_PASS"
 
 
-def test_executor_does_not_inherit_the_pen_contact_threshold():
-    """펜의 접촉 임계 14 raw 는 15 mm 펜의 값이다. 캔은 계획값을 쓴다."""
-    import top_pick_place_application as shared
-
-    assert shared.CONTACT_THRESHOLD_RAW == 14
+def test_executor_has_no_module_level_contact_threshold():
+    """접촉 임계값은 캔 계획 계약에서만 읽는다."""
     source = Path(executor.__file__).read_text(encoding="utf-8")
     assert "CONTACT_THRESHOLD_RAW" not in source.split('"""', 2)[2].split(
         "def parse_args"

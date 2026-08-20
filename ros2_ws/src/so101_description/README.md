@@ -38,7 +38,7 @@ the verified STL with:
 
 ```bash
 /home/an-hyeonseo/isaacsim-6.0.1-venv/bin/python \
-  tools/generate_isaac_wrist_camera_mount_geometry.py
+  tools/setup/isaac/generate_isaac_wrist_camera_mount_geometry.py
 ```
 
 Both the Isaac visual instance and its convex-hull collision instance reference
@@ -65,7 +65,7 @@ physical left-arm rig differs from the official adjustable assembly: only the
 small center tip protruding beyond source-mesh `y=234.4404 mm` is broken and
 absent; both surrounding printed end structures remain. `cam_mount_top` is
 inserted end-for-end over the bottom tower's `y=223.1..230.95 mm` post. The
-modified mesh is reproducible via `tools/generate_overhead_top_hinge_removed.py`.
+modified mesh is reproducible via `tools/setup/isaac/generate_overhead_top_hinge_removed.py`.
 The insertion depth is 7.85 mm and every mount joint is fixed. Following the
 RViz fit checks, `arm_base` keeps its confirmed robot-footprint alignment. The
 complete `cam_mount_bottom` + `cam_mount_top` assembly is rotated 180 degrees
@@ -127,7 +127,7 @@ block.
 Generate a resolved URDF for Isaac Sim with:
 
 ```bash
-python3 tools/generate_isaac_bimanual_preview_urdf.py
+python3 tools/setup/isaac/generate_isaac_bimanual_preview_urdf.py
 ```
 
 In Isaac Sim 6.0.1, use **File > Import** to select the printed
@@ -143,7 +143,7 @@ When a physical base transform has been measured, generate another candidate
 without editing the source model:
 
 ```bash
-python3 tools/generate_isaac_bimanual_preview_urdf.py \
+python3 tools/setup/isaac/generate_isaac_bimanual_preview_urdf.py \
   --right-mount-xyz-m X Y Z \
   --right-mount-rpy-rad R P Y
 ```

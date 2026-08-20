@@ -8,11 +8,11 @@
 관련 파일:
 
 - `config/can_pick_contract.candidate.json`
-- `tools/can_pick_application.py`
-- `tools/grasp_yaw_kinematics.py`
-- `tools/plan_can_pick_left_once.py`
-- `tools/run_can_pick_left_once.py`
-- `tools/commission_can_jaw_gap_map_once.py`
+- `tools/lib/can_pick_application.py`
+- `tools/lib/grasp_yaw_kinematics.py`
+- `tools/run/plan_can_pick_left_once.py`
+- `tools/run/run_can_pick_left_once.py`
+- `tools/setup/can_perception/commission_can_jaw_gap_map_once.py`
 
 ## 파지 계약
 

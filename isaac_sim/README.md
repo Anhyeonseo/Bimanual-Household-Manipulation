@@ -40,7 +40,7 @@ Isaac Sim 6.0.1 Python으로 원본 STL 해시를 확인하며 다시 생성한�
 
 ```bash
 /home/an-hyeonseo/isaacsim-6.0.1-venv/bin/python \
-  tools/generate_isaac_overhead_workcell.py
+  tools/setup/isaac/generate_isaac_overhead_workcell.py
 ```
 
 이 레이어는 표시 전용이다. 기존 articulation, robotLinks, joint drive,
@@ -63,7 +63,7 @@ terminal에서 실행한다. 전체 실행 순서와 joint mapping은
 
 `assets/so101_new_calib`의 geometry는 TheRobotStudio SO-101 asset의
 commit `fda892cba81032c46c40976a48c9ceadbf40a9ca`에서 가져왔다.
-license는 root `THIRD_PARTY_NOTICES.md`와 `LICENSE`를 확인한다.
+license는 `docs/THIRD_PARTY_NOTICES.md`와 root `LICENSE`를 확인한다.
 
 ## 양팔 q0 시각 정합 후보
 
@@ -80,7 +80,7 @@ license는 root `THIRD_PARTY_NOTICES.md`와 `LICENSE`를 확인한다.
 보정 전까지 왼쪽 값을 임의 복제하지 않는다.
 
 ```bash
-python3 tools/generate_isaac_bimanual_preview_urdf.py
+python3 tools/setup/isaac/generate_isaac_bimanual_preview_urdf.py
 ```
 
 2026-08-13부터 이 simulation-only preview의 arm 10축 limit은

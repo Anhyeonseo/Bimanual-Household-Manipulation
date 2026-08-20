@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from desk_task_runtime import (
+from tools.lib.desk_task_runtime import (
     BaseTargetSample,
     DeskTaskContractError,
     bimanual_q0_target,

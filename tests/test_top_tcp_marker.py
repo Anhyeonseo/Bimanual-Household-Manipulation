@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 
-MODULE_PATH = Path("tools/detect_top_tcp_marker.py")
+MODULE_PATH = Path("tools/diagnostics/detect_top_tcp_marker.py")
 SPEC = importlib.util.spec_from_file_location("detect_top_tcp_marker", MODULE_PATH)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

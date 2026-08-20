@@ -30,7 +30,7 @@ import sys
 FIRMWARE = pathlib.Path(__file__).resolve().parents[1] / "firmware"
 sys.path.insert(0, str(FIRMWARE.parents[0] / "tools"))
 
-from actuator_protocol import (  # noqa: E402
+from tools.lib.actuator_protocol import (  # noqa: E402
     CRC,
     HEADER,
     Frame,

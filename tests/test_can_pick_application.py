@@ -13,7 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from can_pick_application import (  # noqa: E402
+from tools.lib.can_pick_application import (  # noqa: E402
     CanJawContract,
     CanPickContractError,
     CanPickPolicy,
@@ -58,7 +58,7 @@ def left():
     pytest.importorskip("urdf_parser_py.urdf")
     if not URDF.is_file():
         pytest.skip(f"dual URDF is not present: {URDF}")
-    from grasp_yaw_kinematics import GraspYawKinematics
+    from tools.lib.grasp_yaw_kinematics import GraspYawKinematics
 
     kinematics = GraspYawKinematics(URDF, prefix="left_")
     document = json.loads(LIMITS.read_text(encoding="utf-8"))
@@ -98,7 +98,7 @@ def test_required_jaw_width_grows_with_crossing_error():
         for d in (0.0, 5.0, 10.0, 20.0, 35.9)
     ]
     assert widths == sorted(widths)
-    # 펜 계획이 기록한 35.9도 어긋남은 캔에서 조 개방을 두 배 넘게 요구한다.
+    # 35.9도 교차 오차에서는 캔 지름의 두 배가 넘는 개방 폭이 필요하다.
     assert widths[-1] > 2.0 * CAN_DIAMETER_MM
 
 
@@ -291,8 +291,8 @@ def test_solution_meets_position_and_crossing_for_every_can_yaw(
     assert min(abs(crossing - 90.0), abs(crossing + 90.0 - 180.0)) < 3.0
 
 
-def test_solver_actually_moves_the_roll_off_the_pen_value(left, policy):
-    """펜은 roll 을 0 에 묶었다. 캔은 방향에 따라 실제로 움직여야 한다."""
+def test_solver_changes_roll_for_different_can_axes(left, policy):
+    """캔 방향에 맞춰 wrist roll 해가 실제로 달라져야 한다."""
     kinematics, lower, upper = left
     rolls = []
     for can_deg in (-60.0, -20.0, 20.0, 60.0):

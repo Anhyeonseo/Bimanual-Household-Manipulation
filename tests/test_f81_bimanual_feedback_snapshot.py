@@ -157,7 +157,7 @@ def test_f81_ros_contract_publishes_standard_and_fresh_feedback() -> None:
     assert "def feedback_snapshot" in adapter
     rolling = text(
         ROOT
-        / "tools/execute_resident_bimanual_rolling_base_small_roundtrip_once.py"
+        / "tools/setup/resident_gate/execute_resident_bimanual_rolling_base_small_roundtrip_once.py"
     )
     assert "feedback_maximum_sample_age_ms" in rolling
     assert "maximum_observed_base_delta_rad" in rolling

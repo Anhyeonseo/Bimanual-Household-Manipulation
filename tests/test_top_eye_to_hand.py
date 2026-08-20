@@ -9,7 +9,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 
-TOOLS = Path(__file__).resolve().parents[1] / "tools"
+TOOLS = Path(__file__).resolve().parents[1] / "tools/setup/camera_calibration"
 sys.path.insert(0, str(TOOLS))
 SPEC = importlib.util.spec_from_file_location(
     "solve_top_eye_to_hand",

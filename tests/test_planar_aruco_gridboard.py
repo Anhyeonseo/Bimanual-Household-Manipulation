@@ -6,7 +6,7 @@ from pathlib import Path
 import cv2
 
 
-TOOLS = Path(__file__).resolve().parents[1] / "tools"
+TOOLS = Path(__file__).resolve().parents[1] / "tools/setup/camera_calibration"
 SPEC = importlib.util.spec_from_file_location(
     "generate_planar_aruco_gridboard",
     TOOLS / "generate_planar_aruco_gridboard.py",

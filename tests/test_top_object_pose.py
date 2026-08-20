@@ -14,7 +14,7 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "tools" / "detect_top_object_pose.py"
+MODULE_PATH = ROOT / "tools/diagnostics/detect_top_object_pose.py"
 SPEC = importlib.util.spec_from_file_location("detect_top_object_pose", MODULE_PATH)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

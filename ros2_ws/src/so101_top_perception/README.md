@@ -66,7 +66,7 @@ python3 -m venv --system-site-packages \
   /home/pi/Manipulation/.venv-top-perception-opencv410
 /home/pi/Manipulation/.venv-top-perception-opencv410/bin/python -m pip install \
   --require-hashes --no-deps \
-  -r /home/pi/Manipulation/requirements-top-perception-runtime.txt
+  -r /home/pi/Manipulation/requirements/top-perception-runtime.txt
 
 ros2 launch so101_top_perception top_obb_runtime_smoke.launch.py \
   python_executable:=/home/pi/Manipulation/.venv-top-perception-opencv410/bin/python \
@@ -95,6 +95,5 @@ non-actionable: `motion_authorized` and `robot_target_available` are always
 `false`. The historical `118.216 mm` disagreement came from mixing an obsolete
 raised chessboard pose with a later eye-to-hand generation and is not used by
 the current transform. The current conservative workspace is derived from the
-approved low-grasp and pre-grasp joint-limit overlap; the camera-visible pen
-used on 2026-07-30 is outside that hardware workspace. No MoveIt or hardware
+approved low-grasp and pre-grasp joint-limit overlap. No MoveIt or hardware
 command publisher exists in this package.

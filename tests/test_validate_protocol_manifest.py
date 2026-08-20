@@ -3,7 +3,7 @@ import json
 import unittest
 from pathlib import Path
 
-from tools.validate_protocol_manifest import validate_manifest
+from tools.run.validate_protocol_manifest import validate_manifest
 
 
 MANIFEST_PATH = Path(__file__).parents[1] / "protocol" / "message_ids.json"

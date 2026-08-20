@@ -40,16 +40,16 @@ Raspberry Pi 5, ROS 2 Jazzy, STM32G474, SO-ARM101 두 대와 상단·손목
 ```powershell
 py -3.11 -m venv .venv-host
 .\.venv-host\Scripts\Activate.ps1
-python -m pip install -r requirements-host.txt
-python -m pytest -q `
+python -m pip install -r requirements/host.txt
+python -m pytest -c config/pytest.ini --rootdir=. -q `
   tests/test_desk_task_runtime.py `
   tests/test_can_grasp_roll_branches.py `
   tests/test_can_jaw_gap_map.py `
   tests/test_can_pick_application.py `
   tests/test_can_pick_left_executor.py `
   tests/test_can_pick_left_plan_steps.py
-python tools\validate_protocol_manifest.py
-python tools\validate_camera_schedule.py
+python tools\run\validate_protocol_manifest.py
+python tools\run\validate_camera_schedule.py
 ```
 
 전체 firmware/ROS 회귀와 MoveIt 연동 시험은 ROS 2 Jazzy, OpenCV, xacro,
@@ -71,7 +71,8 @@ ros2_ws/src/
   so101_description/            # 양팔 URDF/Xacro
   so101_moveit_config/          # 양팔 planning 설정
 tests/                          # 유지 중인 기반·책상 정리 회귀 시험
-tools/                          # 캔 파지, 보정, 진단, 계약 검증 도구
+tools/                          # 역할별 run/lib/setup/diagnostics/contract_evidence
+requirements/                   # host와 Pi perception Python 의존성
 ```
 
 `single_arm_bridge`라는 ROS package명과 `stm32_g474_single_arm` 디렉터리명은
@@ -86,10 +87,12 @@ tools/                          # 캔 파지, 보정, 진단, 계약 검증 도�
 - [캔 → 수거함 파이프라인](docs/CAN_TO_BIN.md)
 - [로드맵](docs/ROADMAP.md)
 - [검증 매트릭스](docs/VERIFICATION_MATRIX.md)
+- [도구 구조와 진입점](tools/README.md)
+- [제3자 고지](docs/THIRD_PARTY_NOTICES.md)
 - [상단 카메라 재보정 결과](docs/test-results/2026-08-18-top-camera-recalibration.md)
 
 ## License
 
 자체 작성 코드는 [Apache License 2.0](LICENSE)으로 공개한다. STM32 HAL,
-CMSIS와 BSP는 각 원본 파일 및 [제3자 고지](THIRD_PARTY_NOTICES.md)의 조건을
+CMSIS와 BSP는 각 원본 파일 및 [제3자 고지](docs/THIRD_PARTY_NOTICES.md)의 조건을
 따른다.

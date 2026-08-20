@@ -19,7 +19,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
-from grasp_yaw_kinematics import wrap_half_turn  # noqa: E402
+from tools.lib.grasp_yaw_kinematics import wrap_half_turn  # noqa: E402
 
 URDF = (
     ROOT
@@ -45,7 +45,7 @@ def kinematics():
     assert urdf_parser is not None
     if not URDF.is_file():
         pytest.skip(f"dual URDF is not present: {URDF}")
-    from grasp_yaw_kinematics import GraspYawKinematics
+    from tools.lib.grasp_yaw_kinematics import GraspYawKinematics
 
     return GraspYawKinematics(URDF, prefix="right_")
 

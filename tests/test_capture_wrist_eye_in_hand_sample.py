@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 
-TOOLS = Path(__file__).resolve().parents[1] / "tools"
+TOOLS = Path(__file__).resolve().parents[1] / "tools/setup/camera_calibration"
 SPEC = importlib.util.spec_from_file_location(
     "capture_wrist_eye_in_hand_sample",
     TOOLS / "capture_wrist_eye_in_hand_sample.py",

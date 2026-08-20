@@ -77,8 +77,8 @@ def test_f8_protocol_and_tools_expose_tracking_evidence() -> None:
     transport = text(
         ROOT / "ros2_ws/src/single_arm_bridge/single_arm_bridge/stream_transport_v2.py"
     )
-    no_output = text(ROOT / "tools/validate_f8_bimanual_tracking_no_output.py")
-    hold = text(ROOT / "tools/execute_f8_bimanual_tracking_hold_once.py")
+    no_output = text(ROOT / "tools/contract_evidence/validate_f8_bimanual_tracking_no_output.py")
+    hold = text(ROOT / "tools/contract_evidence/execute_f8_bimanual_tracking_hold_once.py")
     assert "ACTUATOR_V2_MSG_TRACKING_DIAGNOSTICS UINT8_C(60)" in contract
     assert "ACTUATOR_V2_TRACKING_DIAGNOSTICS_WIRE_SIZE 76u" in contract
     assert "def get_tracking_diagnostics" in transport
@@ -94,7 +94,7 @@ def test_f8_tracking_fault_injection_is_isolated_and_fail_closed() -> None:
     cmake = text(STM32 / "CMakeLists.txt")
     config = text(STM32 / "Core/Inc/single_arm_config.h")
     source = text(STM32 / "Core/Src/binary_control.c")
-    tool = text(ROOT / "tools/validate_f8_bimanual_tracking_fault_stop_once.py")
+    tool = text(ROOT / "tools/contract_evidence/validate_f8_bimanual_tracking_fault_stop_once.py")
     assert "BIMANUAL_TRACKING_FAULT_INJECTION_CANDIDATE" in cmake
     assert "HOST_BINARY_FIRMWARE_VERSION=0x00024701UL" in cmake
     assert "HOST_BIMANUAL_TRACKING_FAULT_INJECTION_BUILD=1U" in cmake

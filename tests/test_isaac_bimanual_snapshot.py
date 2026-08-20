@@ -10,7 +10,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOL_PATH = ROOT / "tools/isaac_apply_bimanual_snapshot.py"
+TOOL_PATH = ROOT / "tools/setup/isaac/isaac_apply_bimanual_snapshot.py"
 SPEC = importlib.util.spec_from_file_location("isaac_bimanual_snapshot", TOOL_PATH)
 assert SPEC is not None and SPEC.loader is not None
 TOOL = importlib.util.module_from_spec(SPEC)

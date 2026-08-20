@@ -11,7 +11,7 @@ from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from grasp_yaw_kinematics import GraspYawKinematics
+from tools.lib.grasp_yaw_kinematics import GraspYawKinematics
 
 ENTRYPOINT = (
     ROOT

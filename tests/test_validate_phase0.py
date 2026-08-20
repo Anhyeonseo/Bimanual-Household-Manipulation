@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from tools.validate_phase0 import EXPECTED_JOINTS, validate_baseline
+from tools.setup.firmware.validate_phase0 import EXPECTED_JOINTS, validate_baseline
 
 
 def make_valid_baseline():
@@ -73,4 +73,3 @@ class ValidatePhase0Tests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

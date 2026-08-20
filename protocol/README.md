@@ -320,7 +320,7 @@ Serial message 이름으로 `ESTOP`을 사용하지 않는다. Software packet�
 구현 전 확인:
 
 ~~~bash
-python3 tools/validate_protocol_manifest.py
+python3 tools/run/validate_protocol_manifest.py
 ~~~
 
 펌웨어 단계 확인:
