@@ -1,66 +1,26 @@
-# 검증 매트릭스
+# 책상 정리 검증 매트릭스
 
-상태: `미실행`, `부분 통과`, `통과`, `실패`, `차단`
+| Gate | 확인 대상 | 자동/실기 | 현재 |
+|---|---|---|---|
+| V0 | protocol manifest, firmware/host parity | 자동 | 유지 |
+| V1 | 양팔 URDF, operational limits, FK | 자동 | 유지 |
+| V2 | Top intrinsic 독립 검증 | 실기+오프라인 | PASS 후보 |
+| V3 | eye-to-hand 독립 검증 | 실기+오프라인 | REJECTED |
+| V4 | 작업대 metric/homography | 실기+오프라인 | 재검증 필요 |
+| V5 | 캔 OBB precision/recall/pose error | 오프라인 | 후보 있음 |
+| V6 | jaw gap/contact/tilt 계약 | 실기 | 미완료 |
+| V7 | 캔 plan-only collision/limit/SHA | 자동+MoveIt | 재생성 필요 |
+| V8 | validate-only, motion command 0 | 자동 | 코드 있음 |
+| V9 | supervised 캔 pick | 실기 | 미승인 |
+| V10 | 수거함 transit/release | 실기 | 미구현 |
+| V11 | 배치 후 scene verification | 실기 | 미구현 |
+| V12 | 다물체/양팔 반복성과 soak | 실기 | 미구현 |
 
-| ID | 단계 | 검증 | 초기 합격 기준 | 상태 | 증거 |
-|---|---|---|---|---|---|
-| HW-001 | 단계 0 | 서보 12개 ping/feedback | 좌우 6축, 총 12/12 응답 | 통과 | [F8.7 최종 수락](test-results/2026-08-15-f87-resident-top-camera-pick-place.md): resident `present_mask=0xFFF`, 좌우 feedback와 fresh anchor 확인 |
-| HW-002 | 단계 0 | ID와 관절 연결 확인 | 좌우 각 1~6 기록 | 통과 | [J0 desired envelope](test-results/2026-08-13-bimanual-j0-desired-envelope.md)와 12축 순서/팔별 수동 sweep로 확인 |
-| HW-003 | 단계 0 | 상태값 읽기 | position/speed/load/voltage 기록 | 부분 통과 | [단일 팔 실기 결과](test-results/2026-07-20-stm32-binary-control-plane.md) |
-| HW-004 | 단계 0 | 전원 재인가 | 명령하지 않은 움직임 0회 | 부분 통과 | 단일 시험 팔 확인 |
-| HW-005 | 단계 0 | 전원 출력 | 양팔 각각 무부하/동작 전압 기록 | 부분 통과 | 단일 시험 팔 12.3~12.5V 확인 |
-| ROS-001 | 단계 1 | 새 환경 build | 오류 0 | 미실행 |  |
-| ROS-002 | 단계 1 | Mock 실행 | STANDBY 진입 | 미실행 |  |
-| ROS-003 | 단계 1 | 잘못된 명령 | NaN/범위 초과/오래된 명령 100% 거부 | 미실행 |  |
-| MODEL-001 | 단계 4 | 왼팔 URDF/Xacro | visual, TF, q0, 축과 limit 일치 | 통과 | [단계 4 통합 결과](test-results/2026-07-24-isaac-moveit-left-arm-integration.md) |
-| MOVEIT-001 | 단계 4 | 왼팔 MoveIt config | SRDF, collision, IK와 q0 validity 정상 | 통과 | [단계 4 통합 결과](test-results/2026-07-24-isaac-moveit-left-arm-integration.md) |
-| MOVEIT-002 | 단계 4 | mock 대표 trajectory | arm과 gripper Plan/Execute 성공 | 통과 | [단계 4 통합 결과](test-results/2026-07-24-isaac-moveit-left-arm-integration.md) |
-| ISAAC-001 | 단계 4 | Isaac articulation | 6 joint 안정 유지, state/command round trip | 통과 | [단계 4 통합 결과](test-results/2026-07-24-isaac-moveit-left-arm-integration.md) |
-| ISAAC-002 | 단계 4 | MoveIt → Isaac trajectory | arm random pose, gripper open/closed, home 성공 | 통과 | [단계 4 통합 결과](test-results/2026-07-24-isaac-moveit-left-arm-integration.md) |
-| ISAAC-003 | 단계 4 | 실제 hardware 격리 | serial/STM32 접근과 실제 servo 동작 0 | 통과 | [단계 4 통합 결과](test-results/2026-07-24-isaac-moveit-left-arm-integration.md) |
-| MOVEIT-003 | 단계 5 | MoveIt → STM32 single-point | home, arm, gripper와 feedback 성공 | 통과 | [단계 5 실기 결과](test-results/2026-07-25-phase5-stm32-read-only.md) |
-| MCU-001 | 단계 2 | packet 해석기 | 절단/CRC/길이 오류 거부 | 통과 | [바이너리 제어 경로 결과](test-results/2026-07-20-stm32-binary-control-plane.md) |
-| MCU-002 | 단계 2 | heartbeat 단절 | 정의된 시간 안에 안전 정지 | 통과 | [바이너리 제어 경로 결과](test-results/2026-07-20-stm32-binary-control-plane.md) |
-| MCU-003 | 단계 2/11 | 공통 5 ms 제어 loop | queue underflow/overrun 없이 12축 finite/rolling 실행 | 통과 | [F7 paired DMA](test-results/2026-08-14-bimanual-dma-dispatch-f7.md), [F8 tracking](test-results/2026-08-14-bimanual-tracking-feedback-f8.md), [F8.7 최종 수락](test-results/2026-08-15-f87-resident-top-camera-pick-place.md) |
-| MCU-004 | 단계 2 | 단일 팔 6축 동시 적용 | 같은 명령에서 함께 시작 | 통과 | [바이너리 제어 경로 결과](test-results/2026-07-20-stm32-binary-control-plane.md) |
-| MCU-005 | 단계 2 | 서보 UART 전원 도메인 수명주기 | MCU 유지 상태의 12V OFF→ON 엣지에서 recovery ≤1과 `fe = recovery = resync`, 300초 READ_ONLY soak에서 오류 counter 12개 delta 0 | 통과 | [0x00022500 물리 검증](test-results/2026-08-06-stm32-0x00022500-servo-uart-power-domain-lifecycle.md): 엣지 직후 첫 read 성공, `failure_count=0`, `EDGE_VERDICT=BOUNDED`. 300초 soak `PASSED=1`, snapshot 5개 전부 receiver disarmed, `lazy_arm_count == transaction_count` 실측 확인. `motion_authorized=false` 유지 |
-| MCU-006 | 단계 2 | 버퍼드 응답 프레임의 전송 예산 | blocking host 송신 시간이 apply lateness 허용치 안에 있고, 넘기면 빌드가 거부될 것 | 통과 | [0x00022900 전송 예산](test-results/2026-08-06-stm32-0x00022900-status-transmit-budget.md): acknowledgement payload를 32 B로 되돌려 `4.688 ms` (허용 `5 ms`), lateness 분포는 terminal 프레임 전용. `binary_control.c`의 `#error`가 payload `+4 B`에서 Cortex-M4 빌드를 거부함을 음성 검증. 플래시 후 identity 통과, 70초 READ_ONLY soak `passed=True`로 12개 counter 전부 delta 0 (heartbeat 700회·position 350회, 진단 후 receiver disarmed). 남은 여유 `0.312 ms`는 여유가 아니라 벼랑으로 기록하고 비동기 송신을 양팔 진입 전 필수로 둔다. `motion_authorized=false` 유지 |
-| MCU-007 | 단계 2 | q0 관절 한계 여유와 보정 교체 | q0(raw 2048)가 전 축 한계에서 60 raw 이상 안쪽일 것, 보정 교체가 raw↔rad 사상을 보존했음을 기계로 증명할 것 | 통과 | [0x00022A00 관절 한계 여유](test-results/2026-08-06-stm32-0x00022A00-joint-limit-margin.md): `BASE min 2048→1988`, `WRIST_FLEX max 2048→2108`, hash `0x8AD27897→0xB317C672`. 펌웨어 표와 host JSON 두 독립 구현이 같은 해시를 낸다(변경 전 값 재현으로 모델 검증). `superseded_calibrations` 로 옛 보정 전체를 기록하고 `tests/test_calibration_supersession.py` 가 사상 보존·한계 확대만 허용함을 강제(둘 다 음성 검증). 실기 통과: identity `0x00022A00`/`0xB317C672`, 70초 soak `PASSED=1` 로 12개 counter 전부 0. 이전에 범위 밖이던 `WRIST_FLEX 2051` 이 새 상한 `2108` 안에 들어와 6축 전부 계약 안이다. `deployed: true` 전환. `motion_authorized=false` 유지 |
-| MCU-008 | 단계 2 | 관절 토크 상한과 Goal_Speed 캡 | 반복 실행 STALE_TICK 없이 안정적으로 동작하고, 서보 추종 속도가 실측 근거로 정당화될 것 | 통과 | [반복 정지 수정](test-results/2026-08-07-repeat-stop-fix-lead220.md), [속도·Goal_Speed 수정](test-results/2026-08-07-speed-goal-speed-fix.md): `INITIAL_FIRST_SAMPLE_LEAD_MS` `160→220`과 host-side sleep으로 반복 정지 해결(34→30 leg 실기 완주, STALE_TICK 0건). SHOULDER/ELBOW 토크 상한(`780/650→900/800`)과 안전 감시 문턱(`800→950`)을 올렸으나 부분적 개선에 그쳤고, 진짜 병목은 STS 서보 Goal_Speed 레지스터(`65→800`, `0x00022B00→0x00022C00`)였다. `motion_authorized=false` 유지 |
-| MOT-006 | 단계 8 | buffered q0 복귀와 apply lateness 분포 | pregrasp에서 q0까지 단일 Action 완주, terminal 통과, apply lateness 분포 실측 | 통과 | [Motion-12 물리 통과](test-results/2026-08-06-motion12-buffered-q0-return.md): 38초·1901 sample 단일 Action, terminal `succeeded`, maximum apply lateness `4 ms`, post-settle `6 raw`, q0 도달 `0.009204 rad`, 전송 1회·자동 재시도 0회, servo bus counter 8종 전부 0(transaction 9330). 분포 첫 실측 `1573,96,98,90,44,0` — 합이 applied와 일치하고 늦은 sample 328개가 refill 추정 317회와 비율 `1.035`로, **refill acknowledgement 1회당 늦은 sample 1개**임을 보인다. bucket 5는 비어 있어 전송 `4.688 ms`라는 산술과 일치한다. `motion_authorized=false` 유지 |
-| MOT-007 | 단계 8 | 연속 Pick/Place 경로 (buffered leg 3개) | q0→pick→place→q0 전 구간을 leg 사이 q0 복귀 없이 완주, 각 Action terminal·lateness·post-settle 통과 | 부분 통과 | [Motion-13 실기](test-results/2026-08-06-motion13-continuous-pick-place.md): 3개 Action(2051/701/1951 sample, 94초)과 gripper 2회를 한 세션에서 완주. 전부 terminal `succeeded`, apply lateness 전부 `4 ms`, post-settle `14/16/6 raw`, 자동 재시도 0. 앞 leg 의 post-settle 이 다음 leg 의 anchor 이탈로 이어져(14→17, 16→16) 한계 40 안에서 연결된다. leg A 1차는 anchor 이탈 `110 raw` 로 **거부**되어 게이트가 작동함을 보였다. **부분 통과 사유: 물체를 실제로 집지 못했다** — `pick_close` 잔여 `3 raw`. 2026-08-07 수렴+새 offset(`0.011`)으로 왕복 Pick/Place 3회 재실행: **A 자세 파지 2/2, 물체 왕복 성립, lead 병목 없이 완주**. B 자세(반경 0.306 m)는 0/1 — 실패는 위치가 아니라 offset 이다(잔차 7.05 mm 로 가장 작은데도 간격 5=물체 없음). offset 은 자세마다 다르다는 C2 예측이 재확인됐다. [왕복 pilot](test-results/evidence/2026-08-07-pick-place-alternating-pilot.json). B 자세 offset 재측정 필요. `motion_authorized=false` 유지 |
-| MOT-008 | 단계 8 | 도달 수렴 계층 (자기수용) | 명령한 자세와 실제 도달 자세의 TCP 잔차를 mm 로 측정하고, 경계된 보정으로 줄이고, 수렴하지 못하면 잔차와 함께 멈춘다 | 통과 | [C1 설계·계약](test-results/2026-08-06-c1-convergence-layer.md), [C2 실기](test-results/2026-08-06-c2-convergence-physical.md): 수렴이 세 자세에서 재현됐고(pregrasp `15.74→10.00`, grasp `11.04→5.98`, A4.5 `11.19→7.75 mm`) ELBOW 오차를 매번 `18/16 raw → 0` 으로 닫았다. 남은 잔차는 매번 SHOULDER 가 지배한다. **A4.5 재시도 통과** — 인식 → 계획 → 수렴 → 파지 전 구간, 잔여 간격 `21 raw`. 계획 잔차도 함께 줄였다: 허용 상자 `0.006→0.001`(grasp 잔차 `4.599→0.982 mm`, 105회 계획 요청 전부 성공), 관절 목표 허용치 `0.005→0.0005 rad`(TCP `2.81→0.34 mm`, 54회 전부 성공). 파지 offset 은 처짐을 흡수하던 값이었으므로 수렴 적용 상태에서 다시 재 `0.017→0.011` 이 됐다. **파지가 잔차 `10.17`/`7.75 mm` 에서 성립했으므로 과제 허용치 `4 mm` 는 파지의 필요조건이 아니다** — 남은 잔차는 offset 이 흡수하며 그 성립 조건은 회차 간 재현성이다(A5). **A5 재현성**(6회): 파지 `6/6`, 잔여 간격 `21~23 raw`, 정착 후 잔차 흩어짐 `0.094 mm`(3~6회차, z 성분 `-9.622 mm` 로 동일하고 3·6회차 벡터 완전 일치). 워밍업 2회는 `3.3 mm` 벗어난다 — 세션 첫 회차는 시연에 쓰지 않는다. [A5 기록](test-results/2026-08-06-a5-repeatability-pilot.md). `motion_authorized=false` 유지 |
-| MOT-009 | 단계 8 | 추종 속도 상한과 leg별 rate 지정 | 같은 pose의 pick-and-place 전 구간(pregrasp/grasp/q0 복귀)을 높인 추종률에서 STALE_TICK·하드 게이트 위반 없이 반복 완주 | 통과 | [속도·Goal_Speed 수정](test-results/2026-08-07-speed-goal-speed-fix.md): `MAXIMUM_AUTHORIZED_TRACKING_RATE_RAW_S` `200→300`(관절 속도 하드 게이트 326까지 여유 26). `run_grasp_repeatability_pilot.py`에 leg별 독립 rate 인자를 추가해(하나로 묶으면 다른 leg에서 하드 게이트를 넘겨 계획이 거부됨을 실기로 확인) `a45_top_shadow` pose의 pregrasp/grasp/q0_return 전부 `300 raw/s`로 2회 반복 완주(leg 6개, post-settle `16 raw` 균일). 50 대비 약 5.4배. 다른 pose는 각자 재검증 필요. `motion_authorized=false` 유지 |
-| CAM-001 | 단계 3 | 카메라 3대 capture | 장치별 목표 FPS 기록 | 통과 | [카메라 대역폭·제어 격리 결과](test-results/2026-07-21-camera-bandwidth-control-isolation.md) |
-| CAM-002 | 단계 3 | 재연결 | 자동 복구 시간 기록 | 통과 | [카메라 manager·hot-plug 결과](test-results/2026-07-21-camera-manager-hotplug.md) |
-| CAM-003 | 단계 3 | 제어 격리 | 카메라 부하 중 heartbeat 위반 0 | 통과 | [카메라 decode·DDS 제어 격리 결과](test-results/2026-07-21-camera-decode-control-load.md) |
-| CAM-004 | 단계 3 | 추론 일정 | 모든 작업 상태 합계 12Hz 이하 | 통과 | `config/camera_schedule.json` 정적 검증 |
-| CAM-005 | 단계 3 | frame 최신성 | 상태별 p95/max 기록 | 통과 | [phase scheduler·선택적 decode 결과](test-results/2026-07-21-camera-phase-decode-latency.md) |
-| RES-001 | 단계 3/9 | Pi 자원 한도 | CPU/memory/temperature 기준 충족 | 부분 통과 | [3카메라·bridge 30분 기준선](test-results/2026-08-02-pi-runtime-camera-only-30m.md)과 [3카메라·Top OBB 30분](test-results/2026-08-02-pi-runtime-top-obb-30m.md) 통과. Top OBB 동시 부하에서 CPU 평균 35.07%, 온도 최대 50.15°C, swap·throttling 0. policy·MoveIt·8시간 시험은 미실행 |
-| RES-002 | 단계 9 | Pi 실제 통합 부하 | 3카메라+검출기+배포 policy+MoveIt+bridge에서 heartbeat 위반·throttling·swap 0 | 부분 통과 | [3카메라·Top OBB 30분](test-results/2026-08-02-pi-runtime-top-obb-30m.md)에서 Top OBB 3.989 Hz, 처리 오류·명령 발행·재연결 0. MoveIt·실제 ONNX policy shadow 미포함 |
-| POL-001 | 단계 9/11 | policy observation 계약 | 학습과 배포의 camera order·전처리·shape·normalization 또는 structured schema 일치, deadline 기록 | 부분 통과 | [배포 번들 계약](checklists/STAGE9_POLICY_DEPLOYMENT_BUNDLE.md)과 fail-closed 검증기 구현. 실제 policy ONNX bundle 미확보 |
-| POL-002 | 단계 9/11 | Pi policy shadow mode | stale/deadline/범위 초과 출력 100% 차단, 실제 명령 0 | 미실행 |  |
-| MOT-001 | 단계 5 | 단일 시험 왼팔 trajectory | 반복 실행 성공 | 통과 | [단계 5 실기 결과](test-results/2026-07-25-phase5-stm32-read-only.md) |
-| MOT-002 | 단계 5 | 취소/정지 | 정해진 안전 상태 진입 | 통과 | [단계 5 실기 결과](test-results/2026-07-25-phase5-stm32-read-only.md) |
-| MOT-003 | 단계 8 | 왼팔 multi-point/buffered trajectory | 시간축·queue·cancel·soft-abort·SAFE_STOP 실기 통과, 불필요한 정착 정지 제거 | 통과 | [Motion-1](checklists/MOTION_BUFFERED_TRAJECTORY_CONTRACT.md)부터 [Motion-8](checklists/MOTION_G474_BUFFERED_PHYSICAL_ROUTE.md)까지 구현하고 `0x00022100` Motion-9 소형 다중 관절 왕복과 [Motion-10 dense q0 왕복](test-results/2026-08-04-motion10-buffered-q0-roundtrip-plan-only.md)을 단일 buffered Action으로 실기 통과했다. Motion-10은 211 samples, maximum apply lateness 4 ms, post-settle 20 raw, 자동 재시도 0회와 physical DISABLE을 확인했다. 상승 구간의 약한 흔들림은 후속 품질 개선 항목이다. |
-| MOT-004 | 단계 8 | Pick pregrasp 연속 buffered Action | 충돌 검사 경로를 20 ms dense Action으로 변환하고 fresh-start·terminal·post-settle·최종 pregrasp 도달 통과 | 통과 | [Motion-11 물리 통과](test-results/2026-08-06-motion11-buffered-pick-pregrasp.md): 47초·2351 sample 단일 Action, fresh-start 오차 `0.000000 rad`, terminal `state=succeeded`, maximum apply lateness `5 ms`, post-settle `18 raw`, pregrasp 도달 `0.027950 rad`, Action 전송 1회·자동 재시도 0회. 1차 시도에서 `545 raw`였던 Shoulder가 `+4 raw`다. lateness가 허용 상한 `5 ms`에 정확히 닿은 것은 추종 오차가 아니라 응답 프레임의 전송시간으로 밝혀졌다 — 32 B payload = 전선 54 B = `4.688 ms`, `ceil` 하면 `5`. [0x00022900 전송 예산](test-results/2026-08-06-stm32-0x00022900-status-transmit-budget.md) 참조. `motion_authorized=false` 유지 |
-| VIS-001 | 단계 6 | 작업대 위치 추정 | 위치 최대 10 mm, yaw 최대 5 deg | 통과 | [Top 물체 실제 좌표 검증](test-results/2026-07-30-top-object-ground-truth-validation.md) |
-| VIS-002 | 단계 7 준비 | base-frame shadow target 및 table–base 등록 | 두 위치 물리 검증, freshness/workspace 검사, 실행 가능 flag false | 통과 | [현재 작업대–왼팔 base 등록](test-results/2026-07-30-current-table-base-registration.md), [Top-base shadow target](test-results/2026-07-30-top-base-shadow-target.md) |
-| VIS-003 | 단계 8 | 시연 환경 강건 펜 검출 | 카메라 각도·높이·물체 Z 고정, 배경·조명·반사만 다른 조건에서 물체 1개와 위치/yaw·miss·false positive 기준 충족 | 통과 | [기준선 계약](test-results/2026-08-02-top-pen-detection-baseline-contract.md), [holdout·legacy 결과](test-results/2026-08-02-top-pen-holdout-legacy-baseline.md), [YOLO-OBB 후보](checklists/STAGE8_TOP_PEN_YOLO_OBB.md). 고정 holdout에서 miss 0%, false positive 0%, 중심 p95 5.29 px, yaw p95 2.79° |
-| TASK-001 | 단계 7/11 | Camera-selected Pick | 50회 중 90% 이상 | 부분 통과 | [F8.9 양팔 전달](test-results/2026-08-16-f89-bimanual-pen-transfer.md): fresh left/right plan, 양팔 실제 Pick/Place와 자동 재시도 0 통과. 정식 반복성 benchmark는 미실행 |
-| TASK-002 | 단계 7/11 | Camera-selected Place | 50회 중 90% 이상 | 부분 통과 | [F8.9 양팔 전달](test-results/2026-08-16-f89-bimanual-pen-transfer.md): 왼팔 중간 배치와 오른팔 최종 place/release/retreat/q0, 최종 HOLD 통과. 정식 반복성 benchmark는 미실행 |
-| SYS-001 | 단계 9 | 부팅 | 반복 부팅 모두 무동작 STANDBY | 미실행 |  |
-| SYS-002 | 단계 9 | 장시간 시험 | 8시간 후 24시간 | 미실행 |  |
-| RIGHT-001 | 단계 10 | 오른팔 하드웨어·모델·안전 동등성 | 6축 identity/range/q0, model parity, read-only, 격리 이동과 fault gate | 통과 | [J0 desired envelope](test-results/2026-08-13-bimanual-j0-desired-envelope.md), [J1 limit candidate](test-results/2026-08-13-bimanual-j1-operational-limit-candidate.md), operator-approved full envelope, right-base bounded roundtrip, R4 12축 soak, F7/F8 paired dispatch·fault stop. Task 반복성은 RIGHT-002로 분리 |
-| RIGHT-002 | 단계 10/11 | 오른팔 선택 Pick/Place | 왼팔과 동일한 task·반복성·비명령 동작·충돌 기준 통과 | 부분 통과 | F8.9 session03에서 오른팔 Pick/Place 1회와 place 높이·좌우 보정을 통과했다. 반복성 기준은 미실행 |
-| DUAL-001 | 단계 11 | 실제 paired dispatch 시작 시각 차이 | p99 < 50 us, 최대값 기록 | 통과 | [F7 paired DMA](test-results/2026-08-14-bimanual-dma-dispatch-f7.md): hold/base roundtrip 최대 2 us, 후속 resident 실행 최대 6 us |
-| DUAL-002 | 단계 11 | 연동 정지 | 한 팔 DMA/feedback/tracking fault 시 양팔 torque-off | 통과 | [F7 DMA fault stop](test-results/2026-08-14-bimanual-dma-dispatch-f7.md)과 [F8 tracking fault stop](test-results/2026-08-14-bimanual-tracking-feedback-f8.md) 실기 통과 |
-| DUAL-003 | 단계 11 | 양팔 firmware/ROS 통합 진입 gate | 운용 범위·unwrap·paired dispatch·tracking·resident finite·STOP 통과 | 통과 | F7/F8/F8.1과 [F8.9 양팔 전달](test-results/2026-08-16-f89-bimanual-pen-transfer.md). 범용 policy 성능은 별도 후속 gate |
-| MCU-009 | 단계 11 | F8.9 terminal settle과 transient read recovery | arm 46,020 urad, gripper 150,000 urad, hard cap 160,000 urad, 12 fresh pair; position read 3회 연속만 stop | 통과 | [F8.9 양팔 전달](test-results/2026-08-16-f89-bimanual-pen-transfer.md): no-motion, finite 2회, 양팔 Top-camera task 통과 |
-| APP-001 | 단계 11 | 상단 앱 interface boundary | serial 직접 접근 없이 ROS resident full finite route, owner/epoch/fresh-anchor/terminal contract 준수 | 통과 | [상단 인터페이스](BIMANUAL_UPPER_APPLICATION_INTERFACE.md), [인계 프롬프트](prompts/BIMANUAL_UPPER_APPLICATION_HANDOFF_PROMPT.md), [F8.9 reference app](test-results/2026-08-16-f89-bimanual-pen-transfer.md) |
-| AI-001 | 단계 11 | policy 비교 | baseline 대비 개선 | 미실행 |  |
+## 실행 원칙
 
-`부분 통과`는 일부 실기 증거는 있으나 해당 행의 전체 합격 기준을 아직
-충족하지 않았다는 뜻이다. 오른팔 backend parity와 양팔 firmware/ROS 통합은
-통과했고 양팔 task 1회도 수락했다. 반복성 benchmark와 범용 policy 성능은 별도 gate다. 기준을 바꾸면 ADR 또는
-변경 사유를 남긴다.
+- 선행 gate가 실패하면 이후 gate를 실행하지 않는다.
+- 실제 모터를 쓰는 gate는 명시적 confirmation과 물리 전원 차단 수단이 필요하다.
+- 같은 실제 동작을 자동 재시도하지 않는다.
+- 모든 plan은 robot description, operational limits, calibration, perception
+  bundle의 SHA를 기록한다.
+- 성공은 measured terminal feedback과 배치 후 scene 검증이 모두 통과해야 한다.

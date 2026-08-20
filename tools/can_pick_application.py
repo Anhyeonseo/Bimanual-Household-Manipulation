@@ -2,11 +2,9 @@
 """캔 한 개를 방향에 맞춰 집는 순수 판정·해법 모듈.
 
 ROS publisher/service client, serial transport, motion executor를 넣지 않는다.
-`lying_can_upright_application.py`와 같은 격리 수준을 유지한다.
 
-**펜 계획기와 다른 점 하나.** 펜은 `wrist_roll`을 q0인 0에 고정하고 나머지
-4축으로 TCP xyz만 맞췄다. 캔은 굴러가므로 손가락 닫힘선이 캔 장축을 반드시
-가로질러야 하고, 그 손잡이가 `wrist_roll`이다.
+캔은 굴러가므로 손가락 닫힘선이 캔 장축을 반드시 가로질러야 하고,
+그 교차 방향을 `wrist_roll`로 맞춘다.
 
 그런데 두 가지가 순진한 구현을 막는다.
 
@@ -41,11 +39,7 @@ from typing import Sequence
 import numpy as np
 from scipy.optimize import least_squares
 
-from lying_can_upright_application import (
-    LyingCanContractError,
-    undirected_axis_error,
-    wrap_undirected_axis,
-)
+from can_geometry import undirected_axis_error, wrap_undirected_axis
 
 
 class CanPickContractError(RuntimeError):
@@ -206,7 +200,7 @@ class CanPickPolicy:
 
     # 닫힘선이 캔 장축 수직에서 벗어나도 되는 한계.
     crossing_tolerance_rad: float
-    # TCP 위치 잔차 한계. 펜 계획기의 PLAN_RESIDUAL_BOUND_M와 같은 역할.
+    # TCP 위치 잔차 한계.
     position_tolerance_m: float
     # 접근축이 수직에서 기울어도 되는 한계. M3에서 finger 간섭으로 정한다.
     maximum_approach_tilt_rad: float | None

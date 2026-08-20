@@ -1,4 +1,0 @@
-# Install before requirements-training.txt on the RTX 5070 Ti workstation.
---index-url https://download.pytorch.org/whl/cu128
-torch==2.11.0
-torchvision==0.26.0

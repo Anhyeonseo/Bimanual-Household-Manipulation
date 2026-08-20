@@ -16,7 +16,7 @@ eye-to-hand 등록을 다시 수행했다.
 | YOLO OBB 좌표 재검증 | 미실시 | 전체 좌표계 재구축 뒤 수행 |
 
 모든 산출물은 `motion_authorized: false`를 유지한다. 이번 eye-to-hand
-candidate는 합격하지 않았으므로 Pick/Handover 목표 좌표에 연결하면 안 된다.
+candidate는 합격하지 않았으므로 책상 정리 motion 목표 좌표에 연결하면 안 된다.
 
 ## 카메라 스트림 정리
 
@@ -105,7 +105,7 @@ D = [-0.458353919, 0.268424567, -0.001790406,
 Pi에서는 calibration build를 사용했다.
 
 ```text
-/home/pi/SO101-Bimanual-Manipulation/ros2_ws/install_calibration
+/home/pi/Bimanual-Household-Manipulation/ros2_ws/install_calibration
 ```
 
 resident bridge는 12축 joint state를 약 `20 Hz`로 발행했다. 수동 자세 변경
@@ -203,5 +203,4 @@ artifacts/calibration/top_eye_to_hand_20260818/candidate.yaml
   `artifacts/calibration/top_1280x960_9x6_25mm_20260818/intrinsic_independent_validation.json`
 - Eye-to-hand 캡처/세션:
   `artifacts/calibration/top_eye_to_hand_20260818/`
-- 캘리브레이션 설계 계약:
-  `docs/adr/0011-top-eye-to-hand-gridboard.md`
+- 현재 승격 조건: [검증 매트릭스](../VERIFICATION_MATRIX.md)

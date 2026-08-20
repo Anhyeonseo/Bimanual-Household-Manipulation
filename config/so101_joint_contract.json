@@ -7,7 +7,7 @@
   "source": {
     "limits": "isaac_sim/assets/so101_new_calib/payloads/Physics/physics.usda",
     "default_candidate": "isaac_sim/README.md (arm target 0 deg, gripper target -10 deg)",
-    "note": "limits here are the Isaac Sim asset's authored PhysX joint limits, not the real-hardware conservative software limits in config/single_arm_calibration.json. Confirm both stay compatible before sim-to-real deployment."
+    "note": "limits here are the Isaac Sim asset's authored PhysX joint limits, not the approved real-hardware limits in config/bimanual_operational_limits.json. Confirm both stay compatible before sim-to-real deployment."
   },
   "joint_order": [
     "shoulder_pan",

@@ -1,3 +1,0 @@
-# Desktop-only training/export environment. Raspberry Pi runtime does not use it.
-ultralytics==8.4.67
-onnx==1.17.0

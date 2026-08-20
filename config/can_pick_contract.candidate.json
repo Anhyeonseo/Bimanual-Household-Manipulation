@@ -41,7 +41,7 @@
     "crossing_tolerance_deg": 6.0,
     "crossing_tolerance_reason": "인식 yaw p95 2.36 도와 최대 3.08 도 위에 계획 잔차와 서보 정착 여유를 얹었다. 6 도에서 필요한 개방은 66.5 mm 다.",
     "position_tolerance_m": 0.0021,
-    "position_tolerance_reason": "펜 계획기의 PLAN_RESIDUAL_BOUND_M 과 같은 값",
+    "position_tolerance_reason": "desk-task TCP 위치 잔차 계약",
     "maximum_approach_tilt_deg": null,
     "maximum_approach_tilt_reason": "아래쪽 finger 가 작업대에 닿기 전까지 허용되는 기울기를 M3 에서 실측한다. 접근축은 이 작업대에서 수직이 될 수 없고 보정 영역에서 21~73 도 기운다."
   },
@@ -59,7 +59,7 @@
   "commissioning_gates": [
     "jaw gap mm 대 semantic raw 대응표를 실측한다 (tools/commission_can_jaw_gap_map_once.py)",
     "그 표에서 open_command_rad 와 grasp_command_rad 를 채운다",
-    "캔 몸통 접촉 잔차 raw 를 실측한다. 펜의 contact_threshold_raw 14 를 상속하지 않는다",
+    "캔 몸통 접촉 잔차 raw 를 실측한다",
     "기울어진 접근에서 아래쪽 finger 간섭 한계를 재어 maximum_approach_tilt_deg 를 채운다",
     "plan-only 와 validate-only 를 통과한 뒤에만 감독 실기 1 회를 한다"
   ]

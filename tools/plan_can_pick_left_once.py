@@ -4,12 +4,9 @@
 **범위는 pick 까지다.** place 와 핸드오버는 없다. 왼팔은 제안된 쓰레기통
 지점에 88.27 mm 부족해 닿지 않으므로 그 부분은 별도 단계로 남긴다.
 
-**펜 계획기와 다른 점.**
-
-펜은 `wrist_roll` 을 q0 인 0 에 고정하고 나머지 4축으로 TCP xyz 만 맞췄다.
-물체 yaw 는 진단값이었고 실행 조건이 아니었다. 캔은 그럴 수 없다. 실행된 펜
-계획이 기록한 `crossing_residual_rad = 0.627` = 35.9 도를 캔에 그대로 두면
-조가 벌려야 하는 폭이 53 mm 가 아니라 121 mm 가 된다.
+캔은 `wrist_roll`을 고정값으로 둘 수 없다. 닫힘 축이 캔 장축을 정확히
+가로질러야 하며, 교차 오차가 35.9도면 필요한 jaw 폭이 53 mm가 아니라
+121 mm까지 커진다.
 
 그래서 이 계획기는 세 가지를 더 한다.
 
@@ -45,7 +42,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
-import plan_top_camera_pick_place_once as pen  # noqa: E402
+import desk_task_planning as planning  # noqa: E402
 from can_pick_application import (  # noqa: E402
     CanPickContractError,
     _solve_position_with_fixed_roll,
@@ -66,13 +63,13 @@ DEFAULT_SHADOW_CONFIG = (
     ROOT / "ros2_ws/src/so101_top_perception/config/top_shadow_target.yaml"
 )
 
-# 펜이 실기로 확정한 왼팔 화면축 보정. 같은 카메라·같은 보정판이므로 캔에도
-# 같은 계통 오차가 실린다. 값을 새로 만들지 않고 그대로 상속한다.
-LEFT_SCREEN_X_CORRECTION_M = pen.LEFT_SCREEN_X_CORRECTION_M
-LEFT_SCREEN_X_CORRECTION_REASON = pen.LEFT_SCREEN_X_CORRECTION_REASON
+# 현 작업대에서 작업자가 확인한 왼팔 화면축 보정.
+LEFT_SCREEN_X_CORRECTION_M = 0.01372
+LEFT_SCREEN_X_CORRECTION_REASON = (
+    "operator_requested_left_target_13_72mm_screen_right"
+)
 
-# 접근 높이. 펜 값을 그대로 쓰지 않는다 — 캔은 지름 53 mm 로 서 있어
-# pregrasp 를 캔 위로 충분히 띄워야 조가 캔을 치지 않는다.
+# 캔은 지름 53 mm로 서 있으므로 pregrasp를 충분히 띄운다.
 PICK_PREGRASP_OFFSET_M = 0.120
 PICK_LIFT_OFFSET_M = 0.060
 
@@ -95,7 +92,7 @@ def parse_args() -> argparse.Namespace:
         "--grasp-offset-m",
         type=float,
         default=-0.001,
-        help="검출된 캔 z 에 더할 파지 높이 보정. 펜의 값을 상속하지 않는다.",
+        help="검출된 캔 z에 더할 파지 높이 보정",
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -111,8 +108,8 @@ def parse_args() -> argparse.Namespace:
 def wait_can_target(node, messages, config, count: int, timeout_s: float):
     """캔 target 을 여러 프레임에 걸쳐 잠근다.
 
-    펜의 `wait_target` 은 픽셀 x 로 팔을 고른다. 이 도구는 왼팔 전용이므로
-    그 분기를 쓰지 않되, **픽셀 routing 이 무엇이라고 말했는지는 기록한다.**
+    이 도구는 왼팔 전용이므로 픽셀 기반으로 팔을 다시 고르지 않는다.
+    다만 **픽셀 routing 결과는 진단값으로 기록한다.**
     실제 제약은 픽셀 규칙이 아니라 도달성이며 그건 뒤에서 따로 검사한다.
     """
     deadline = time.monotonic() + timeout_s
@@ -137,7 +134,7 @@ def wait_can_target(node, messages, config, count: int, timeout_s: float):
             continue
         stamps.add(stamp)
         try:
-            samples.append(pen.target_sample(node, config, message, SIDE))
+            samples.append(planning.target_sample(node, config, message, SIDE))
             center_x_samples.append(float(message.center_x_px))
             center_y_samples.append(float(message.center_y_px))
             yaw_samples.append(float(message.yaw_rad))
@@ -157,11 +154,11 @@ def wait_can_target(node, messages, config, count: int, timeout_s: float):
         )
     if len(set(widths)) != 1 or len(set(heights)) != 1:
         raise RuntimeError("camera image size changed during the target lock")
-    locked = pen.lock_target(samples)
+    locked = planning.lock_target(samples)
     return (
         locked,
-        float(pen.median(center_x_samples)),
-        float(pen.median(center_y_samples)),
+        float(planning.median(center_x_samples)),
+        float(planning.median(center_y_samples)),
         widths[0],
         heights[0],
         yaw_samples,
@@ -170,7 +167,7 @@ def wait_can_target(node, messages, config, count: int, timeout_s: float):
 
 def can_yaw_spread_rad(yaw_samples) -> float:
     """무방향 장축이므로 단순 max-min 이 아니라 modulo pi 로 퍼짐을 잰다."""
-    from lying_can_upright_application import undirected_axis_error
+    from can_geometry import undirected_axis_error
 
     reference = yaw_samples[0]
     return max(
@@ -181,12 +178,8 @@ def can_yaw_spread_rad(yaw_samples) -> float:
 def can_steps_from_phases(phases, policy) -> list[dict]:
     """캔 그리퍼 값으로 단계를 조립한다.
 
-    펜의 `steps_from_phases` 를 쓰면 안 된다. 그 함수는 펜의 `GRIPPER_OPEN_RAD`
-    와 `GRIPPER_CLOSE_RAD` 를 **자기가 직접 끼워 넣는다.** 펜의 개방값
-    raw 2048 은 개방 범위의 거의 닫힌 끝이라 53 mm 캔에는 조가 아예 안 벌어진다.
-
-    순서는 펜과 같다. 개방은 접근 전에 끝내고, 파지는 grasp 에 도착한 뒤
-    lift 로 떠나기 전에 한다.
+    개방은 접근 전에 끝내고, 파지는 grasp에 도착한 뒤 lift로 떠나기 전에
+    수행한다. 모든 값은 캔 전용 jaw 계약에서 가져온다.
     """
     steps: list[dict] = [
         {
@@ -273,8 +266,8 @@ def main() -> int:
     # 명령이 실기까지 내려가지 않는다.
     needed_open_mm = policy.require_open_gap_covers_tolerance()
 
-    region = load_calibrated_region(pen.TOP_HOMOGRAPHY_PATH)
-    config = pen.load_shadow_config(args.shadow_config)
+    region = load_calibrated_region(planning.TOP_HOMOGRAPHY_PATH)
+    config = planning.load_shadow_config(args.shadow_config)
     if config.output_frame != "left_base_link":
         raise RuntimeError(
             "Top shadow transform must currently terminate at left_base_link"
@@ -284,14 +277,14 @@ def main() -> int:
     node = Node("can_pick_left_planner")
     messages: list = []
     node.create_subscription(
-        pen.TopObjectPose, CAN_TARGET_TOPIC, messages.append, 10
+        planning.TopObjectPose, CAN_TARGET_TOPIC, messages.append, 10
     )
-    plan_client = node.create_client(pen.GetMotionPlan, pen.PLAN_SERVICE)
-    fk_client = node.create_client(pen.GetPositionFK, pen.FK_SERVICE)
+    plan_client = node.create_client(planning.GetMotionPlan, planning.PLAN_SERVICE)
+    fk_client = node.create_client(planning.GetPositionFK, planning.FK_SERVICE)
     try:
         for name, client in (
-            (pen.PLAN_SERVICE, plan_client),
-            (pen.FK_SERVICE, fk_client),
+            (planning.PLAN_SERVICE, plan_client),
+            (planning.FK_SERVICE, fk_client),
         ):
             if not client.wait_for_service(timeout_sec=args.timeout_s):
                 raise RuntimeError(f"service unavailable: {name}")
@@ -321,8 +314,8 @@ def main() -> int:
                 "the detection is not stable enough to grasp on"
             )
 
-        unit_x, unit_y = pen.screen_positive_x_unit_workcell(
-            pen.TOP_HOMOGRAPHY_PATH, center_x_px, center_y_px
+        unit_x, unit_y = planning.screen_positive_x_unit_workcell(
+            planning.TOP_HOMOGRAPHY_PATH, center_x_px, center_y_px
         )
         delta_x = unit_x * LEFT_SCREEN_X_CORRECTION_M
         delta_y = unit_y * LEFT_SCREEN_X_CORRECTION_M
@@ -337,9 +330,9 @@ def main() -> int:
             f"yaw_spread_deg={math.degrees(yaw_spread):.3f}"
         )
 
-        kinematics = pen.load_yaw_kinematics(SIDE)
-        lower, upper = pen.load_arm_joint_bounds(SIDE)
-        _, joint_names, _ = pen.arm_contract(SIDE)
+        kinematics = planning.load_yaw_kinematics(SIDE)
+        lower, upper = planning.load_arm_joint_bounds(SIDE)
+        _, joint_names, _ = planning.arm_contract(SIDE)
 
         # 1) grasp 에서 roll 을 푼다. 최단 한계 안 분기를 고른다.
         grasp_xyz = (x, y, z + args.grasp_offset_m)
@@ -399,7 +392,7 @@ def main() -> int:
             else:
                 target_base = kinematics.point_in_base_frame(
                     np.asarray(target_xyz, dtype=float),
-                    root_link=pen.WORKCELL_FRAME,
+                    root_link=planning.WORKCELL_FRAME,
                 )
                 values, error_m = _solve_position_with_fixed_roll(
                     kinematics,
@@ -422,7 +415,7 @@ def main() -> int:
                     "wrist_roll_locked": True,
                 }
 
-            achieved = pen.measure_tcp(
+            achieved = planning.measure_tcp(
                 fk_client, node, SIDE, joint_names, joints
             )
             residual = math.dist(achieved, target_xyz)
@@ -477,10 +470,10 @@ def main() -> int:
             ("pick_lift_to_q0", positions["pick_lift"], Q0),
         )
         phases = [
-            pen.plan_phase(node, plan_client, SIDE, name, start, target)
+            planning.plan_phase(node, plan_client, SIDE, name, start, target)
             for name, start, target in phase_specs
         ]
-        # 5) 캔 그리퍼 값으로 단계를 조립한다. 펜 조립기를 쓰지 않는다.
+        # 5) 캔 전용 jaw 계약으로 실행 단계를 조립한다.
         ordered_steps = can_steps_from_phases(phases, policy)
 
         document = {
@@ -494,18 +487,18 @@ def main() -> int:
             "automatic_execution_permitted": False,
             "scope": "left_arm_can_pick_only_no_place_no_handover",
             "selected_arm": SIDE,
-            "planning_frame": pen.WORKCELL_FRAME,
+            "planning_frame": planning.WORKCELL_FRAME,
             "joint_names": list(joint_names),
             "q0_rad": list(Q0),
             "contract": contract_provenance,
             "robot_description": {
-                "path": str(pen.dual_urdf_path()),
-                "sha256": pen.sha256_file(pen.dual_urdf_path()),
-                "environment": pen.DUAL_URDF_ENVIRONMENT,
+                "path": str(planning.dual_urdf_path()),
+                "sha256": planning.sha256_file(planning.dual_urdf_path()),
+                "environment": planning.DUAL_URDF_ENVIRONMENT,
             },
             "operational_limits": {
-                "path": str(pen.OPERATIONAL_LIMITS),
-                "sha256": pen.sha256_file(pen.OPERATIONAL_LIMITS),
+                "path": str(planning.OPERATIONAL_LIMITS),
+                "sha256": planning.sha256_file(planning.OPERATIONAL_LIMITS),
             },
             "calibrated_region": {
                 "path": region.source_path,
@@ -544,8 +537,8 @@ def main() -> int:
                 "corrected_target_xy_m": [x, y],
                 "reason": LEFT_SCREEN_X_CORRECTION_REASON,
                 "homography": {
-                    "path": str(pen.TOP_HOMOGRAPHY_PATH),
-                    "sha256": pen.sha256_file(pen.TOP_HOMOGRAPHY_PATH),
+                    "path": str(planning.TOP_HOMOGRAPHY_PATH),
+                    "sha256": planning.sha256_file(planning.TOP_HOMOGRAPHY_PATH),
                 },
             },
             "pick_offsets_m": {

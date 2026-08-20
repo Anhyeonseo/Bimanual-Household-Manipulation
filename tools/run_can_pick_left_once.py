@@ -10,19 +10,12 @@
 2. `--open-grasp-height-check`
    조를 열고 grasp 자세까지 내려가 **닫지 않고** 멈춘 뒤 pregrasp 를 거쳐 q0 로
    돌아온다. 캔에 닿기 전에 파지 높이와 개방 폭을 눈으로 확인하는 단계다.
-   펜이 같은 방식으로 높이를 확정했다.
+   실제 파지 전에 높이와 개방 폭을 확인하는 commissioning 단계다.
 
 3. 전체 실행
    위 두 단계를 통과한 뒤에만 한다.
 
-**펜 실행기를 재사용하지 않는 이유.** `run_top_pick_place_application_once.py`
-의 계획 검사는 `wrist_roll_policy == "hold_bimanual_q0"` 와 그리퍼 raw
-2048/1948 을 상수로 요구한다. 캔 계획은 roll 을 풀고 훨씬 넓게 열므로 그
-검사를 통과할 수 없고, 통과하도록 고치면 펜 회귀 위험이 생긴다. 대신 순수
-계약 모듈 `top_pick_place_application` 의 원시 함수만 공유한다.
-
-**펜 값을 상속하지 않는 것.** `CONTACT_THRESHOLD_RAW=14` 와
-`RELEASE_TOLERANCE_RAW=30` 은 펜의 값이다. 캔은 계획에 실린 계약값을 쓴다.
+jaw gap, contact, release 값은 계획에 고정된 캔 전용 계약값만 사용한다.
 """
 
 from __future__ import annotations
@@ -54,7 +47,7 @@ from so101_interfaces.srv import BimanualStreamCommand  # noqa: E402
 from std_srvs.srv import Trigger  # noqa: E402
 from trajectory_msgs.msg import JointTrajectoryPoint  # noqa: E402
 
-from top_pick_place_application import (  # noqa: E402
+from desk_task_runtime import (  # noqa: E402
     ARM_JOINTS_BY_SIDE,
     ARM_TERMINAL_TOLERANCE_RAD,
     BIMANUAL_ARM_INDICES,
@@ -235,7 +228,7 @@ def load_can_plan(path: Path, expected_sha256: str) -> dict:
 def can_actions(plan: dict, *, height_check: bool) -> list[dict]:
     """계획 단계를 연속 leg 로 묶는다.
 
-    캔은 펜과 순서가 다르다. place 가 없으므로 gripper/arm/gripper/arm 네 개다.
+    place가 없으므로 gripper/arm/gripper/arm 네 구간만 허용한다.
     `height_check` 면 닫기 이후를 통째로 버리고 pregrasp 복귀로 대체하므로
     여기서는 닫기 직전까지만 낸다.
     """
