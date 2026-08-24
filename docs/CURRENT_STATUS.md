@@ -57,33 +57,43 @@ resident firmware `0x00024809`의 torque-off refresh에서 12축 present mask
 `0xFFF`를 확인했다. 관절값은 task contract에 기록했지만 아직 MoveIt plan과
 실제 명령 왕복으로 재현하지 않았으므로 visual candidate일 뿐이다.
 
+R0-B에서는 Top `1280x960` eye-to-hand를 training `left_train_01..08,10`과
+완전 미사용 validation `left_validation_01..02`로 재수집했다. 관절 끝단에
+놓였던 `left_train_09`는 기존 해의 위치 잔차가 약 `14.852 mm`인 작업영역
+outlier로 기록만 보존하고 해에는 사용하지 않았다. 고정 세트의 training 위치
+RMS/max는 `3.630/5.166 mm`, 회전 RMS/max는 `0.921/1.711 deg`였고, 독립
+validation 위치 max는 `4.250 mm`, 회전 max는 `1.429 deg`로
+`EYE_TO_HAND_VALIDATED_MOTION_STILL_NOT_AUTHORIZED`를 통과했다. 원본과 해는
+`artifacts/calibration/top_eye_to_hand_20260825_r0b/`에 보존한다.
+
+같은 고정 조건의 worktable 보정은 `calibration_01..06,07b,08`만 plane fit에
+사용하고 `validation_01..02`는 해에 넣지 않았다. 영상 경계가 `4.25 px`였던
+초기 `calibration_07`은 기록만 보존하고 제외했다. 10 mm coverage-hull inset
+뒤 독립 검증 영역은 `377.296x371.513 mm`, plane RMS/max는
+`1.128/3.846 mm`, validation metric XY max는 `1.608 mm`, plane-height max는
+`3.259 mm`로 통과했다. 따라서 nominal 300 mm 수건과 사방 30 mm 영역을 두
+축 모두 포함한다. 검증된 1280x960 intrinsic과 homography를 active runtime
+config로 승격했다. Pi 재빌드 뒤 Top `1280x960@30`, 두 wrist `640x480@30`이
+동시에 `STREAMING`했고 reconnect와 capture/decode error는 없었다.
+`motion_authorized=false`는 유지한다.
+
 ## 현재 blocker
 
-1. active 640×480 worktable calibration의 검증 span은 약
-   290.176×392.858 mm다. 1280×960 optical FOV에는 300 mm 수건과 사방 30 mm
-   envelope를 배치할 수 있지만, 그 영역의 metric calibration은 아직 없다.
-2. 1280×960 Top intrinsic은 독립 검증을 통과했지만 2026-08-18 eye-to-hand는
-   거부됐고 해당 해상도의 worktable plane/homography는 재구축되지 않았다.
-3. runtime camera config의 장치 경로·640×480 조건과 최신 실물
-   `/hcd.0`·1280×960 후보가 일치하지 않는다. 현재 camera manager는 세 카메라에
-   공통 capture 크기를 적용하므로 Top만 승격하기 전 per-camera 조건도 정리해야 한다.
-4. Top `OBSERVE_CLEAR` visual candidate는 확보했지만 자동 왕복 재현성은
+1. Top `OBSERVE_CLEAR` visual candidate는 확보했지만 자동 왕복 재현성은
    미검증이다. left wrist는 gripper가 영상 일부를 영구 가리며, right wrist는
    intrinsic, eye-in-hand와 URDF optical frame가 없다.
-5. 1차 fold의 약 300 mm moving-edge separation과 두 fold의 약 150 mm arc
+2. 1차 fold의 약 300 mm moving-edge separation과 두 fold의 약 150 mm arc
    높이를 양팔이 동시에 추종할 수 있는지 실제 MoveIt으로 검증되지 않았다.
-6. jaw gap, 단일/다층 접촉, slip, 장력, 테이블 마찰과 수건 물성이 미측정이다.
+3. jaw gap, 단일/다층 접촉, slip, 장력, 테이블 마찰과 수건 물성이 미측정이다.
 
 ## 바로 다음 작업
 
 1. 수건 side tolerance, 두께, 질량, 재질과 상태 조건을 측정해 기존 task
    contract에 증빙과 함께 반영한다.
-2. Top 후보를 `/hcd.0`, MJPEG 1280×960@30 fps로 고정하고 per-camera capture
-   설정, intrinsic, Top-to-base와 worktable calibration을 같은 조건으로 재구축한다.
-3. 새 metric calibration에서 300 mm 수건과 사방 30 mm 영역을 독립 검증하고,
-   기록한 `OBSERVE_CLEAR` 후보의 plan-only 및 실제 왕복 재현성을 검증한다.
-4. right wrist intrinsic/eye-in-hand/optical frame를 완성한다.
-5. 300 mm rigid proxy로 x/y축·양 방향·팔 배정의 MoveIt plan-only go/no-go를
+2. 검증된 metric calibration에서 기록한 `OBSERVE_CLEAR` 후보의 plan-only 및
+   실제 왕복 재현성을 검증한다.
+3. right wrist intrinsic/eye-in-hand/optical frame를 완성한다.
+4. 300 mm rigid proxy로 x/y축·양 방향·팔 배정의 MoveIt plan-only go/no-go를
    수행한다.
-6. 그 결과가 통과한 작업대 배치에서 실제 수건 데이터 수집과 mask backend를
+5. 그 결과가 통과한 작업대 배치에서 실제 수건 데이터 수집과 mask backend를
    시작한다.

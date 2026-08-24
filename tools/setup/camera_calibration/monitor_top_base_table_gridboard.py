@@ -31,6 +31,7 @@ from capture_top_frame import decode_image
 
 
 WINDOW_NAME = "SO101 Top table GridBoard monitor (q/ESC to close)"
+BANNER_OPACITY = 0.28
 DEFAULT_CAMERA_INFO = Path(
     "ros2_ws/src/manipulation_camera_manager/config/top_camera_info.yaml"
 )
@@ -182,7 +183,16 @@ class TopBaseTableGridBoardMonitor(Node):
             self._draw_markers(frame)
 
         color = (0, 150, 0) if self._ready else (0, 0, 190)
-        cv2.rectangle(frame, (0, 0), (frame.shape[1], 116), color, -1)
+        banner = frame.copy()
+        cv2.rectangle(banner, (0, 0), (frame.shape[1], 116), color, -1)
+        cv2.addWeighted(
+            banner,
+            BANNER_OPACITY,
+            frame,
+            1.0 - BANNER_OPACITY,
+            0.0,
+            frame,
+        )
         heading = "READY TO CAPTURE" if self._ready else "NOT READY"
         cv2.putText(
             frame,

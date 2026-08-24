@@ -9,8 +9,10 @@ to close the preview.
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import math
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -22,6 +24,8 @@ from sensor_msgs.msg import Image
 from capture_top_eye_to_hand_sample import (
     EXPECTED_MARKER_IDS,
     decode_image,
+    detect_expected_gridboard_pose,
+    load_camera_model,
 )
 
 
@@ -29,10 +33,21 @@ WINDOW_NAME = "SO101 Top GridBoard monitor (q/ESC to close)"
 
 
 class TopGridBoardMonitor(Node):
-    def __init__(self, topic: str, stale_timeout_s: float) -> None:
+    def __init__(
+        self,
+        topic: str,
+        stale_timeout_s: float,
+        camera_info: Path | None,
+        max_pnp_rms_px: float,
+    ) -> None:
         super().__init__("top_eye_to_hand_gridboard_monitor")
         self._topic = topic
         self._stale_timeout_s = stale_timeout_s
+        self._max_pnp_rms_px = max_pnp_rms_px
+        self._camera_model = (
+            None if camera_info is None else load_camera_model(camera_info)
+        )
+        self._readiness = deque(maxlen=30)
         self._dictionary = cv2.aruco.getPredefinedDictionary(
             cv2.aruco.DICT_4X4_50
         )
@@ -110,13 +125,37 @@ class TopGridBoardMonitor(Node):
                 for marker_id in EXPECTED_MARKER_IDS
                 if marker_id not in detected
             )
-            complete = detected == EXPECTED_MARKER_IDS
-            color = (0, 180, 0) if complete else (0, 0, 220)
-            cv2.rectangle(frame, (0, 0), (frame.shape[1], 52), color, -1)
-            if complete:
-                status = "GRIDBOARD READY: IDs 0,1,2,3 all visible"
-            else:
+            markers_complete = detected == EXPECTED_MARKER_IDS
+            pnp_rms_px = math.inf
+            capture_ready = markers_complete
+            if markers_complete and self._camera_model is not None:
+                camera_matrix, distortion = self._camera_model
+                _, translation, rotation, pnp_rms_px = (
+                    detect_expected_gridboard_pose(
+                        frame,
+                        camera_matrix,
+                        distortion,
+                    )
+                )
+                capture_ready = (
+                    translation is not None
+                    and rotation is not None
+                    and pnp_rms_px <= self._max_pnp_rms_px
+                )
+            self._readiness.append(capture_ready)
+            color = (0, 180, 0) if capture_ready else (0, 0, 220)
+            cv2.rectangle(frame, (0, 0), (frame.shape[1], 72), color, -1)
+            if not markers_complete:
                 status = f"GRIDBOARD INCOMPLETE: detected={list(detected)} missing={list(missing)}"
+            elif self._camera_model is None:
+                status = "GRIDBOARD READY: IDs 0,1,2,3 all visible"
+            elif capture_ready:
+                status = f"CAPTURE READY: PnP RMS={pnp_rms_px:.3f}px"
+            else:
+                status = (
+                    f"PNP REJECTED: RMS={pnp_rms_px:.3f}px "
+                    f"limit={self._max_pnp_rms_px:.3f}px"
+                )
             cv2.putText(
                 frame,
                 status,
@@ -128,8 +167,10 @@ class TopGridBoardMonitor(Node):
                 cv2.LINE_AA,
             )
             age = now - (self._last_frame_at or now)
+            ready_ratio = sum(self._readiness) / len(self._readiness)
             diagnostics = (
                 f"frames={self._frame_count} receive_age={age:.2f}s "
+                f"ready={ready_ratio:.0%}/{len(self._readiness)} "
                 f"topic={self._topic}"
             )
             cv2.putText(
@@ -165,16 +206,25 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image-topic", default="/camera/top/image_raw")
     parser.add_argument("--stale-timeout-s", type=float, default=2.0)
+    parser.add_argument("--camera-info", type=Path)
+    parser.add_argument("--max-pnp-rms-px", type=float, default=2.5)
     args = parser.parse_args()
     if args.stale_timeout_s <= 0.0:
         parser.error("--stale-timeout-s must be positive")
+    if args.max_pnp_rms_px <= 0.0:
+        parser.error("--max-pnp-rms-px must be positive")
     return args
 
 
 def main() -> int:
     args = parse_args()
     rclpy.init()
-    node = TopGridBoardMonitor(args.image_topic, args.stale_timeout_s)
+    node = TopGridBoardMonitor(
+        args.image_topic,
+        args.stale_timeout_s,
+        args.camera_info,
+        args.max_pnp_rms_px,
+    )
     try:
         while rclpy.ok() and not node.closed:
             rclpy.spin_once(node, timeout_sec=0.03)

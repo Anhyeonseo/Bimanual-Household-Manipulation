@@ -4,77 +4,79 @@ motion_authorized: false
 robot_target_available: false
 camera:
   name: so101_top
-  image_width: 640
-  image_height: 480
+  image_width: 1280
+  image_height: 960
   input_domain: rectified_pixel_using_projection_matrix
   camera_info_file: top_camera_info.yaml
-  camera_info_sha256: dd7297be6e78d02721cb39915f8fe728ca44ac8d9e6a28167ab8c297d1a43936
+  camera_info_sha256: e3d401ceca4c8dcee944f0a69e9c0bd8f7b2875c1b63ffc8dce265219f356338
 capture:
-  method: six_position_common_plane_fit_plus_two_independent_validations
-  validation_file: artifacts/top_table_calibration/2026-08-16/full_table_session01/validation.yaml
+  method: multi_position_common_plane_fit_plus_two_independent_validations
+  validation_file: artifacts/calibration/top_base_table_20260825_r0b/validation.yaml
   image_sha256:
-  - e786ab1d07b79bff77849de62e8a46c0ee3b18c9e08d60a0f9ddf91ac88b0802
-  - b0eb3d5c2d83cc15d1145fd02f8bb5bc1bbe151b07f8613e0e8ef88af48f5c87
-  - 99ce19692d0753352760fa1b9bbcc7ca407dde6cc304493da04ec36bdb036052
-  - 965344165b94c303c3407e25955e595466afe8e726b5f83671f22a819d777f1b
-  - 41effddede49d81cca9ebd576cc92fc005fdc3f6762a7c7dc0668bd2840b1737
-  - e5086099dab89b16ecc51e7937c06ec7189bf6b1703c639fcf62c003ba09dd45
-  - 20dd023c42f60251cba5dafbbf97030b724cf82a4ad78b0fbc3468ea6f314de6
-  - a06ff24504d049787dc30f9e316989cff70c9e12395464e833bded6ca72f89c9
-  validation_sha256: 084c12ee8565393a2f285721e3dfd97a2c0a35821441aa7279c92aa342a0cda9
+  - 7ccd06e7b41e01289be6c97db68ac297d7967b394eab0b9d1847c8aebeb84636
+  - fe69deb69a853db0027c948083c63aeccd1a8a950971902c3ab4090c078324c3
+  - d242748f632b73ada91b67695e3519ef5cc7ce21f21a22725c97a518358dffbb
+  - 175f2ea393fe6bfb90145f9bb8696d3dc9977a5a606acc275c5aba4dfb06292b
+  - fe0467f9171b745dd9cca0ad5a81ea1392fcb9aa053584b5b1a88ed4ded1e47f
+  - 6751631b85a5cc2190a937de21d5a150e5ab84a67ff2b5874aaa5bf6f42ed6c6
+  - 2e5b91c5fb5956459f7d9b5923a3143b5d0d3195879a070400a0cf44c77f4022
+  - a1d7637a2cc10c3cafd5f780ac09a77808af3cfb520a03bfebfbe456257b1c84
+  - ea12eb44e9207d7a54763041fd533045b1e70fe99b75bba0da75a0478dae2c40
+  - f2437f525e075b18d37eb200f011474af7354d84a41f178a79bda9cbbcf2e87c
+  validation_sha256: da6e5db108a186d03804785f48165cfade3e3ddac3e1168de31d55ffdba14fdc
 board:
   origin: left_base_link aligned region inside multi-position coverage hull
   positive_x: parallel to left_base_link +X
   positive_y: parallel to left_base_link +Y
   calibrated_span_m:
-  - 0.29017602778267015
-  - 0.3928584761917591
+  - 0.37729576435909806
+  - 0.37151273763179776
   origin_in_left_base_link_xy_m:
-  - 0.3596486143024932
-  - -0.323992710262537
+  - 0.14043161353744507
+  - -0.3070740004777908
   table_z_in_left_base_link_m: -0.005
 homography:
   rectified_pixel_to_board_m:
     rows: 3
     cols: 3
     data:
-    - - -8.618766734752038e-05
-      - -0.0020053379757478517
-      - 0.8061671605760846
-    - - -0.0016972131870768169
-      - 0.0006354279378209028
-      - 0.6890545314377566
-    - - 0.0001071050177928262
-      - 0.0028448489795727967
+    - - -2.5673214335259013e-05
+      - -0.00045170121429668163
+      - 0.4045784688129339
+    - - -0.0004816143123637297
+      - 0.00012354587300016567
+      - 0.4770248396435077
+    - - -2.3739337296196928e-05
+      - 0.0005496731189380259
       - 1.0
   board_m_to_rectified_pixel:
     rows: 3
     cols: 3
     data:
-    - - 179.40434388224284
-      - -582.1257227956129
-      - 256.4864766562333
-    - - -239.82557696873903
-      - 23.363806901947715
-      - 177.24056740098575
-    - - 0.6630524424713565
-      - -0.004117916326255901
-      - 0.4683063640445171
+    - - 440.49235248698426
+      - -2141.397973645682
+      - 843.2863034982727
+    - - -1493.9881573399352
+      - 51.04632963876486
+      - 580.085073910926
+    - - 0.8316621266336002
+      - -0.07889416400464594
+      - 0.7011618861699946
 fit_quality:
   normal_before_correction:
-  - -0.01869458719584299
-  - -0.0010568391822601275
-  - 0.9998246823821264
+  - -0.00558401989041939
+  - -0.00025427965137492237
+  - 0.9999843769098207
   centroid_before_correction_m:
-  - 0.4997387206761169
-  - -0.12487854410268008
-  - -0.011053257034995323
-  roll_pitch_correction_deg: 1.0728938501829275
-  plane_fit_rms_mm: 1.167681938770508
-  plane_fit_max_mm: 2.46047103704949
-  pnp_rms_px_max: 0.732728941912138
-  validation_metric_error_max_mm: 2.4634385159942536
-  validation_plane_height_error_max_mm: 1.9056100842985528
+  - 0.33858721201622544
+  - -0.12589039262468793
+  - -0.016197838056066647
+  roll_pitch_correction_deg: 0.32027398643393684
+  plane_fit_rms_mm: 1.1278585253642504
+  plane_fit_max_mm: 3.846249961136087
+  pnp_rms_px_max: 0.966045072623748
+  validation_metric_error_max_mm: 1.6076604178436904
+  validation_plane_height_error_max_mm: 3.2591405537484186
 base_registration:
   status: MULTI_POSITION_COMMON_PLANE_INDEPENDENTLY_VALIDATED
   transform_validated: true
@@ -87,11 +89,11 @@ base_registration:
     - - 1.0
       - 0.0
       - 0.0
-      - 0.3596486143024932
+      - 0.14043161353744507
     - - 0.0
       - 1.0
       - 0.0
-      - -0.323992710262537
+      - -0.3070740004777908
     - - 0.0
       - 0.0
       - 1.0

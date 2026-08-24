@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure STM32 heartbeat and rejected-frame counters without motion calls."""
+"""Inspect STM32 state or F8 ASCII servo telemetry without motion calls."""
 
 from __future__ import annotations
 
@@ -21,23 +21,71 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--device", default="auto")
+    parser.add_argument(
+        "--baud",
+        type=int,
+        choices=(115200, 921600),
+        default=115200,
+        help="host UART baud; deployed protocol-v2 F8 firmware uses 921600",
+    )
     parser.add_argument("--duration", type=float, default=60.0)
+    parser.add_argument(
+        "--f8-ascii-servo-scan",
+        action="store_true",
+        help=(
+            "send the firmware's read-only ASCII S command and print all six "
+            "left-servo telemetry results; reset to ASCII mode first"
+        ),
+    )
     return parser.parse_args()
+
+
+def run_f8_ascii_servo_scan(port: object, timeout_s: float = 5.0) -> bool:
+    port.reset_input_buffer()
+    port.write(b"S")
+    port.flush()
+    deadline = time.monotonic() + timeout_s
+    axis_lines: list[str] = []
+    complete = False
+    while time.monotonic() < deadline:
+        encoded = port.readline()
+        if not encoded:
+            continue
+        line = encoded.decode("ascii", errors="replace").strip()
+        print(line)
+        if line.startswith("AXIS ID="):
+            axis_lines.append(line)
+        if line == "ALL_AXIS_STATUS_END":
+            complete = True
+            break
+    passed = (
+        complete
+        and len(axis_lines) == 6
+        and all("READ_FAIL" not in line for line in axis_lines)
+    )
+    print(
+        "F8_ASCII_SERVO_SCAN_RESULT "
+        f"passed={int(passed)} axes={len(axis_lines)} "
+        f"complete={int(complete)} motion_commands=0 servo_write_commands=0"
+    )
+    return passed
 
 
 def main() -> int:
     args = parse_args()
-    if args.duration <= 0.0:
+    if not args.f8_ascii_servo_scan and args.duration <= 0.0:
         raise SystemExit("--duration must be positive")
 
     device = resolve_serial_device(args.device)
     port = open_exclusive_serial(
         serial,
         device,
-        115200,
+        args.baud,
         timeout_s=0.2,
     )
     try:
+        if args.f8_ascii_servo_scan:
+            return 0 if run_f8_ascii_servo_scan(port) else 2
         transport = ActuatorTransport(port, response_timeout_s=0.2)
         hello = transport.enter_binary_mode()
         start = transport.get_state(include_positions=False)
