@@ -22,6 +22,61 @@ workspace:
   knots_allowed: false
   multiple_towels_allowed: false
 
+workcell_observation_candidate:
+  status: FOV_AND_VISUAL_CLEAR_CANDIDATE
+  motion_authorized: false
+  provenance: supervised_manual_pose_and_offline_image_geometry
+  top_camera:
+    serial: "20250807114148"
+    device_path: /dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1.1:1.0-video-index0
+    width: 1280
+    height: 960
+    fps: 30
+    pixel_format: MJPG
+    camera_to_table_vertical_distance_mm: 445.0
+    distance_is_approximate: true
+    optical_containment_result: PASS_WITH_PLACEMENT_REGION
+    metric_calibration_validated: false
+  towel_envelope:
+    nominal_side_mm: 300.0
+    required_perimeter_margin_mm: 30.0
+    projected_envelope_fits_image: true
+    physical_marker_validation_performed: false
+  observe_clear:
+    status: VISUAL_CANDIDATE
+    image_sha256: 44687603bc429f2bf6ab496ea3df3f0fc4566bcd94f3a55bbea55102d5f0b8ca
+    joint_names:
+      - left_base_joint
+      - left_shoulder_joint
+      - left_elbow_joint
+      - left_wrist_flex_joint
+      - left_wrist_roll_joint
+      - left_gripper_joint
+      - right_base_joint
+      - right_shoulder_joint
+      - right_elbow_joint
+      - right_wrist_flex_joint
+      - right_wrist_roll_joint
+      - right_gripper_joint
+    joint_positions_rad:
+      - -0.929592
+      - 0.217825
+      - -0.513884
+      - -0.207087
+      - -0.064427
+      - 0.254641
+      - 0.814544
+      - 0.181010
+      - -0.509282
+      - -0.401903
+      - 0.076699
+      - 0.151864
+    resident_firmware: "0x00024809"
+    present_mask: 4095
+    torque_enabled: false
+    visual_towel_occlusion: false
+    motion_reproducibility_validated: false
+
 fold_policy:
   first_axis: lowest_planning_cost_of_workcell_x_or_y
   second_axis: orthogonal_to_first_axis

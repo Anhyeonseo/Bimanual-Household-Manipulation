@@ -14,6 +14,10 @@
 nominal 수건 크기는 300×300 mm로 확정됐다. 다음 값과 좌표계를 실제 증빙으로
 고정한다.
 
+2026-08-25 R0-A에서 1280×960 optical FOV의 300 mm 수건+사방 30 mm 배치
+가능성과 수동 `OBSERVE_CLEAR` visual candidate를 확인했다. 이는 metric
+calibration이나 자동 자세 재현을 승인하지 않으며 아래 R0 조건은 그대로 남는다.
+
 - side tolerance, 두께, 질량, 재질과 세탁·방향 조건
 - 좌우 jaw gap, 한 겹/다층 cloth contact와 slip 기준
 - 수건-작업대 마찰, 허용 TCP separation과 양팔 속도 차이

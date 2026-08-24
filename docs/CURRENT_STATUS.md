@@ -1,6 +1,6 @@
 # 현재 상태
 
-기준일: 2026-08-23
+기준일: 2026-08-25
 
 최신 기록된 자동검증 결과는
 [2026-08-20 수건 software foundation 검증](test-results/2026-08-20-towel-software-foundation.md)이다.
@@ -35,7 +35,7 @@
 | segmentation | reviewed polygon→metric observation backend | 실제 mask, component, border 검사 |
 | corner/topology | 순수 기하와 confidence gate | 가림·말림·다층 ambiguity 검증 |
 | temporal state | 3-frame 동일 상태 gate | timestamp, spread, settle, hysteresis |
-| observation lifecycle | 설계에 clear/retreat/reobserve 계약 반영 | camera phase와 runtime 구현 |
+| observation lifecycle | Top visual clear 후보·관절값 기록 | plan-only 왕복 재현, camera phase와 runtime 구현 |
 | fold plan-only | 300 mm 직교 기하·arc와 fake selector | 실제 MoveIt IK/collision adapter |
 | Isaac | 표시 전용 workcell | S0 rigid proxy부터 물리 layer 구축 |
 | 조작 primitive | 미구현 | 개별 plan-only→supervised 제한 반복 |
@@ -44,17 +44,32 @@
 | 통합 복구 | offline 유한 상태기계 | 실제 실패 signature와 feedback 연결 |
 | hardware-free CI | 수건 계약·기하·replay workflow 구현 | 갱신된 300 mm fixture 회귀 확인 |
 
+Top 카메라 R0-A 실기 확인에서 장치
+`/dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1.1:1.0-video-index0`, MJPEG
+1280×960@30 fps와 약 445 mm 설치 높이를 확인했다. 640×480과 1280×960은
+같은 화각이고, 1920×1080은 수직 화각을 늘리지 않고 좌우만 약 33% 추가한다.
+실제 nominal 300 mm 수건의 네 모서리로 계산한 사방 30 mm 투영 envelope는
+1280×960 안에 배치 가능했다. 이는 optical containment 후보 PASS이지 기존
+homography 바깥의 metric 정확도를 승인한 결과는 아니다.
+
+수동으로 배치한 `OBSERVE_CLEAR` 후보는 Top 영상에서 수건과 양팔 가림이 없었고,
+resident firmware `0x00024809`의 torque-off refresh에서 12축 present mask
+`0xFFF`를 확인했다. 관절값은 task contract에 기록했지만 아직 MoveIt plan과
+실제 명령 왕복으로 재현하지 않았으므로 visual candidate일 뿐이다.
+
 ## 현재 blocker
 
 1. active 640×480 worktable calibration의 검증 span은 약
-   290.176×392.858 mm다. 한 축이 수건 한 변 300 mm보다 작아서 외곽 여유는
-   물론 수건 전체도 검증 영역 안에 넣었다고 승인할 수 없다.
+   290.176×392.858 mm다. 1280×960 optical FOV에는 300 mm 수건과 사방 30 mm
+   envelope를 배치할 수 있지만, 그 영역의 metric calibration은 아직 없다.
 2. 1280×960 Top intrinsic은 독립 검증을 통과했지만 2026-08-18 eye-to-hand는
    거부됐고 해당 해상도의 worktable plane/homography는 재구축되지 않았다.
 3. runtime camera config의 장치 경로·640×480 조건과 최신 실물
-   `/hcd.0`·1280×960 기록이 일치하지 않는다.
-4. left wrist는 gripper가 영상 일부를 영구 가리며, right wrist는 intrinsic,
-   eye-in-hand와 URDF optical frame가 없다.
+   `/hcd.0`·1280×960 후보가 일치하지 않는다. 현재 camera manager는 세 카메라에
+   공통 capture 크기를 적용하므로 Top만 승격하기 전 per-camera 조건도 정리해야 한다.
+4. Top `OBSERVE_CLEAR` visual candidate는 확보했지만 자동 왕복 재현성은
+   미검증이다. left wrist는 gripper가 영상 일부를 영구 가리며, right wrist는
+   intrinsic, eye-in-hand와 URDF optical frame가 없다.
 5. 1차 fold의 약 300 mm moving-edge separation과 두 fold의 약 150 mm arc
    높이를 양팔이 동시에 추종할 수 있는지 실제 MoveIt으로 검증되지 않았다.
 6. jaw gap, 단일/다층 접촉, slip, 장력, 테이블 마찰과 수건 물성이 미측정이다.
@@ -63,10 +78,10 @@
 
 1. 수건 side tolerance, 두께, 질량, 재질과 상태 조건을 측정해 기존 task
    contract에 증빙과 함께 반영한다.
-2. 실제 Top 장치 경로·해상도를 하나로 고정하고 camera config, intrinsic,
-   Top-to-base와 worktable calibration을 같은 조건으로 재구축한다.
-3. 300 mm 수건과 필요한 외곽 여유가 모두 들어가는 metric FOV 및 양팔
-   `OBSERVE_CLEAR` 자세를 검증한다.
+2. Top 후보를 `/hcd.0`, MJPEG 1280×960@30 fps로 고정하고 per-camera capture
+   설정, intrinsic, Top-to-base와 worktable calibration을 같은 조건으로 재구축한다.
+3. 새 metric calibration에서 300 mm 수건과 사방 30 mm 영역을 독립 검증하고,
+   기록한 `OBSERVE_CLEAR` 후보의 plan-only 및 실제 왕복 재현성을 검증한다.
 4. right wrist intrinsic/eye-in-hand/optical frame를 완성한다.
 5. 300 mm rigid proxy로 x/y축·양 방향·팔 배정의 MoveIt plan-only go/no-go를
    수행한다.

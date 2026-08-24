@@ -80,9 +80,12 @@ session ID와 새 캡처 파일을 사용해 q0부터 다시 수집한다.
 SAFE_STOP 되었고, 진단 로그 보강 뒤 Home 복귀는 terminal `status=6,
 detail=6`으로 통과했다. 자세를 더 확대해 FOV를 해결하지 않는다.
 
-Top 카메라는 높이와 각도를 바꿀 수 없는 고정 조건으로 확정했다. 카메라·렌즈·
-초점·640x480 설정을 바꾸지 않았으므로 기존 intrinsic과 작업대 homography는
-계속 유효하다.
+Top 카메라의 물리 마운트는 현재 약 445 mm 높이의 고정 조건이다. 2026-08-25
+R0-A에서 1280×960 optical FOV에 nominal 300 mm 수건과 사방 30 mm envelope를
+배치할 수 있음을 확인했지만, 기존 640×480 intrinsic/worktable homography는
+1280×960 metric 좌표에 재사용하지 않는다. 1280×960 intrinsic 후보,
+Top-to-base와 worktable homography를 같은 조건으로 모두 승격하기 전까지
+runtime은 기존 fail-closed 상태를 유지한다.
 
 BASE `+0.40 rad`의 검증된 자세에서 marker를 더 작은 강체 사각형으로 교체한 뒤
 `bbox=[13,408,34,42]`, `area=1057 px²`, center=`[29.3642,428.1457]`로

@@ -72,6 +72,26 @@ def test_candidate_contract_is_motion_locked_with_300_mm_nominal_towel():
     )
 
 
+def test_workcell_observation_candidate_remains_fail_closed():
+    candidate = contract()["workcell_observation_candidate"]
+    assert candidate["motion_authorized"] is False
+    assert candidate["top_camera"]["device_path"].endswith(
+        "platform-xhci-hcd.0-usb-0:1.1:1.0-video-index0"
+    )
+    assert candidate["top_camera"]["width"] == 1280
+    assert candidate["top_camera"]["height"] == 960
+    assert candidate["top_camera"]["metric_calibration_validated"] is False
+    assert candidate["towel_envelope"][
+        "required_perimeter_margin_mm"
+    ] == pytest.approx(30.0)
+    clear = candidate["observe_clear"]
+    assert len(clear["joint_names"]) == len(clear["joint_positions_rad"]) == 12
+    assert clear["present_mask"] == 0xFFF
+    assert clear["torque_enabled"] is False
+    assert clear["visual_towel_occlusion"] is False
+    assert clear["motion_reproducibility_validated"] is False
+
+
 def test_candidate_contract_rejects_missing_hardware_field_and_wrong_towel_size():
     document = contract()
     del document["hardware_limits"]["maximum_tension_proxy"]
