@@ -17,7 +17,10 @@ camera_manager:
     vision.max_total_inference_hz: 12.0
     initial_phase: STANDBY
     phase_names: [STANDBY, SEARCH, APPROACH_RIGHT, VISUAL_ALIGN_RIGHT, TRANSFER_RIGHT, VERIFY_RIGHT, DUAL_PRIVATE, RUNTIME_BASELINE, POLICY_ASSIST]
-    top.device_path: /dev/v4l/by-path/platform-xhci-hcd.1-usb-0:1.1:1.0-video-index0
+    top.device_path: /dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1.1:1.0-video-index0
+    top.capture.width: 1280
+    top.capture.height: 960
+    top.capture.fps: 30
     wrist_a.device_path: /dev/v4l/by-path/platform-xhci-hcd.1-usb-0:1.2:1.0-video-index0
     wrist_a.frame_id: left_wrist_camera_optical_frame
     wrist_b.device_path: /dev/v4l/by-path/platform-xhci-hcd.1-usb-0:1.3:1.0-video-index0

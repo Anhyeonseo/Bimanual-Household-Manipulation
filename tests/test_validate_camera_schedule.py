@@ -15,7 +15,16 @@ def load_schedule():
 
 class ValidateCameraScheduleTests(unittest.TestCase):
     def test_repository_schedule_passes(self):
-        self.assertEqual(validate_schedule(load_schedule()), [])
+        schedule = load_schedule()
+        self.assertEqual(validate_schedule(schedule), [])
+        self.assertEqual(
+            schedule["capture"]["per_camera"]["top"],
+            {"width": 1280, "height": 960, "fps": 30},
+        )
+        self.assertEqual(
+            schedule["capture"]["per_camera"]["wrist_a"],
+            {"width": 640, "height": 480, "fps": 30},
+        )
 
     def test_total_inference_over_budget_fails(self):
         schedule = load_schedule()
@@ -40,6 +49,31 @@ class ValidateCameraScheduleTests(unittest.TestCase):
         schedule["capture"]["queue_depth"] = 4
         errors = validate_schedule(schedule)
         self.assertTrue(any("queue_depth" in error for error in errors))
+
+    def test_missing_per_camera_capture_fails(self):
+        schedule = load_schedule()
+        del schedule["capture"]["per_camera"]["wrist_b"]
+        errors = validate_schedule(schedule)
+        self.assertTrue(
+            any("capture.per_camera.wrist_b" in error for error in errors)
+        )
+
+    def test_per_camera_capture_dimensions_must_be_positive_integers(self):
+        schedule = load_schedule()
+        schedule["capture"]["per_camera"]["top"]["width"] = 0
+        errors = validate_schedule(schedule)
+        self.assertTrue(any("top.width" in error for error in errors))
+
+    def test_decode_budget_uses_each_camera_capture_fps(self):
+        schedule = load_schedule()
+        schedule["capture"]["per_camera"]["wrist_a"]["fps"] = 4
+        errors = validate_schedule(schedule)
+        self.assertTrue(
+            any(
+                "DUAL_PRIVATE.wrist_a.decode_hz exceeds" in error
+                for error in errors
+            )
+        )
 
 
 if __name__ == "__main__":

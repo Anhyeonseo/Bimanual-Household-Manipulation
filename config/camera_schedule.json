@@ -5,7 +5,12 @@
     "height": 480,
     "fps": 30,
     "preferred_format": "MJPEG",
-    "queue_depth": 1
+    "queue_depth": 1,
+    "per_camera": {
+      "top": {"width": 1280, "height": 960, "fps": 30},
+      "wrist_a": {"width": 640, "height": 480, "fps": 30},
+      "wrist_b": {"width": 640, "height": 480, "fps": 30}
+    }
   },
   "vision_runtime": {
     "max_total_inference_hz": 12,
