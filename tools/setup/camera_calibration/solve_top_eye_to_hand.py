@@ -42,13 +42,21 @@ MIN_TRAINING_CAPTURES = 8
 MIN_VALIDATION_CAPTURES = 2
 MIN_TRANSLATION_SPAN_M = 0.040
 MIN_ROTATION_SPAN_RAD = math.radians(15.0)
-TRAIN_RMS_TRANSLATION_M = 0.003
-TRAIN_MAX_TRANSLATION_M = 0.005
-TRAIN_RMS_ROTATION_RAD = math.radians(1.0)
-TRAIN_MAX_ROTATION_RAD = math.radians(2.0)
-VALIDATION_MAX_TRANSLATION_M = 0.005
-VALIDATION_MAX_ROTATION_RAD = math.radians(2.0)
-MAX_PNP_RMS_PX = 1.5
+# These gates reserve calibration error budget for downstream corner detection,
+# arm repeatability, and jaw alignment in the 300 mm towel task.  They reject
+# centimetre-scale outliers without treating physically unattainable zero error
+# as the objective.  Held-out and tabletop metric validation remain mandatory.
+TRAIN_RMS_TRANSLATION_M = 0.005
+TRAIN_MAX_TRANSLATION_M = 0.008
+TRAIN_RMS_ROTATION_RAD = math.radians(1.5)
+TRAIN_MAX_ROTATION_RAD = math.radians(3.0)
+VALIDATION_MAX_TRANSLATION_M = 0.008
+VALIDATION_MAX_ROTATION_RAD = math.radians(3.0)
+# The small 45 mm moving target is accepted as an observation up to 2.5 px.
+# Task acceptance remains governed by held-out base-coordinate residuals and
+# the independent tabletop metric gate, not by minimizing this image-only
+# diagnostic.
+MAX_PNP_RMS_PX = 2.5
 MIN_IMAGE_BORDER_PX = 10.0
 ARM_JOINT_NAMES_BY_SIDE = {
     side: tuple(

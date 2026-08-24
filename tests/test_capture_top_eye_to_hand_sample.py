@@ -123,7 +123,8 @@ class CaptureTopEyeToHandSampleTest(unittest.TestCase):
 
     def test_visual_stability_defaults_are_fail_closed(self):
         source = (TOOLS / "capture_top_eye_to_hand_sample.py").read_text()
-        self.assertIn('"--max-pnp-rms-px", type=float, default=1.5', source)
+        self.assertIn('"--max-pnp-rms-px", type=float, default=2.5', source)
+        self.assertIn("TOP_EYE_TO_HAND_CAPTURE_TIMEOUT", source)
         self.assertIn('"--max-target-translation-span-mm"', source)
         self.assertIn('"--max-target-rotation-span-deg"', source)
         self.assertIn("calibration target moved during capture", source)

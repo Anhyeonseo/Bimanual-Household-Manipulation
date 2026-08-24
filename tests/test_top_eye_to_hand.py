@@ -150,7 +150,7 @@ class TopEyeToHandTest(unittest.TestCase):
     def test_pnp_reprojection_rms_at_limit_is_accepted(self):
         observations, camera, target = self.synthetic_observations()
         observations = [
-            replace(observation, pnp_rms_px=1.5)
+            replace(observation, pnp_rms_px=MODULE.MAX_PNP_RMS_PX)
             for observation in observations
         ]
         training = observations[:10]
@@ -171,7 +171,10 @@ class TopEyeToHandTest(unittest.TestCase):
 
     def test_pnp_reprojection_rms_above_limit_is_rejected(self):
         observations, camera, target = self.synthetic_observations()
-        observations[0] = replace(observations[0], pnp_rms_px=1.501)
+        observations[0] = replace(
+            observations[0],
+            pnp_rms_px=MODULE.MAX_PNP_RMS_PX + 0.001,
+        )
         training = observations[:10]
         validation = observations[10:]
 
@@ -187,6 +190,57 @@ class TopEyeToHandTest(unittest.TestCase):
             "training PnP reprojection error exceeds threshold",
             failures,
         )
+
+    def test_task_based_residual_limits_are_inclusive(self):
+        observations, camera, target = self.synthetic_observations()
+        training = observations[:10]
+        validation = observations[10:]
+        training_summary = MODULE.residual_summary(training, camera, target)
+        training_summary.update(
+            translation_rms_mm=5.0,
+            translation_max_mm=8.0,
+            rotation_rms_deg=1.5,
+            rotation_max_deg=3.0,
+        )
+        validation_summary = MODULE.residual_summary(validation, camera, target)
+        validation_summary.update(
+            translation_max_mm=8.0,
+            rotation_max_deg=3.0,
+        )
+
+        status, failures = MODULE.classify(
+            training,
+            validation,
+            training_summary,
+            validation_summary,
+        )
+
+        self.assertEqual(
+            status,
+            "EYE_TO_HAND_VALIDATED_MOTION_STILL_NOT_AUTHORIZED",
+        )
+        self.assertEqual(failures, [])
+
+    def test_centimetre_scale_training_outlier_is_rejected(self):
+        observations, camera, target = self.synthetic_observations()
+        training = observations[:10]
+        validation = observations[10:]
+        training_summary = MODULE.residual_summary(training, camera, target)
+        training_summary.update(
+            translation_rms_mm=5.6,
+            translation_max_mm=13.0,
+        )
+
+        status, failures = MODULE.classify(
+            training,
+            validation,
+            training_summary,
+            MODULE.residual_summary(validation, camera, target),
+        )
+
+        self.assertEqual(status, "REJECTED_EYE_TO_HAND_CALIBRATION")
+        self.assertIn("training translation RMS exceeds threshold", failures)
+        self.assertIn("training translation max exceeds threshold", failures)
 
 
 if __name__ == "__main__":

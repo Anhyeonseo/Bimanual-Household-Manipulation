@@ -20,6 +20,23 @@ sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
+def test_tabletop_metric_gate_reserves_downstream_grasp_error_budget():
+    assert MODULE.VALIDATION_METRIC_ERROR_MAX_MM == 8.0
+
+
+def test_towel_envelope_requires_360_mm_on_both_axes():
+    assert MODULE.calibrated_region_failures(
+        np.asarray([0.360, 0.360])
+    ) == []
+    failures = MODULE.calibrated_region_failures(
+        np.asarray([0.3599, 0.500])
+    )
+    assert failures == [
+        "calibrated region does not cover the 300 mm towel plus "
+        "30 mm margin on every side"
+    ]
+
+
 def test_minimal_rotation_maps_normal_with_proper_rotation():
     source = np.asarray([0.1, -0.2, 0.97], dtype=np.float64)
     source /= np.linalg.norm(source)

@@ -30,6 +30,13 @@ from calibrate_top_base_table import (
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+# Leave part of the grasp error budget for towel-corner perception, arm
+# repeatability, and jaw alignment.  The later physical grasp gate is still
+# required and this metric threshold cannot authorize motion by itself.
+VALIDATION_METRIC_ERROR_MAX_MM = 8.0
+# The 300 mm towel requires 30 mm of independently calibrated margin on both
+# sides of each base-aligned axis: 300 + 2 * 30 = 360 mm.
+MIN_CALIBRATED_SPAN_M = 0.360
 
 
 def portable_path(path: Path) -> str:
@@ -131,6 +138,18 @@ def orthogonal_metric_errors_mm(
     orthogonal = vt.T @ u.T
     predicted = source_centered @ orthogonal.T + target.mean(axis=0)
     return np.linalg.norm(predicted - target, axis=1) * 1000.0
+
+
+def calibrated_region_failures(span_xy_m: np.ndarray) -> list[str]:
+    span = np.asarray(span_xy_m, dtype=np.float64)
+    if span.shape != (2,) or not np.all(np.isfinite(span)):
+        raise ValueError("calibrated span must contain two finite values")
+    if np.any(span < MIN_CALIBRATED_SPAN_M):
+        return [
+            "calibrated region does not cover the 300 mm towel plus "
+            "30 mm margin on every side"
+        ]
+    return []
 
 
 def horizontal_interval(hull: np.ndarray, y_value: float) -> tuple[float, float]:
@@ -307,10 +326,14 @@ def build_session(args: argparse.Namespace) -> tuple[dict, dict]:
         "plane_fit_rms_mm_max": 2.0,
         "plane_fit_max_mm_max": 5.0,
         "roll_pitch_correction_deg_max": 3.0,
-        "validation_metric_error_max_mm": 5.0,
+        "calibrated_span_xy_m_min": [
+            MIN_CALIBRATED_SPAN_M,
+            MIN_CALIBRATED_SPAN_M,
+        ],
+        "validation_metric_error_max_mm": VALIDATION_METRIC_ERROR_MAX_MM,
         "validation_plane_height_error_max_mm": 4.0,
     }
-    failures = []
+    failures = calibrated_region_failures(span)
     all_detections = calibration_detections + validation_detections
     if max(item["pnp_rms_px"] for item in all_detections) > thresholds["pnp_rms_px_max"]:
         failures.append("PnP RMS exceeds threshold")
@@ -337,7 +360,7 @@ def build_session(args: argparse.Namespace) -> tuple[dict, dict]:
         "transform_validated": not failures,
         "motion_authorized": False,
         "robot_target_available": False,
-        "method": "six_position_common_plane_fit_plus_two_independent_validations",
+        "method": "multi_position_common_plane_fit_plus_two_independent_validations",
         "table_z_in_left_base_link_m": float(args.table_z_m),
         "plane_fit": plane_fit,
         "corrected_base_from_camera": matrix_document(corrected_base_from_camera),

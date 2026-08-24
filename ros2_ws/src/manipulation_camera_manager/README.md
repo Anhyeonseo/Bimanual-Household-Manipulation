@@ -18,11 +18,16 @@
 
 | 이름 | 장치 경로 | 디코딩 영상 topic |
 |---|---|---|
-| `top` | `/hcd.0` USB 1.1 고정 경로, 1280×960@30 후보 | `/camera/top/image_raw` |
-| `wrist_a` | USB 1.2 고정 경로 | `/camera/wrist_a/image_raw` |
-| `wrist_b` | USB 1.3 고정 경로 | `/camera/wrist_b/image_raw` |
+| `top` | `/hcd.0` USB 1.1 고정 경로, 1280×960@30 검증본 | `/camera/top/image_raw` |
+| `wrist_a` | `/hcd.0` USB 1.2 고정 경로, 640×480@30 | `/camera/wrist_a/image_raw` |
+| `wrist_b` | `/hcd.1` 직접 연결 고정 경로, 640×480@30 | `/camera/wrist_b/image_raw` |
 
 작업 단계 명령은 `/camera_phase`의 `std_msgs/msg/String`으로 받는다. 지원 phase는 다음과 같다.
+
+세 카메라를 `/hcd.0`의 같은 480 Mbps 허브에 연결하면 세 번째 UVC
+`VIDIOC_STREAMON`이 `No space left on device`로 실패한다. Top과 `wrist_a`는
+`/hcd.0` 허브에 두고 `wrist_b`는 `/hcd.1` Pi 포트에 직접 연결한다. ST-LINK는
+대역폭 사용이 작은 `/hcd.0` 허브 쪽에 연결한다.
 
 - `STANDBY`
 - `SEARCH`

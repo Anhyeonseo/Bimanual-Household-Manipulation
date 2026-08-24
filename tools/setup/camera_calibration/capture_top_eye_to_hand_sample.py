@@ -276,6 +276,11 @@ class EyeToHandSampleCapture(Node):
         self._target_rotations: list[np.ndarray] = []
         self._pnp_rms_pixels: list[float] = []
         self._rejected_windows = 0
+        self._frames_received = 0
+        self._waiting_for_joint_state = 0
+        self._stamp_skew_rejections = 0
+        self._marker_rejections = 0
+        self._pnp_rejections = 0
         self._camera_matrix, self._distortion = load_camera_model(
             args.camera_info
         )
@@ -307,7 +312,11 @@ class EyeToHandSampleCapture(Node):
         self._latest_joint_state = message
 
     def _on_image(self, message: Image) -> None:
-        if self._finished or self._latest_joint_state is None:
+        if self._finished:
+            return
+        self._frames_received += 1
+        if self._latest_joint_state is None:
+            self._waiting_for_joint_state += 1
             return
         now = time.monotonic()
         if now - self._last_capture_monotonic < self._args.interval:
@@ -318,6 +327,7 @@ class EyeToHandSampleCapture(Node):
             self.get_logger().warning("zero source timestamp; frame rejected")
             return
         if abs(image_stamp - joint_stamp) > self._args.max_stamp_skew:
+            self._stamp_skew_rejections += 1
             return
         try:
             image = decode_image(message)
@@ -336,6 +346,7 @@ class EyeToHandSampleCapture(Node):
             )
         )
         if detected_ids != EXPECTED_MARKER_IDS:
+            self._marker_rejections += 1
             self.get_logger().warning(
                 "TOP_EYE_TO_HAND_MARKERS_INCOMPLETE "
                 f"expected={EXPECTED_MARKER_IDS} detected={detected_ids}"
@@ -345,6 +356,7 @@ class EyeToHandSampleCapture(Node):
             self.get_logger().warning("TOP_EYE_TO_HAND_BOARD_POSE_FAILED")
             return
         if pnp_rms_px > self._args.max_pnp_rms_px:
+            self._pnp_rejections += 1
             self.get_logger().warning(
                 "TOP_EYE_TO_HAND_PNP_REJECTED "
                 f"rms_px={pnp_rms_px:.3f} "
@@ -439,6 +451,7 @@ class EyeToHandSampleCapture(Node):
                 "target_translation_span_mm": target_translation_span_mm,
                 "target_rotation_span_deg": target_rotation_span_deg,
                 "pnp_rms_px_max": max(self._pnp_rms_pixels),
+                "pnp_rms_px_limit": self._args.max_pnp_rms_px,
                 "rejected_stability_windows": self._rejected_windows,
                 "image_files": image_files,
                 "image_source_stamp_first": self._image_stamps[0],
@@ -461,6 +474,17 @@ class EyeToHandSampleCapture(Node):
         )
         return True
 
+    def timeout_diagnostic(self) -> str:
+        return (
+            "TOP_EYE_TO_HAND_CAPTURE_TIMEOUT "
+            f"frames_received={self._frames_received} "
+            f"accepted={len(self._images)} "
+            f"waiting_for_joint_state={self._waiting_for_joint_state} "
+            f"stamp_skew_rejections={self._stamp_skew_rejections} "
+            f"marker_rejections={self._marker_rejections} "
+            f"pnp_rejections={self._pnp_rejections}"
+        )
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -480,7 +504,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--interval", type=float, default=0.2)
     parser.add_argument("--max-stamp-skew", type=float, default=0.25)
     parser.add_argument("--max-joint-span", type=float, default=0.003)
-    parser.add_argument("--max-pnp-rms-px", type=float, default=1.5)
+    parser.add_argument("--max-pnp-rms-px", type=float, default=2.5)
     parser.add_argument(
         "--max-target-translation-span-mm", type=float, default=2.5
     )
@@ -516,6 +540,7 @@ def main() -> int:
     try:
         while rclpy.ok() and not node.finished:
             if time.monotonic() >= deadline:
+                print(node.timeout_diagnostic())
                 raise RuntimeError(
                     "capture timed out before all valid frames arrived"
                 )

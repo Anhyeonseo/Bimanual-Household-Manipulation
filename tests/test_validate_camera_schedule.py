@@ -3,10 +3,20 @@ import json
 import unittest
 from pathlib import Path
 
+import yaml
+
 from tools.run.validate_camera_schedule import validate_schedule
 
 
 SCHEDULE_PATH = Path(__file__).parents[1] / "config" / "camera_schedule.json"
+CAMERA_CONFIG_PATH = (
+    Path(__file__).parents[1]
+    / "ros2_ws"
+    / "src"
+    / "manipulation_camera_manager"
+    / "config"
+    / "cameras.yaml"
+)
 
 
 def load_schedule():
@@ -25,6 +35,31 @@ class ValidateCameraScheduleTests(unittest.TestCase):
             schedule["capture"]["per_camera"]["wrist_a"],
             {"width": 640, "height": 480, "fps": 30},
         )
+
+    def test_runtime_config_matches_pi_ports_and_capture_modes(self):
+        schedule = load_schedule()
+        document = yaml.safe_load(CAMERA_CONFIG_PATH.read_text(encoding="utf-8"))
+        parameters = document["camera_manager"]["ros__parameters"]
+
+        expected_paths = {
+            "top": "platform-xhci-hcd.0-usb-0:1.1:1.0-video-index0",
+            "wrist_a": "platform-xhci-hcd.0-usb-0:1.2:1.0-video-index0",
+            "wrist_b": "platform-xhci-hcd.1-usb-0:1:1.0-video-index0",
+        }
+        for camera, device_name in expected_paths.items():
+            self.assertEqual(
+                parameters[f"{camera}.device_path"],
+                f"/dev/v4l/by-path/{device_name}",
+            )
+            expected_capture = schedule["capture"]["per_camera"][camera]
+            for field in ("width", "height", "fps"):
+                self.assertEqual(
+                    parameters.get(
+                        f"{camera}.capture.{field}",
+                        parameters[f"capture.{field}"],
+                    ),
+                    expected_capture[field],
+                )
 
     def test_total_inference_over_budget_fails(self):
         schedule = load_schedule()

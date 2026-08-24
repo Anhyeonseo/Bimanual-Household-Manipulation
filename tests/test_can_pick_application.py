@@ -103,11 +103,11 @@ def test_required_jaw_width_grows_with_crossing_error():
 
 
 def test_calibrated_region_is_read_from_the_homography_not_hardcoded():
-    """2026-08-16 재보정에서 span이 바뀌었다. 코드가 YAML을 따라야 한다."""
+    """R0-B 재보정 span과 300 mm 수건 envelope를 런타임이 따라야 한다."""
     region = load_calibrated_region(HOMOGRAPHY)
-    # 재보정 후 실제 값. 예전 문서의 [0.18, 0.28] 이 아니다.
-    assert region.span_xy_m[0] == pytest.approx(0.290176, abs=1e-5)
-    assert region.span_xy_m[1] == pytest.approx(0.392858, abs=1e-5)
+    assert region.span_xy_m[0] == pytest.approx(0.377296, abs=1e-5)
+    assert region.span_xy_m[1] == pytest.approx(0.371513, abs=1e-5)
+    assert min(region.span_xy_m) >= 0.360
     assert region.table_z_m == pytest.approx(-0.005)
     assert len(region.source_sha256) == 64
 
