@@ -204,3 +204,42 @@ artifacts/calibration/top_eye_to_hand_20260818/candidate.yaml
 - Eye-to-hand 캡처/세션:
   `artifacts/calibration/top_eye_to_hand_20260818/`
 - 현재 승격 조건: [검증 매트릭스](../VERIFICATION_MATRIX.md)
+
+## 2026-08-25 R0-A optical FOV·clear-pose 후속 확인
+
+카메라를 움직이거나 기존 calibration을 승격하지 않고 실제 스트림과 nominal
+300×300 mm 수건의 광학 포함 가능성을 다시 확인했다.
+
+- 장치: `/dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1.1:1.0-video-index0`
+- UVC serial: `20250807114148`
+- 설치 높이: 작업대까지 수직거리 약 `445 mm` (근사 실측)
+- MJPEG 지원: 640×480, 800×600, 1280×960, 1280×720, 1920×1080 모두 30 fps
+- 1280×960 intrinsic 후보는 기존 독립 검증 PASS 상태를 그대로 유지
+
+동일 장면의 SIFT+RANSAC 정합 212 inlier에서 1280×960 전체가 1920×1080의
+대략 `x=240..1679`, `y=0..1079`에 대응했다. 따라서 640×480과 1280×960은
+같은 화각이며 1920×1080은 수직 FOV를 늘리지 않고 좌우만 약 33% 추가한다.
+정사각형 수건의 제한축을 해결하기 위해 16:9로 바꿀 근거는 없었다.
+
+실제 수건 윤곽의 네 모서리와 nominal 300 mm 평면 가정을 이용해 사방 30 mm
+envelope를 투영했다. envelope 크기는 1280×960 안에 들어갔으며 작업대상의
+배치 중심을 제한하면 전체가 보인다. 물리 360 mm marker를 별도로 설치하지
+않았고 수건 side tolerance도 미측정이므로 이 결과는
+`PASS_WITH_PLACEMENT_REGION` optical candidate다. 기존 worktable homography
+밖의 metric 정확도는 승인하지 않는다.
+
+두 번째 양팔 퇴피 후보 영상에서는 수건 본체와 네 모서리에 robot/cable
+occlusion이 없었다. resident bridge의 torque-off refresh 결과는 다음과 같다.
+
+```text
+firmware=0x00024809 state=ready motion_authorized=false
+torque_enabled=false present_mask=0xFFF
+left =[-0.929592, 0.217825, -0.513884, -0.207087, -0.064427, 0.254641]
+right=[ 0.814544, 0.181010, -0.509282, -0.401903,  0.076699, 0.151864]
+```
+
+최종 visual candidate JPEG SHA-256은
+`44687603bc429f2bf6ab496ea3df3f0fc4566bcd94f3a55bbea55102d5f0b8ca`다.
+이 자세는 수동 배치 한 번만 확인했으므로 MoveIt plan-only, collision, 실제
+명령 왕복과 재관측을 통과하기 전에는 named pose나 motion target으로 사용하지
+않는다. 모든 결과는 `motion_authorized=false`다.
