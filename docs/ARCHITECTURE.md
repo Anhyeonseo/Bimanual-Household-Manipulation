@@ -16,6 +16,23 @@ Top + wrist cameras
   → measured feedback + visual result verification
 ```
 
+실제 task의 최소 실행 단위는 연속 vision servo가 아니라 아래의 닫힌
+관측-동작 주기다.
+
+```text
+OBSERVE_CLEAR (양팔 퇴피, Top 중심 관측)
+  → PLAN_AND_VALIDATE
+  → APPROACH_AND_GRASP_VERIFY (손목 관측 + 접촉 feedback)
+  → EXECUTE_BOUNDED_PRIMITIVE
+  → LAY_DOWN_OR_SAFE_HOLD
+  → RETREAT_AND_SETTLE
+  → REOBSERVE_CLEAR
+```
+
+Top 영상에서 팔이나 gripper에 가려진 영역은 추정으로 채우지 않고 `unknown`으로
+남긴다. 잡고 있는 모서리는 visual corner가 아니라 TCP에 붙어 있다는 조건부
+`held_corner_constraint`로 표현하며 slip이 의심되면 즉시 무효화한다.
+
 ## 책임 경계
 
 | 계층 | 책임 | 금지 |
@@ -89,6 +106,10 @@ feedback, 사후 visual condition을 별도 계약으로 가진다.
 6. terminal measured feedback와 새 visual observation 전에는 성공이 아니다.
 7. fault 뒤 session이나 실패한 plan을 재사용하지 않는다.
 8. 복구는 계약에 기록된 횟수만 허용하고 한도를 넘으면 안전 정지한다.
+9. 작업대 homography는 작업대 평면상의 점에만 사용하고 들린 수건에 적용하지
+   않는다.
+10. 네 모서리·평탄도·fold 결과의 승인 관측은 양팔이 지정된 clear pose에 있고
+    수건이 settle된 뒤에만 생성한다.
 
 ## 유지하는 공통 기반
 

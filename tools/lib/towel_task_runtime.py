@@ -543,15 +543,25 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
     towel = contract.get("towel")
     if not isinstance(towel, Mapping) or towel.get("shape") != "square":
         raise TowelTaskContractError("towel shape must be square")
-    if towel.get("provenance") != "not_measured":
-        raise TowelTaskContractError("towel provenance must be not_measured")
-    physical_fields = {
-        "nominal_side_mm", "side_tolerance_mm", "thickness_mm", "mass_g",
-        "material", "measurement_artifact",
-    }
-    if any(towel.get(name) is not None for name in physical_fields):
+    if towel.get("provenance") != "user_reported_nominal_side_only":
         raise TowelTaskContractError(
-            "unmeasured towel properties must remain null"
+            "towel provenance must record the user-reported nominal side"
+        )
+    nominal_side_mm = towel.get("nominal_side_mm")
+    if (
+        isinstance(nominal_side_mm, bool)
+        or not isinstance(nominal_side_mm, (int, float))
+        or not math.isfinite(float(nominal_side_mm))
+        or not math.isclose(float(nominal_side_mm), 300.0, abs_tol=1.0e-9)
+    ):
+        raise TowelTaskContractError("nominal towel side must remain 300 mm")
+    unmeasured_physical_fields = {
+        "side_tolerance_mm", "thickness_mm", "mass_g", "material",
+        "measurement_artifact",
+    }
+    if any(towel.get(name) is not None for name in unmeasured_physical_fields):
+        raise TowelTaskContractError(
+            "unmeasured towel properties other than nominal side must remain null"
         )
     workspace = contract.get("workspace")
     if not isinstance(workspace, Mapping) or not isinstance(

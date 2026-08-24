@@ -11,10 +11,10 @@
   "outline_iou": null,
   "stale": false,
   "corners": [
-    {"point_xy_m": [0.2, 0.2], "confidence": 0.96, "visible": true, "graspable": true},
-    {"point_xy_m": [0.6, 0.2], "confidence": 0.97, "visible": true, "graspable": true},
-    {"point_xy_m": [0.6, -0.2], "confidence": 0.95, "visible": true, "graspable": true},
-    {"point_xy_m": [0.2, -0.2], "confidence": 0.96, "visible": true, "graspable": true}
+    {"point_xy_m": [0.2, 0.15], "confidence": 0.96, "visible": true, "graspable": true},
+    {"point_xy_m": [0.5, 0.15], "confidence": 0.97, "visible": true, "graspable": true},
+    {"point_xy_m": [0.5, -0.15], "confidence": 0.95, "visible": true, "graspable": true},
+    {"point_xy_m": [0.2, -0.15], "confidence": 0.96, "visible": true, "graspable": true}
   ],
   "fold_axis_costs": {"x": 1.0, "y": 1.2},
   "fold_direction_costs": {

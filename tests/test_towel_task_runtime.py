@@ -60,10 +60,11 @@ def estimate(value):
     )
 
 
-def test_candidate_contract_is_motion_locked_and_hardware_unknown():
+def test_candidate_contract_is_motion_locked_with_300_mm_nominal_towel():
     document = contract()
     assert document["motion_authorized"] is False
-    assert document["towel"]["nominal_side_mm"] is None
+    assert document["towel"]["nominal_side_mm"] == pytest.approx(300.0)
+    assert document["towel"]["provenance"] == "user_reported_nominal_side_only"
     assert all(
         value is None
         for key, value in document["hardware_limits"].items()
@@ -71,14 +72,18 @@ def test_candidate_contract_is_motion_locked_and_hardware_unknown():
     )
 
 
-def test_candidate_contract_rejects_missing_hardware_field_and_measured_towel():
+def test_candidate_contract_rejects_missing_hardware_field_and_wrong_towel_size():
     document = contract()
     del document["hardware_limits"]["maximum_tension_proxy"]
     with pytest.raises(TowelTaskContractError, match="complete candidate"):
         validate_towel_contract(document)
     document = contract()
     document["towel"]["nominal_side_mm"] = 400
-    with pytest.raises(TowelTaskContractError, match="remain null"):
+    with pytest.raises(TowelTaskContractError, match="300 mm"):
+        validate_towel_contract(document)
+    document = contract()
+    document["towel"]["mass_g"] = 50
+    with pytest.raises(TowelTaskContractError, match="other than nominal side"):
         validate_towel_contract(document)
 
 

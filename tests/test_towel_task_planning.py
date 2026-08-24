@@ -36,8 +36,8 @@ def test_aligned_observation_builds_two_orthogonal_folds():
     assert plan["selected_second_axis"] == "y"
     assert len(plan["fold_sequence"]) == 2
     first, second = plan["fold_sequence"]
-    assert polygon_area(first["expected_footprint"]) == pytest.approx(0.08)
-    assert polygon_area(second["expected_footprint"]) == pytest.approx(0.04)
+    assert polygon_area(first["expected_footprint"]) == pytest.approx(0.045)
+    assert polygon_area(second["expected_footprint"]) == pytest.approx(0.0225)
     assert len(first["geometric_arc"]) == 9
     assert first["geometric_arc"][0]["progress"] == 0.0
     assert first["geometric_arc"][-1]["progress"] == 1.0

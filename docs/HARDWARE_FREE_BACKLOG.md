@@ -1,7 +1,8 @@
 # 하드웨어 없이 진행하는 개발 백로그
 
-이 문서는 로봇, 실제 카메라 또는 수건 실측 없이 진행할 수 있는 작업과 실제
-하드웨어 증빙이 필요한 작업의 경계를 고정한다. 우선순위는 P0, P1, P2 순서다.
+이 문서는 로봇, 실제 카메라 또는 추가 수건 실측 없이 진행할 수 있는 작업과
+실제 하드웨어 증빙이 필요한 작업의 경계를 고정한다. nominal 수건 크기는
+300×300 mm이며 우선순위는 P0, P1, P2 순서다.
 
 ## 완료된 기반
 
@@ -111,8 +112,8 @@ component/frame-border 검사는 남아 있다.
 - MoveIt 없이 기하 검증 후 fake reachability backend 연결
 
 현재 두 moving corner의 synchronized semicircle, 시작·목표 일치, 중간 높이와
-corner 간격 보존 시험이 구현됐다. artifact는 reachability/collision 미검증을
-명시하며 fake backend 연결은 P2.2에 남긴다.
+corner 간격 보존 시험과 fake backend 연결이 구현됐다. artifact는 실제
+reachability/collision 미검증을 명시한다.
 
 완료 조건: waypoint가 fold 방향·footprint와 일치하고 잘못된 arc는 거부된다.
 
@@ -142,6 +143,8 @@ corner 간격 보존 시험이 구현됐다. artifact는 reachability/collision 
 
 ### P2.3 Isaac cloth experiment
 
+- 300×300 mm rigid proxy로 FOV, IK와 collision을 먼저 검증
+- surface deformable과 명시적 gripper attachment는 후속 layer로 분리
 - simulation은 planner 정답이 아니라 실패 사례 생성과 시각 검토에 사용
 - solver/material parameter provenance 저장
 - simulation 성공을 실제 motion 승인 근거로 사용하지 않음
@@ -158,7 +161,7 @@ corner 간격 보존 시험이 구현됐다. artifact는 reachability/collision 
 
 ## 하드웨어 전까지 고정하지 않는 값
 
-- 실제 수건 한 변, 두께, 질량, 재질 편차
+- 실제 300 mm 한 변의 tolerance, 두께, 질량과 재질 편차
 - jaw open/contact command와 접촉 residual
 - 최대 장력 proxy와 TCP separation
 - 양팔 속도 차이

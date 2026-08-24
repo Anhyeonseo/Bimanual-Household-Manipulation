@@ -56,7 +56,7 @@ def main() -> int:
         if name != "provenance"
     )
     print(
-        "[PASS] Towel contract is motion-locked; "
+        "[PASS] Towel contract is motion-locked for a 300 mm nominal square; "
         f"{null_hardware} hardware limits remain unmeasured."
     )
     return 0

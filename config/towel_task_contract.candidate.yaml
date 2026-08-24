@@ -6,13 +6,13 @@ scope: crumpled_square_towel_unfold_then_two_orthogonal_half_folds
 
 towel:
   shape: square
-  nominal_side_mm: null
+  nominal_side_mm: 300.0
   side_tolerance_mm: null
   thickness_mm: null
   mass_g: null
   material: null
   measurement_artifact: null
-  provenance: not_measured
+  provenance: user_reported_nominal_side_only
 
 workspace:
   frame: workcell_base_link
@@ -77,7 +77,7 @@ acceptance:
   every_run_requires_artifact: true
 
 commissioning_gates:
-  - measure and review the physical towel specification
+  - independently measure side tolerance, thickness, mass, and material
   - validate perception candidate limits on a held-out towel dataset
   - independently validate top and wrist camera calibration
   - measure every null hardware limit with supervised evidence

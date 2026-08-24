@@ -2,8 +2,9 @@
 
 ## 1. 목표
 
-작업대에 임의로 구겨져 놓인 정사각형 수건 한 장을 양팔로 완전히 펼친 뒤,
-서로 직교하는 두 중심선을 따라 접어 원래 넓이의 1/4인 정사각형으로 만든다.
+작업대에 임의로 구겨져 놓인 nominal 300×300 mm 정사각형 수건 한 장을
+양팔로 완전히 펼친 뒤, 서로 직교하는 두 중심선을 따라 접어 nominal
+150×150 mm 정사각형으로 만든다.
 
 개발 단계에서는 perception, primitive, 첫 번째 fold처럼 일부만 구현할 수
 있지만 최종 태스크 정의 자체를 단순한 평탄 수건 접기로 축소하지 않는다.
@@ -12,19 +13,33 @@
 
 ### 입력
 
-- 한 장의 정사각형 수건
-- 수건 규격과 재질은 task contract에 등록돼 있음
+- nominal 300×300 mm인 한 장의 정사각형 수건
+- side tolerance, 두께, 질량과 재질은 task contract에 등록돼 있음
 - 수건 전체가 작업대와 상단 카메라 시야 안에서 시작함
 - 초기 자세와 구김은 임의지만 매듭이나 외부 물체 얽힘은 없음
 - 작업대에는 수건 조작을 방해하는 다른 물체가 없음
 
 ### 결과
 
-- 첫 번째 중심선을 따라 반 접힌 직사각형
-- 직교하는 두 번째 중심선을 따라 다시 반 접힌 정사각형
+- 첫 번째 중심선을 따라 nominal 300×150 mm로 반 접힌 직사각형
+- 직교하는 두 번째 중심선을 따라 nominal 150×150 mm로 접힌 정사각형
 - 최종 넓이는 펼친 수건의 약 1/4
 - 목표 corner, outline, fold-line 품질 기준 통과
 - 실행의 모든 입력·판정·명령·feedback·결과가 artifact로 저장됨
+
+### 300 mm 기준 기하
+
+| 단계 | nominal footprint | 면적 | 순수 기하 기준 |
+|---|---:|---:|---|
+| 펼침 | 300×300 mm | 0.0900 m² | 네 모서리와 전체 edge 노출 |
+| 1차 접기 | 300×150 mm | 0.0450 m² | 이동 edge 파지점 간격 최대 약 300 mm |
+| 2차 접기 | 150×150 mm | 0.0225 m² | 이동 edge 파지점 간격 최대 약 150 mm |
+
+두 중심선 접기의 이상적인 corner 이동 거리는 각각 300 mm이고, 반원 arc의
+반경과 최대 높이는 150 mm다. 실제 명령은 jaw가 모서리에서 안쪽으로 들어가는
+grasp inset, 수건 처짐과 작업대 마찰을 반영하므로 이 수치를 그대로 복사하지
+않는다. 다만 양팔 동시 IK, TCP separation, 카메라 FOV와 작업대 여유를
+검증하는 최소 설계 envelope로 사용한다.
 
 ## 3. 전체 상태기계
 
@@ -47,6 +62,21 @@ OBSERVE_INITIAL
 계약을 만족하지 못하면 다음 실제 동작을 승인하지 않는다. 복구 가능 횟수가
 남아 있으면 해당 recovery state로 이동하고, 아니면 `FAILED`로 종료한다.
 
+각 화살표의 실제 실행은 다음 공통 주기를 따른다.
+
+```text
+OBSERVE_CLEAR
+  → PLAN_AND_VALIDATE
+  → APPROACH_AND_GRASP_VERIFY
+  → EXECUTE_BOUNDED_PRIMITIVE
+  → RETREAT_AND_SETTLE
+  → REOBSERVE_CLEAR
+```
+
+네 모서리, 평탄도와 fold 결과는 양팔이 지정된 clear pose로 물러난 관측에서만
+승인한다. 조작 중 영상은 slip, workspace exit와 fault 감지에는 사용할 수 있지만
+가려진 전체 cloth state를 새로 확정하는 근거로 쓰지 않는다.
+
 ## 4. Perception 계약
 
 한 프레임의 OBB만으로는 구김과 layer topology를 판단할 수 없다. 각 관측은
@@ -58,11 +88,15 @@ OBSERVE_INITIAL
 | `boundary` | 외곽 contour와 불연속·가림 후보 |
 | `height_or_wrinkle_map` | 구김 높이 또는 RGB 다중 시점 기반 대체 feature |
 | `corner_candidates` | 위치, 노출도, grasp 가능성, confidence |
+| `corner_evidence_source` | visual, held TCP constraint 또는 unknown 구분 |
+| `robot_occlusion_mask` | 팔·gripper가 가린 영역과 전체 가림 비율 |
+| `layer_ambiguity` | grasp 후보가 단일 layer인지 확인되지 않은 정도 |
 | `visible_area_ratio` | 등록된 전체 수건 면적 대비 현재 투영 면적 |
 | `edge_and_diagonal_metrics` | 네 변과 두 대각선의 길이·편차 |
 | `flatness_score` | 높이, 면적, 경계로 계산한 평탄도 |
 | `state_label` | 구김, 부분 펼침, 평탄, 1차/2차 접힘 상태 |
 | `source_stamp` | 프레임 timestamp와 calibration/bundle SHA |
+| `settled` | release·퇴피 뒤 형상 진동이 허용 범위 안인지 여부 |
 
 ### 권장 관측 방식
 
@@ -73,6 +107,15 @@ OBSERVE_INITIAL
 2. 한 지점을 잡아 올린 뒤 실루엣을 다시 보는 `lift_and_observe`
 3. gripper separation과 수건 윤곽 변화의 시간 이력
 4. 낮은 confidence에서 동작을 거부하는 fail-closed gate
+
+작업대 homography는 작업대 평면에 놓인 점에만 적용한다. `lift_and_observe`,
+fold arc와 같이 수건이 들린 상태에서는 RGB-D, 검증된 다중 시점 또는
+gripper에 붙은 조건부 TCP constraint가 없으면 3D corner를 만들지 않는다.
+
+Top 영상의 팔 가림은 검증된 camera-to-base와 URDF로 robot mask를 투영해
+분리한다. 가려진 픽셀을 cloth로 추정해 채우지 않으며, right wrist의 intrinsic,
+eye-in-hand와 optical frame가 검증되기 전에는 해당 영상을 metric motion
+목표에 사용하지 않는다.
 
 ## 5. 수건 상태 표현
 
@@ -92,6 +135,11 @@ OBSERVE_INITIAL
 `bottom_right`를 다시 부여한다.
 
 ## 6. 조작 primitive
+
+모든 primitive는 공통으로 precondition, 계획 SHA, 최대 시간·거리·속도,
+양팔 TCP separation, 접촉 또는 hold 조건, 중단 조건, terminal measured
+feedback와 새 visual postcondition을 가진다. 한 팔에서 slip, tracking fault나
+workspace 이탈이 발생하면 다른 팔도 같은 session에서 정지한다.
 
 ### `grasp_exposed_corner`
 
@@ -157,6 +205,8 @@ contract를 사용한다.
 - 두 대각선 길이 편차 8% 이하
 - 예상 전체 면적 대비 관측 면적 90% 이상
 - 높이·주름 기반 flatness threshold 통과
+- 말린 edge, 내부 겹침과 다층 corner의 ambiguity가 승인 한계 이하
+- robot occlusion을 제외한 clear observation에서 위 조건이 확인됨
 - 네 모서리 모두 양팔의 승인 workspace 안에 있음
 
 그 뒤 최소 회전 방향으로 작업대 x/y축에 맞춰 `ALIGNED` 상태를 만든다.
@@ -173,6 +223,11 @@ contract를 사용한다.
 중간 형상이 비틀렸거나 corner/fold-line 기준을 통과하지 못하면 두 번째
 fold를 실행하지 않는다.
 
+300 mm 수건의 nominal 목표는 300×150 mm다. moving edge의 두 grasp point는
+corner inset 전 기준 약 300 mm 떨어지고, 각 점은 중심선 반경 약 150 mm의
+경로를 지난다. 실제 path는 수직 lift, 장력 유지, 저속 lay-down과 동시 release
+구간으로 나누며 순수 반원은 후보 생성의 기준으로만 사용한다.
+
 ## 10. 두 번째 반 접기
 
 1차 fold 뒤에는 수건이 여러 겹이므로 새 외곽선을 다시 추정한다. 한쪽 짧은
@@ -185,6 +240,11 @@ release 뒤 필요하면 제한된 `release_and_smooth`를 실행하고 다음�
 - 목표 정사각형 대비 외곽선 IoU 0.85 이상
 - 두 접힘선 평균 위치 오차 20 mm 이하
 - 수건 일부가 목표 stack 밖으로 과도하게 돌출되지 않음
+
+nominal 목표는 150×150 mm다. 이 단계는 여러 겹을 함께 잡아야 하므로 1차
+fold의 single-layer grasp와 별도 접촉 기준을 사용한다. 첫 접힘이 끌려 펴지거나
+release 뒤 반발하는 경우에는 다음 task로 진행하지 않고 허용된 1회 placement
+correction 또는 `FAILED`로 끝낸다.
 
 ## 11. 제한 복구
 
@@ -199,7 +259,26 @@ release 뒤 필요하면 제한된 `release_and_smooth`를 실행하고 다음�
 기록한다. 같은 실패 원인이 반복되거나 fault, stale calibration, workspace
 이탈이 발생하면 남은 횟수와 관계없이 안전 정지한다.
 
-## 12. 최종 benchmark
+## 12. Isaac Sim 사용 범위
+
+현재 Isaac workcell은 표시 전용이므로 수건 mesh만 추가해서는 cloth 실험이
+성립하지 않는다. 기존 stage를 보존하고 다음 세 단계의 별도 physics layer로
+승격한다.
+
+1. `S0 rigid proxy`: 300×300 mm 평판으로 FOV, 양팔 IK, collision과 두 fold
+   envelope를 검증한다.
+2. `S1 attached cloth`: 삼각 surface-deformable mesh와 작업대 collider를 만들고,
+   파지된 vertex patch를 gripper frame에 명시적으로 attach해 경로·release
+   순서를 검증한다.
+3. `S2 contact/randomized cloth`: 질량, 두께, bend, damping과 dynamic friction을
+   실측 범위에서 바꾸며 실패 사례와 perception 데이터를 생성한다.
+
+시뮬레이션의 solver, mesh, material, attachment와 random seed는 artifact에
+기록한다. Isaac 결과는 경로·충돌·가림과 실패 사례 생성에는 사용할 수 있지만
+실제 jaw force, 정지 마찰, fling 속도나 motion authorization의 근거로 사용하지
+않는다.
+
+## 13. 최종 benchmark
 
 서로 다른 초기 구김 상태 최소 30회를 사용한다. 성공뿐 아니라 각 단계의
 조건부 성공률과 실패 원인을 함께 기록한다.
@@ -214,7 +293,7 @@ release 뒤 필요하면 제한된 `release_and_smooth`를 실행하고 다음�
 | 수건 낙하·작업대 이탈 | 0회 |
 | 무한 또는 미기록 복구 | 0회 |
 
-## 13. 구현된 소프트웨어 기반과 후속 구성
+## 14. 구현된 소프트웨어 기반과 후속 구성
 
 ```text
 config/

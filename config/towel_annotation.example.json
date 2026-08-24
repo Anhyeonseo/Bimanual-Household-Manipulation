@@ -6,12 +6,12 @@
   "state_label": "ALIGNED",
   "image_width_px": 640,
   "image_height_px": 480,
-  "segmentation_polygon_px": [[120, 40], [520, 40], [520, 440], [120, 440]],
+  "segmentation_polygon_px": [[170, 90], [470, 90], [470, 390], [170, 390]],
   "corners": [
-    {"label": "top_left", "point_px": [120, 40], "visible": true, "graspable": true, "confidence": 0.96},
-    {"label": "top_right", "point_px": [520, 40], "visible": true, "graspable": true, "confidence": 0.97},
-    {"label": "bottom_right", "point_px": [520, 440], "visible": true, "graspable": true, "confidence": 0.95},
-    {"label": "bottom_left", "point_px": [120, 440], "visible": true, "graspable": true, "confidence": 0.96}
+    {"label": "top_left", "point_px": [170, 90], "visible": true, "graspable": true, "confidence": 0.96},
+    {"label": "top_right", "point_px": [470, 90], "visible": true, "graspable": true, "confidence": 0.97},
+    {"label": "bottom_right", "point_px": [470, 390], "visible": true, "graspable": true, "confidence": 0.95},
+    {"label": "bottom_left", "point_px": [170, 390], "visible": true, "graspable": true, "confidence": 0.96}
   ],
   "fold_lines_px": [],
   "height_available": false,

@@ -34,7 +34,7 @@ def convert(**changes):
     values = {
         "pixel_to_workcell_homography": HOMOGRAPHY,
         "calibration_sha256": "c" * 64,
-        "expected_full_mask_area_px": 160000.0,
+        "expected_full_mask_area_px": 90000.0,
         "topology_confidence": 0.95,
         "fold_axis_costs": {"x": 1.0, "y": 1.1},
         "fold_direction_costs": {
