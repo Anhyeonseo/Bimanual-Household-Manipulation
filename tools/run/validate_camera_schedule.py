@@ -39,6 +39,32 @@ def validate_schedule(data: dict[str, Any]) -> list[str]:
         capture_fps = 0
     if capture.get("queue_depth") != 1:
         errors.append("capture.queue_depth must be exactly 1")
+    per_camera_capture = capture.get("per_camera")
+    camera_capture_fps: dict[str, float] = {}
+    if not isinstance(per_camera_capture, dict):
+        errors.append("capture.per_camera object is required")
+        per_camera_capture = {}
+    for camera in CAMERAS:
+        camera_capture = per_camera_capture.get(camera)
+        path = f"capture.per_camera.{camera}"
+        if not isinstance(camera_capture, dict):
+            errors.append(f"{path} must be an object")
+            camera_capture_fps[camera] = float(capture_fps)
+            continue
+        for dimension in ("width", "height"):
+            value = camera_capture.get(dimension)
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or value <= 0
+            ):
+                errors.append(f"{path}.{dimension} must be a positive integer")
+        camera_fps = camera_capture.get("fps")
+        if not _nonnegative_number(camera_fps) or camera_fps <= 0:
+            errors.append(f"{path}.fps must be positive")
+            camera_capture_fps[camera] = float(capture_fps)
+        else:
+            camera_capture_fps[camera] = float(camera_fps)
 
     runtime = data.get("vision_runtime", {})
     max_total = runtime.get("max_total_inference_hz")
@@ -88,8 +114,10 @@ def validate_schedule(data: dict[str, Any]) -> list[str]:
             if not _nonnegative_number(inference_hz):
                 errors.append(f"{path}.{camera}.inference_hz must be nonnegative")
                 continue
-            if decode_hz > capture_fps:
-                errors.append(f"{path}.{camera}.decode_hz exceeds capture.fps")
+            if decode_hz > camera_capture_fps.get(camera, float(capture_fps)):
+                errors.append(
+                    f"{path}.{camera}.decode_hz exceeds camera capture fps"
+                )
             if inference_hz > decode_hz:
                 errors.append(f"{path}.{camera}.inference_hz exceeds decode_hz")
             total_inference += inference_hz

@@ -113,9 +113,19 @@ class CameraManagerNode final : public rclcpp::Node {
       if (config.device_path.empty()) {
         throw std::invalid_argument(name + ".device_path must not be empty");
       }
-      config.width = static_cast<std::uint32_t>(width);
-      config.height = static_cast<std::uint32_t>(height);
-      config.fps = static_cast<std::uint32_t>(fps);
+      const auto camera_width = declare_parameter<std::int64_t>(
+          name + ".capture.width", width);
+      const auto camera_height = declare_parameter<std::int64_t>(
+          name + ".capture.height", height);
+      const auto camera_fps = declare_parameter<std::int64_t>(
+          name + ".capture.fps", fps);
+      if (camera_width <= 0 || camera_height <= 0 || camera_fps <= 0) {
+        throw std::invalid_argument(
+            name + ".capture width, height, and fps must be positive");
+      }
+      config.width = static_cast<std::uint32_t>(camera_width);
+      config.height = static_cast<std::uint32_t>(camera_height);
+      config.fps = static_cast<std::uint32_t>(camera_fps);
       config.buffer_count = static_cast<std::uint32_t>(buffer_count);
       config.disable_dynamic_framerate = disable_dynamic_framerate;
       config.reconnect_interval = std::chrono::milliseconds(reconnect_ms);
@@ -342,6 +352,12 @@ class CameraManagerNode final : public rclcpp::Node {
 
       status.values.push_back(Value("state", CameraStateName(stats.state)));
       status.values.push_back(Value("phase", active_phase_));
+      status.values.push_back(Value(
+          "configured_width", std::to_string(camera->Config().width)));
+      status.values.push_back(Value(
+          "configured_height", std::to_string(camera->Config().height)));
+      status.values.push_back(Value(
+          "configured_capture_fps", std::to_string(camera->Config().fps)));
       status.values.push_back(
           Value("configured_decode_hz", Decimal(rule.decode_hz)));
       status.values.push_back(

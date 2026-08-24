@@ -5,6 +5,8 @@
 ## 동작 원리
 
 - 카메라마다 독립된 V4L2 mmap capture thread를 사용한다.
+- 공통 `capture.width/height/fps`를 기본값으로 사용하되
+  `<camera>.capture.width/height/fps`로 카메라별 스트림을 덮어쓸 수 있다.
 - 카메라마다 압축된 최신 frame 한 장만 보관한다. 오래된 frame queue는 만들지 않는다.
 - USB가 분리되면 500 ms 간격으로 자동 재연결한다.
 - `camera_phase`에 따라 선택된 카메라만 지정된 `decode_hz`로 RGB 변환한다.
@@ -16,7 +18,7 @@
 
 | 이름 | 장치 경로 | 디코딩 영상 topic |
 |---|---|---|
-| `top` | USB 1.1 고정 경로 | `/camera/top/image_raw` |
+| `top` | `/hcd.0` USB 1.1 고정 경로, 1280×960@30 후보 | `/camera/top/image_raw` |
 | `wrist_a` | USB 1.2 고정 경로 | `/camera/wrist_a/image_raw` |
 | `wrist_b` | USB 1.3 고정 경로 | `/camera/wrist_b/image_raw` |
 
@@ -168,6 +170,8 @@ ros2 topic echo --once /camera_diagnostics
 카메라별 주요 값:
 
 - `phase`: 현재 작업 단계
+- `configured_width`, `configured_height`, `configured_capture_fps`: 카메라별
+  V4L2 요청 조건
 - `configured_decode_hz`: 현재 phase의 목표 디코딩 속도
 - `configured_inference_hz`: 다음 perception node에 허용할 추론 속도
 - `decoded_frames`, `decode_failures`: 현재 phase에서의 디코딩 결과
