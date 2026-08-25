@@ -129,6 +129,57 @@ class CaptureTopEyeToHandSampleTest(unittest.TestCase):
         self.assertIn('"--max-target-rotation-span-deg"', source)
         self.assertIn("calibration target moved during capture", source)
 
+    def test_resident_torque_hold_requires_an_armed_owned_ready_session(self):
+        valid = {
+            "motion_authorized": True,
+            "state": "ready",
+            "torque_hold_active": True,
+            "owner": "resident_hold_validator",
+            "arbiter_epoch": 2,
+            "fault_diagnostic": None,
+        }
+        self.assertTrue(MODULE.resident_torque_hold_is_valid(valid))
+        for key, value in (
+            ("motion_authorized", False),
+            ("state", "active"),
+            ("torque_hold_active", False),
+            ("owner", None),
+            ("arbiter_epoch", 0),
+            ("fault_diagnostic", "fault"),
+        ):
+            invalid = dict(valid)
+            invalid[key] = value
+            self.assertFalse(MODULE.resident_torque_hold_is_valid(invalid))
+
+        self.assertTrue(
+            MODULE.resident_torque_hold_matches(
+                valid,
+                required_owner="resident_hold_validator",
+                required_epoch=2,
+            )
+        )
+        self.assertFalse(
+            MODULE.resident_torque_hold_matches(
+                valid,
+                required_owner="different_owner",
+                required_epoch=2,
+            )
+        )
+        self.assertFalse(
+            MODULE.resident_torque_hold_matches(
+                valid,
+                required_owner="resident_hold_validator",
+                required_epoch=7,
+            )
+        )
+
+    def test_resident_hold_capture_is_explicitly_separate_from_read_only(self):
+        source = (TOOLS / "capture_top_eye_to_hand_sample.py").read_text()
+        self.assertIn('"--resident-torque-hold-anchor"', source)
+        self.assertIn("STATIONARY_RESIDENT_TORQUE_HOLD_CAPTURE_PASS", source)
+        self.assertIn("resident_terminal_measured_anchor", source)
+        self.assertIn("resident_torque_hold_is_valid", source)
+
     def test_capture_window_spans_exposes_one_visual_outlier(self):
         joints = [np.zeros(5) for _ in range(5)]
         translations = [np.zeros(3) for _ in range(4)] + [

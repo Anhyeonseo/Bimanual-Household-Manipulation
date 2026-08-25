@@ -23,9 +23,9 @@ workspace:
   multiple_towels_allowed: false
 
 workcell_observation_candidate:
-  status: FOV_AND_VISUAL_CLEAR_CANDIDATE
+  status: METRIC_AND_OBSERVE_CLEAR_VALIDATED
   motion_authorized: false
-  provenance: supervised_manual_pose_and_offline_image_geometry
+  provenance: supervised_metric_calibration_and_resident_roundtrip
   top_camera:
     serial: "20250807114148"
     device_path: /dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1.1:1.0-video-index0
@@ -36,14 +36,18 @@ workcell_observation_candidate:
     camera_to_table_vertical_distance_mm: 445.0
     distance_is_approximate: true
     optical_containment_result: PASS_WITH_PLACEMENT_REGION
-    metric_calibration_validated: false
+    metric_calibration_validated: true
+    metric_validation_max_xy_mm: 1.6076604178436904
+    worktable_config: ros2_ws/src/manipulation_camera_manager/config/top_worktable_homography.yaml
+    worktable_config_sha256: df8fa4b4a4c9bebcc3dce595857e9033b9ffe0777e2826c06c13767a3ed157b0
   towel_envelope:
     nominal_side_mm: 300.0
     required_perimeter_margin_mm: 30.0
     projected_envelope_fits_image: true
     physical_marker_validation_performed: false
+    actual_towel_validation_performed: true
   observe_clear:
-    status: VISUAL_CANDIDATE
+    status: SUPERVISED_ROUNDTRIP_VALIDATED
     image_sha256: 44687603bc429f2bf6ab496ea3df3f0fc4566bcd94f3a55bbea55102d5f0b8ca
     joint_names:
       - left_base_joint
@@ -75,7 +79,16 @@ workcell_observation_candidate:
     present_mask: 4095
     torque_enabled: false
     visual_towel_occlusion: false
-    motion_reproducibility_validated: false
+    all_four_towel_corners_visible: true
+    motion_reproducibility_validated: true
+    maximum_terminal_residual_rad: 0.013805
+    clear_repeatability_max_rad: 0.0
+    coordinated_stop_verified: true
+    plan_sha256: 2d7afe03a91a16a5b96ca4c14dbe3433b39bbf5085f389d194535d2780dfb0e4
+    roundtrip_artifact: artifacts/calibration/top_eye_to_hand_20260825_r0c/observe_clear_roundtrip_retry7.json
+    validation_image_sha256:
+      - 202280bf32fbc6861cf9160dbe2208d25699bff01bbd01c7b7df2a13107f56df
+      - fa5788a7e2f172f837681bff97aacbea86e2cd223f37ce1242e6962a0d2f1ff3
 
 fold_policy:
   first_axis: lowest_planning_cost_of_workcell_x_or_y

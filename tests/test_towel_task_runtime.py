@@ -80,7 +80,8 @@ def test_workcell_observation_candidate_remains_fail_closed():
     )
     assert candidate["top_camera"]["width"] == 1280
     assert candidate["top_camera"]["height"] == 960
-    assert candidate["top_camera"]["metric_calibration_validated"] is False
+    assert candidate["top_camera"]["metric_calibration_validated"] is True
+    assert candidate["top_camera"]["metric_validation_max_xy_mm"] < 2.0
     assert candidate["towel_envelope"][
         "required_perimeter_margin_mm"
     ] == pytest.approx(30.0)
@@ -89,7 +90,11 @@ def test_workcell_observation_candidate_remains_fail_closed():
     assert clear["present_mask"] == 0xFFF
     assert clear["torque_enabled"] is False
     assert clear["visual_towel_occlusion"] is False
-    assert clear["motion_reproducibility_validated"] is False
+    assert clear["motion_reproducibility_validated"] is True
+    assert clear["all_four_towel_corners_visible"] is True
+    assert clear["coordinated_stop_verified"] is True
+    assert clear["maximum_terminal_residual_rad"] < 0.015
+    assert clear["clear_repeatability_max_rad"] == pytest.approx(0.0)
 
 
 def test_candidate_contract_rejects_missing_hardware_field_and_wrong_towel_size():

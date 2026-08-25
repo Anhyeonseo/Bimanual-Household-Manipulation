@@ -2,6 +2,22 @@
 
 검증 기준은 Isaac Sim 6.0.1이다.
 
+## 현재 자산과 Isaac Lab의 경계
+
+`assets/so101_new_calib/so101_rl_asset.usd`와
+`tools/setup/isaac/isaac_*gate2*`, `isaac_scripted_grasp_test.py`는 선행 단일팔
+rigid box grasp의 수동/scripted Gate 2·3 자산이다. 파일명에 `rl` 또는
+`training`이 있어도 vectorized environment, observation/action/reward,
+termination, trainer, checkpoint와 held-out evaluation이 없으므로 Isaac Lab
+강화학습 구현으로 간주하지 않는다. 과거 rigid grasp 회귀·참고용으로 보존하며
+300 mm 수건 학습의 성공 증거로 재사용하지 않는다.
+
+수건용 Isaac Lab은 [수건 로드맵](../docs/ROADMAP.md)의 R2에 따라 별도 S0~S3
+순서로 구축한다. 첫 학습 대상은 저수준 joint control이 아니라 임의 구김에서
+승인된 양팔 primitive와 grasp/placement 파라미터를 선택하는 정책이다. S1의
+scripted attachment/release가 실제 관측 metric과 맞지 않으면 S2/S3 학습을
+진행하지 않는다.
+
 ## SO-101 왼팔 stage
 
 ```text

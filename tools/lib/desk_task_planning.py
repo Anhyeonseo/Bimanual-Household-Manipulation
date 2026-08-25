@@ -54,6 +54,11 @@ OPERATIONAL_LIMITS = ROOT / "config/bimanual_operational_limits.json"
 ARM_JOINT_SHORT_NAMES = (
     "base", "shoulder", "elbow", "wrist_flex", "wrist_roll",
 )
+BOTH_ARM_JOINTS = tuple(
+    name
+    for side in ("left", "right")
+    for name in ARM_JOINTS_BY_SIDE[side][:5]
+)
 
 
 def dual_urdf_path() -> Path:
@@ -249,6 +254,53 @@ def joint_request(side, start, target):
     motion.allowed_planning_time = 5.0
     motion.max_velocity_scaling_factor = 0.15
     motion.max_acceleration_scaling_factor = 0.15
+    return request
+
+
+def both_arms_joint_request(start_positions, target_positions):
+    """Build one non-executing collision plan to an exact dual-arm pose."""
+    if len(start_positions) != len(CANONICAL_JOINTS):
+        raise ValueError("dual-arm start must contain all 12 canonical joints")
+    if len(target_positions) != len(CANONICAL_JOINTS):
+        raise ValueError("dual-arm target must contain all 12 canonical joints")
+    if not all(math.isfinite(float(value)) for value in start_positions):
+        raise ValueError("dual-arm start contains a non-finite value")
+    if not all(math.isfinite(float(value)) for value in target_positions):
+        raise ValueError("dual-arm target contains a non-finite value")
+
+    request = GetMotionPlan.Request()
+    motion = request.motion_plan_request
+    motion.workspace_parameters.header.frame_id = WORKCELL_FRAME
+    motion.workspace_parameters.min_corner.x = -0.60
+    motion.workspace_parameters.min_corner.y = -0.60
+    motion.workspace_parameters.min_corner.z = -0.10
+    motion.workspace_parameters.max_corner.x = 0.60
+    motion.workspace_parameters.max_corner.y = 0.60
+    motion.workspace_parameters.max_corner.z = 0.60
+    state = JointState()
+    state.name = list(CANONICAL_JOINTS)
+    state.position = [float(value) for value in start_positions]
+    motion.start_state.joint_state = state
+    motion.start_state.is_diff = False
+    target_by_name = dict(zip(CANONICAL_JOINTS, target_positions, strict=True))
+    goal = Constraints()
+    goal.name = "observe_clear_both_arms"
+    for name in BOTH_ARM_JOINTS:
+        joint = JointConstraint()
+        joint.joint_name = name
+        joint.position = float(target_by_name[name])
+        joint.tolerance_above = JOINT_GOAL_TOLERANCE_RAD
+        joint.tolerance_below = JOINT_GOAL_TOLERANCE_RAD
+        joint.weight = 1.0
+        goal.joint_constraints.append(joint)
+    motion.goal_constraints = [goal]
+    motion.pipeline_id = "ompl"
+    motion.planner_id = "RRTConnectkConfigDefault"
+    motion.group_name = "both_arms"
+    motion.num_planning_attempts = 5
+    motion.allowed_planning_time = 8.0
+    motion.max_velocity_scaling_factor = 0.10
+    motion.max_acceleration_scaling_factor = 0.10
     return request
 
 

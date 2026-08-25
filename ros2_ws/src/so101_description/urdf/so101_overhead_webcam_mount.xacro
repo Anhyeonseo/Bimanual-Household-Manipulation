@@ -31,9 +31,11 @@
         <material name="3d_printed"/>
       </visual>
       <collision>
-        <origin xyz="0.0211353034 0 -0.0014" rpy="0 0 0"/>
+        <origin xyz="0.0702562210 -0.0534304657 0" rpy="${half_pi} 0 0"/>
         <geometry>
-          <box size="0.08959999 0.15903915 0.0072"/>
+          <mesh
+            filename="package://so101_description/meshes/overhead_webcam_arm_base.stl"
+            scale="0.001 0.001 0.001"/>
         </geometry>
       </collision>
     </link>
@@ -66,9 +68,11 @@
         <material name="3d_printed"/>
       </visual>
       <collision>
-        <origin xyz="0.0187 0.115475 0.0365125" rpy="0 0 0"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <box size="0.0374 0.23095 0.093025"/>
+          <mesh
+            filename="package://so101_description/meshes/overhead_webcam_cam_mount_bottom.stl"
+            scale="0.001 0.001 0.001"/>
         </geometry>
       </collision>
     </link>
@@ -94,9 +98,11 @@
         <material name="3d_printed"/>
       </visual>
       <collision>
-        <origin xyz="0 0.1172202 0" rpy="0 0 0"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <box size="0.0254 0.2344404 0.036625"/>
+          <mesh
+            filename="package://so101_description/meshes/overhead_webcam_cam_mount_top_hinge_removed.stl"
+            scale="0.001 0.001 0.001"/>
         </geometry>
       </collision>
     </link>

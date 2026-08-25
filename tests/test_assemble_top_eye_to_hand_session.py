@@ -34,6 +34,7 @@ class AssembleTopEyeToHandSessionTest(unittest.TestCase):
         marker_ids=(0, 1, 2, 3),
         motion_authorized=False,
         arm="left",
+        resident_hold=False,
     ) -> Path:
         directory = self.root / "captures" / capture_id
         directory.mkdir(parents=True)
@@ -44,7 +45,11 @@ class AssembleTopEyeToHandSessionTest(unittest.TestCase):
             image_files.append(image.name)
         document = {
             "schema_version": 1,
-            "status": "STATIONARY_READ_ONLY_CAPTURE_PASS",
+            "status": (
+                "STATIONARY_RESIDENT_TORQUE_HOLD_CAPTURE_PASS"
+                if resident_hold
+                else "STATIONARY_READ_ONLY_CAPTURE_PASS"
+            ),
             "motion_authorized": motion_authorized,
             "robot_target_available": False,
             "capture": {
@@ -58,6 +63,19 @@ class AssembleTopEyeToHandSessionTest(unittest.TestCase):
                 "detected_marker_ids": list(marker_ids),
             },
         }
+        if resident_hold:
+            document["capture"]["joint_state_source"] = (
+                "resident_terminal_measured_anchor"
+            )
+            document["resident_torque_hold"] = {
+                "status_service": "/bimanual_stream_adapter/status",
+                "owner": "resident_right_calibration_operator",
+                "arbiter_epoch": 12,
+                "torque_hold_active": True,
+                "terminal_anchor_stamp": 123.5,
+                "required_owner": "resident_right_calibration_operator",
+                "required_epoch": 12,
+            }
         (directory / "capture.yaml").write_text(
             yaml.safe_dump(document, sort_keys=False),
             encoding="utf-8",
@@ -123,6 +141,91 @@ class AssembleTopEyeToHandSessionTest(unittest.TestCase):
                 training,
                 validation,
                 self.output,
+            )
+
+    def test_resident_torque_hold_mode_accepts_six_training_captures(self):
+        training = [
+            self.make_capture(
+                f"right_torque_train_{index:02d}",
+                arm="right",
+                motion_authorized=True,
+                resident_hold=True,
+            )
+            for index in range(1, 7)
+        ]
+        validation = [
+            self.make_capture(
+                f"right_torque_validation_{index:02d}",
+                arm="right",
+                motion_authorized=True,
+                resident_hold=True,
+            )
+            for index in range(1, 3)
+        ]
+
+        document = MODULE.assemble_document(
+            "right_resident_session",
+            training,
+            validation,
+            self.output,
+            "right",
+            MODULE.RESIDENT_TORQUE_HOLD_CAPTURE_MODE,
+        )
+
+        self.assertFalse(document["motion_authorized"])
+        self.assertTrue(document["source_motion_authorized"])
+        self.assertEqual(
+            document["capture_mode"],
+            MODULE.RESIDENT_TORQUE_HOLD_CAPTURE_MODE,
+        )
+        capture = document["training_captures"][0]
+        self.assertTrue(capture["source_motion_authorized"])
+        self.assertEqual(capture["resident_torque_hold"]["arbiter_epoch"], 12)
+
+    def test_resident_mode_rejects_inconsistent_hold_evidence(self):
+        training = [
+            self.make_capture(
+                f"right_torque_train_{index:02d}",
+                arm="right",
+                motion_authorized=True,
+                resident_hold=True,
+            )
+            for index in range(1, 7)
+        ]
+        validation = [
+            self.make_capture(
+                f"right_torque_validation_{index:02d}",
+                arm="right",
+                motion_authorized=True,
+                resident_hold=True,
+            )
+            for index in range(1, 3)
+        ]
+        bad = training[0] / "capture.yaml"
+        document = yaml.safe_load(bad.read_text())
+        document["resident_torque_hold"]["required_epoch"] = 13
+        bad.write_text(yaml.safe_dump(document, sort_keys=False))
+
+        with self.assertRaisesRegex(ValueError, "evidence is inconsistent"):
+            MODULE.assemble_document(
+                "right_resident_session",
+                training,
+                validation,
+                self.output,
+                "right",
+                MODULE.RESIDENT_TORQUE_HOLD_CAPTURE_MODE,
+            )
+
+    def test_resident_mode_is_restricted_to_right_registration(self):
+        training, validation = self.valid_inputs()
+        with self.assertRaisesRegex(ValueError, "restricted"):
+            MODULE.assemble_document(
+                "left_resident_session",
+                training,
+                validation,
+                self.output,
+                "left",
+                MODULE.RESIDENT_TORQUE_HOLD_CAPTURE_MODE,
             )
 
     def test_rejects_duplicate_capture_ids(self):

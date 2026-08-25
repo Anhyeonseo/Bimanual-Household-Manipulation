@@ -24,6 +24,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import yaml
+from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
 
@@ -39,6 +40,7 @@ from solve_top_base_visual_registration import (  # noqa: E402
 
 
 MIN_TRAINING_CAPTURES = 8
+MIN_RESIDENT_TORQUE_HOLD_TRAINING_CAPTURES = 6
 MIN_VALIDATION_CAPTURES = 2
 MIN_TRANSLATION_SPAN_M = 0.040
 MIN_ROTATION_SPAN_RAD = math.radians(15.0)
@@ -71,6 +73,24 @@ ARM_JOINT_NAMES_BY_SIDE = {
     )
     for side in ("left", "right")
 }
+
+# The first and last revolute-joint offsets are gauge-equivalent to the
+# right-base yaw and the unknown gripper-to-target yaw respectively.  Fit only
+# the three internal offsets that are identifiable from this target session.
+RIGHT_IDENTIFIABLE_ZERO_INDICES = (1, 2, 3)
+RIGHT_ZERO_BOUND_RAD = math.radians(20.0)
+RIGHT_ZERO_PRIOR_RAD = math.radians(10.0)
+RIGHT_MOUNT_TRANSLATION_PRIOR_M = 0.010
+RIGHT_MOUNT_ROTATION_PRIOR_RAD = math.radians(5.0)
+RIGHT_REGISTRATION_TRANSLATION_SCALE_M = 0.005
+RIGHT_REGISTRATION_ROTATION_SCALE_RAD = math.radians(1.5)
+RIGHT_MOUNT_PRIOR_XYZ_M = np.asarray(
+    [0.0, -0.232064146, 0.0],
+    dtype=np.float64,
+)
+READ_ONLY_CAPTURE_MODE = "stationary_read_only"
+RESIDENT_TORQUE_HOLD_CAPTURE_MODE = "stationary_resident_torque_hold"
+RESIDENT_STATUS_SERVICE = "/bimanual_stream_adapter/status"
 
 
 @dataclass(frozen=True)
@@ -143,6 +163,65 @@ def parse_target(document: dict) -> TargetSpecification:
             f"unknown ArUco dictionary: {specification.dictionary_name}"
         )
     return specification
+
+
+def session_capture_mode(session: dict) -> str:
+    mode = str(session.get("capture_mode", READ_ONLY_CAPTURE_MODE))
+    captures = list(session.get("training_captures", [])) + list(
+        session.get("validation_captures", [])
+    )
+    if mode == READ_ONLY_CAPTURE_MODE:
+        if bool(session.get("source_motion_authorized", False)):
+            raise RuntimeError(
+                "read-only session unexpectedly records authorized motion"
+            )
+        for capture in captures:
+            source_mode = capture.get(
+                "source_capture_mode",
+                READ_ONLY_CAPTURE_MODE,
+            )
+            if source_mode != READ_ONLY_CAPTURE_MODE or bool(
+                capture.get("source_motion_authorized", False)
+            ):
+                raise RuntimeError(
+                    "read-only session contains a non-read-only capture"
+                )
+        return mode
+    if mode != RESIDENT_TORQUE_HOLD_CAPTURE_MODE:
+        raise ValueError(f"unsupported capture mode: {mode}")
+    if session.get("source_motion_authorized") is not True:
+        raise RuntimeError(
+            "resident torque-hold session lacks source-motion provenance"
+        )
+    for capture in captures:
+        hold = capture.get("resident_torque_hold")
+        if not isinstance(hold, dict):
+            raise RuntimeError("resident capture lacks torque-hold evidence")
+        owner = str(hold.get("owner", "")).strip()
+        epoch = int(hold.get("arbiter_epoch", 0))
+        if (
+            capture.get("source_capture_mode") != mode
+            or capture.get("source_motion_authorized") is not True
+            or hold.get("status_service") != RESIDENT_STATUS_SERVICE
+            or hold.get("torque_hold_active") is not True
+            or not owner
+            or str(hold.get("required_owner", "")).strip() != owner
+            or epoch <= 0
+            or int(hold.get("required_epoch", 0)) != epoch
+            or float(hold.get("terminal_anchor_stamp", 0.0)) <= 0.0
+        ):
+            raise RuntimeError(
+                "resident capture has inconsistent torque-hold evidence"
+            )
+    return mode
+
+
+def minimum_training_captures_for_mode(capture_mode: str) -> int:
+    if capture_mode == READ_ONLY_CAPTURE_MODE:
+        return MIN_TRAINING_CAPTURES
+    if capture_mode == RESIDENT_TORQUE_HOLD_CAPTURE_MODE:
+        return MIN_RESIDENT_TORQUE_HOLD_TRAINING_CAPTURES
+    raise ValueError(f"unsupported capture mode: {capture_mode}")
 
 
 def make_board(
@@ -454,17 +533,188 @@ def residual_summary(
     }
 
 
+def observations_with_joint_zero_offsets(
+    captures: list[dict],
+    camera_observations: list[PoseObservation],
+    urdf_xml: str,
+    robot_frame: str,
+    gripper_frame: str,
+    joint_names: tuple[str, ...],
+    joint_zero_offsets_rad: np.ndarray,
+) -> list[PoseObservation]:
+    offsets = np.asarray(joint_zero_offsets_rad, dtype=np.float64)
+    if offsets.shape != (len(joint_names),) or not np.all(
+        np.isfinite(offsets)
+    ):
+        raise ValueError("joint zero offsets have invalid dimensions")
+    if len(captures) != len(camera_observations):
+        raise ValueError("captures and camera observations must be paired")
+
+    adjusted = []
+    for capture, observation in zip(
+        captures,
+        camera_observations,
+        strict=True,
+    ):
+        measured = np.asarray(
+            capture["measured_arm_rad"],
+            dtype=np.float64,
+        )
+        positions = measured + offsets
+        base_to_gripper = urdf_fk(
+            urdf_xml,
+            robot_frame,
+            gripper_frame,
+            dict(zip(joint_names, positions, strict=True)),
+        )
+        adjusted.append(
+            PoseObservation(
+                capture_id=observation.capture_id,
+                base_to_gripper=base_to_gripper,
+                camera_to_target=observation.camera_to_target,
+                pnp_rms_px=observation.pnp_rms_px,
+                image_border_px=observation.image_border_px,
+                detected_marker_ids=observation.detected_marker_ids,
+            )
+        )
+    return adjusted
+
+
+def unpack_right_registration(
+    values: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    values = np.asarray(values, dtype=np.float64)
+    expected = 12 + len(RIGHT_IDENTIFIABLE_ZERO_INDICES)
+    if values.shape != (expected,):
+        raise ValueError("right registration vector has invalid dimensions")
+    workcell_to_right_base = make_transform(
+        Rotation.from_rotvec(values[0:3]).as_matrix(),
+        values[3:6],
+    )
+    gripper_to_target = make_transform(
+        Rotation.from_rotvec(values[6:9]).as_matrix(),
+        values[9:12],
+    )
+    offsets = np.zeros(len(ARM_JOINT_NAMES_BY_SIDE["right"]))
+    offsets[list(RIGHT_IDENTIFIABLE_ZERO_INDICES)] = values[12:]
+    return workcell_to_right_base, gripper_to_target, offsets
+
+
+def fit_right_joint_zero_registration(
+    training_captures: list[dict],
+    training_camera_observations: list[PoseObservation],
+    urdf_xml: str,
+    robot_frame: str,
+    gripper_frame: str,
+    workcell_to_camera: np.ndarray,
+    workcell_to_right_base_prior: np.ndarray,
+    minimum_training_captures: int = MIN_TRAINING_CAPTURES,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, object]:
+    if len(training_captures) < minimum_training_captures:
+        raise ValueError("right registration requires the training gate")
+    joint_names = ARM_JOINT_NAMES_BY_SIDE["right"]
+    nominal_right_to_camera, nominal_gripper_to_target = solve_eye_to_hand(
+        training_camera_observations
+    )
+    initial_mount = workcell_to_camera @ invert_transform(
+        nominal_right_to_camera
+    )
+    initial = np.concatenate(
+        (
+            Rotation.from_matrix(initial_mount[:3, :3]).as_rotvec(),
+            initial_mount[:3, 3],
+            Rotation.from_matrix(
+                nominal_gripper_to_target[:3, :3]
+            ).as_rotvec(),
+            nominal_gripper_to_target[:3, 3],
+            np.zeros(len(RIGHT_IDENTIFIABLE_ZERO_INDICES)),
+        )
+    )
+
+    lower = np.full(initial.shape, -np.inf)
+    upper = np.full(initial.shape, np.inf)
+    lower[12:] = -RIGHT_ZERO_BOUND_RAD
+    upper[12:] = RIGHT_ZERO_BOUND_RAD
+
+    def residual(values: np.ndarray) -> np.ndarray:
+        mount, gripper_to_target, offsets = unpack_right_registration(
+            values
+        )
+        adjusted = observations_with_joint_zero_offsets(
+            training_captures,
+            training_camera_observations,
+            urdf_xml,
+            robot_frame,
+            gripper_frame,
+            joint_names,
+            offsets,
+        )
+        values_out: list[float] = []
+        for observation in adjusted:
+            predicted = mount @ observation.base_to_gripper @ gripper_to_target
+            measured = workcell_to_camera @ observation.camera_to_target
+            error = invert_transform(predicted) @ measured
+            values_out.extend(
+                (
+                    error[:3, 3]
+                    / RIGHT_REGISTRATION_TRANSLATION_SCALE_M
+                ).tolist()
+            )
+            values_out.extend(
+                (
+                    Rotation.from_matrix(error[:3, :3]).as_rotvec()
+                    / RIGHT_REGISTRATION_ROTATION_SCALE_RAD
+                ).tolist()
+            )
+
+        mount_error = invert_transform(workcell_to_right_base_prior) @ mount
+        values_out.extend(
+            (
+                mount_error[:3, 3]
+                / RIGHT_MOUNT_TRANSLATION_PRIOR_M
+            ).tolist()
+        )
+        values_out.extend(
+            (
+                Rotation.from_matrix(mount_error[:3, :3]).as_rotvec()
+                / RIGHT_MOUNT_ROTATION_PRIOR_RAD
+            ).tolist()
+        )
+        values_out.extend(
+            (
+                offsets[list(RIGHT_IDENTIFIABLE_ZERO_INDICES)]
+                / RIGHT_ZERO_PRIOR_RAD
+            ).tolist()
+        )
+        return np.asarray(values_out, dtype=np.float64)
+
+    fit = least_squares(
+        residual,
+        initial,
+        bounds=(lower, upper),
+        loss="soft_l1",
+        f_scale=1.0,
+        max_nfev=1000,
+        xtol=1e-12,
+        ftol=1e-12,
+        gtol=1e-12,
+    )
+    mount, gripper_to_target, offsets = unpack_right_registration(fit.x)
+    return mount, gripper_to_target, offsets, fit
+
+
 def classify(
     training: list[PoseObservation],
     validation: list[PoseObservation],
     training_summary: dict,
     validation_summary: dict | None,
+    minimum_training_captures: int = MIN_TRAINING_CAPTURES,
 ) -> tuple[str, list[str]]:
     failures: list[str] = []
-    if len(training) < MIN_TRAINING_CAPTURES:
+    if len(training) < minimum_training_captures:
         failures.append(
             f"training capture count {len(training)} < "
-            f"{MIN_TRAINING_CAPTURES}"
+            f"{minimum_training_captures}"
         )
     if len(training) >= 2:
         if maximum_pair_translation(training) < MIN_TRANSLATION_SPAN_M:
@@ -524,13 +774,26 @@ def solve_document(
     session_path: Path,
     camera_info: dict,
     urdf_xml: str,
+    workcell_reference: dict | None = None,
+    workcell_to_right_base_prior: np.ndarray | None = None,
 ) -> dict:
     if bool(session.get("motion_authorized", False)):
         raise RuntimeError("input session must remain motion_authorized=false")
+    capture_mode = session_capture_mode(session)
     frames = session["frames"]
     arm = str(session.get("arm", "left"))
     if arm not in ARM_JOINT_NAMES_BY_SIDE:
         raise ValueError(f"unsupported session arm: {arm}")
+    if capture_mode == RESIDENT_TORQUE_HOLD_CAPTURE_MODE and (
+        arm != "right" or workcell_reference is None
+    ):
+        raise ValueError(
+            "resident torque-hold sessions require the workcell-anchored "
+            "right-arm registration path"
+        )
+    minimum_training_captures = minimum_training_captures_for_mode(
+        capture_mode
+    )
     expected_frames = (f"{arm}_base_link", f"{arm}_gripper_frame_link")
     if (str(frames["robot"]), str(frames["gripper"])) != expected_frames:
         raise ValueError(
@@ -563,9 +826,121 @@ def solve_document(
             for capture in session.get(key, [])
         ]
 
+    training_captures = list(session.get("training_captures", []))
+    validation_captures = list(session.get("validation_captures", []))
     training = observations("training_captures")
     validation = observations("validation_captures")
-    base_to_camera, gripper_to_target = solve_eye_to_hand(training)
+    registration: dict | None = None
+    method = "tcp_gridboard_robot_world_hand_eye"
+
+    if workcell_reference is not None:
+        if arm != "right":
+            raise ValueError(
+                "a workcell reference is only valid for a right-arm session"
+            )
+        if workcell_reference.get("arm") != "left":
+            raise ValueError("workcell reference must be left-arm eye-to-hand")
+        if workcell_reference.get("status") != (
+            "EYE_TO_HAND_VALIDATED_MOTION_STILL_NOT_AUTHORIZED"
+        ):
+            raise RuntimeError("workcell reference is not independently validated")
+        if bool(workcell_reference.get("motion_authorized", False)):
+            raise RuntimeError("workcell reference unexpectedly authorizes motion")
+        workcell_to_camera = yaml_matrix(
+            workcell_reference,
+            "base_to_camera",
+            4,
+            4,
+        )
+        if workcell_to_right_base_prior is None:
+            workcell_to_right_base_prior = make_transform(
+                np.eye(3),
+                RIGHT_MOUNT_PRIOR_XYZ_M,
+            )
+        (
+            workcell_to_right_base,
+            gripper_to_target,
+            joint_zero_offsets,
+            fit,
+        ) = fit_right_joint_zero_registration(
+            training_captures,
+            training,
+            urdf_xml,
+            str(frames["robot"]),
+            str(frames["gripper"]),
+            workcell_to_camera,
+            workcell_to_right_base_prior,
+            minimum_training_captures,
+        )
+        training = observations_with_joint_zero_offsets(
+            training_captures,
+            training,
+            urdf_xml,
+            str(frames["robot"]),
+            str(frames["gripper"]),
+            joint_names,
+            joint_zero_offsets,
+        )
+        validation = observations_with_joint_zero_offsets(
+            validation_captures,
+            validation,
+            urdf_xml,
+            str(frames["robot"]),
+            str(frames["gripper"]),
+            joint_names,
+            joint_zero_offsets,
+        )
+        base_to_camera = invert_transform(workcell_to_right_base) @ (
+            workcell_to_camera
+        )
+        method = "workcell_anchored_right_joint_zero_bundle_adjustment"
+        registration = {
+            "workcell_frame": str(workcell_reference["frames"]["robot"]),
+            "workcell_to_right_base": matrix_document(
+                workcell_to_right_base
+            ),
+            "workcell_to_right_base_prior": matrix_document(
+                workcell_to_right_base_prior
+            ),
+            "joint_zero_offsets_rad": {
+                name: float(value)
+                for name, value in zip(
+                    joint_names,
+                    joint_zero_offsets,
+                    strict=True,
+                )
+            },
+            "identifiable_joint_names": [
+                joint_names[index]
+                for index in RIGHT_IDENTIFIABLE_ZERO_INDICES
+            ],
+            "gauge_fixed_joint_names": [
+                joint_names[0],
+                joint_names[-1],
+            ],
+            "training_only_fit": True,
+            "validation_used_in_fit": False,
+            "optimizer": {
+                "success": bool(fit.success),
+                "message": str(fit.message),
+                "nfev": int(fit.nfev),
+                "cost": float(fit.cost),
+            },
+            "priors": {
+                "joint_zero_deg": math.degrees(RIGHT_ZERO_PRIOR_RAD),
+                "joint_zero_bound_deg": math.degrees(
+                    RIGHT_ZERO_BOUND_RAD
+                ),
+                "mount_translation_mm": (
+                    RIGHT_MOUNT_TRANSLATION_PRIOR_M * 1000.0
+                ),
+                "mount_rotation_deg": math.degrees(
+                    RIGHT_MOUNT_ROTATION_PRIOR_RAD
+                ),
+            },
+        }
+    else:
+        base_to_camera, gripper_to_target = solve_eye_to_hand(training)
     training_summary = residual_summary(
         training,
         base_to_camera,
@@ -581,14 +956,19 @@ def solve_document(
         validation,
         training_summary,
         validation_summary,
+        minimum_training_captures,
     )
-    return {
+    result = {
         "schema_version": 1,
         "status": status,
         "motion_authorized": False,
         "robot_target_available": False,
         "arm": arm,
-        "method": "tcp_gridboard_robot_world_hand_eye",
+        "capture_mode": capture_mode,
+        "source_motion_authorized": bool(
+            session.get("source_motion_authorized", False)
+        ),
+        "method": method,
         "frames": dict(frames),
         "target": {
             "dictionary": specification.dictionary_name,
@@ -615,7 +995,7 @@ def solve_document(
         "training_fit": training_summary,
         "validation_fit": validation_summary,
         "acceptance_thresholds": {
-            "training_capture_count_min": MIN_TRAINING_CAPTURES,
+            "training_capture_count_min": minimum_training_captures,
             "validation_capture_count_min": MIN_VALIDATION_CAPTURES,
             "training_translation_span_mm_min": (
                 MIN_TRANSLATION_SPAN_M * 1000.0
@@ -651,6 +1031,9 @@ def solve_document(
             "never use this file alone as motion authorization"
         ),
     }
+    if registration is not None:
+        result["right_kinematic_registration"] = registration
+    return result
 
 
 def parse_args() -> argparse.Namespace:
@@ -676,6 +1059,28 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("output/top_eye_to_hand_candidate.yaml"),
     )
+    parser.add_argument(
+        "--workcell-reference",
+        type=Path,
+        help=(
+            "independently validated left-arm eye-to-hand result; enables "
+            "training-only constrained right-arm joint-zero registration"
+        ),
+    )
+    parser.add_argument(
+        "--right-mount-prior-xyz-m",
+        nargs=3,
+        type=float,
+        default=RIGHT_MOUNT_PRIOR_XYZ_M.tolist(),
+        metavar=("X", "Y", "Z"),
+    )
+    parser.add_argument(
+        "--right-mount-prior-rpy-rad",
+        nargs=3,
+        type=float,
+        default=[0.0, 0.0, 0.0],
+        metavar=("R", "P", "Y"),
+    )
     return parser.parse_args()
 
 
@@ -696,6 +1101,18 @@ def main() -> int:
         args.session,
         load_yaml(args.camera_info),
         urdf_xml,
+        (
+            load_yaml(args.workcell_reference)
+            if args.workcell_reference is not None
+            else None
+        ),
+        make_transform(
+            Rotation.from_euler(
+                "xyz",
+                args.right_mount_prior_rpy_rad,
+            ).as_matrix(),
+            np.asarray(args.right_mount_prior_xyz_m, dtype=np.float64),
+        ),
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

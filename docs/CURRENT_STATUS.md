@@ -35,9 +35,9 @@
 | segmentation | reviewed polygon→metric observation backend | 실제 mask, component, border 검사 |
 | corner/topology | 순수 기하와 confidence gate | 가림·말림·다층 ambiguity 검증 |
 | temporal state | 3-frame 동일 상태 gate | timestamp, spread, settle, hysteresis |
-| observation lifecycle | Top visual clear 후보·관절값 기록 | plan-only 왕복 재현, camera phase와 runtime 구현 |
+| observation lifecycle | Top metric 영역·실기 clear 왕복과 무가림 재관측 PASS | camera phase와 runtime 상태기계 구현 |
 | fold plan-only | 300 mm 직교 기하·arc와 fake selector | 실제 MoveIt IK/collision adapter |
-| Isaac | 표시 전용 workcell | S0 rigid proxy부터 물리 layer 구축 |
+| Isaac/학습 | 표시 전용 workcell과 legacy 단일팔 rigid scripted grasp; Isaac Lab towel env·policy는 없음 | S0/S1 physics와 vectorized smoke test, heuristic baseline부터 구축 |
 | 조작 primitive | 미구현 | 개별 plan-only→supervised 제한 반복 |
 | 펼쳐진 수건 2회 접기 | 미구현 | R4 standalone fold gate 통과 |
 | 펼치기·평탄화 | 미구현 | R5/R6 단계 성공 기준 통과 |
@@ -52,10 +52,14 @@ Top 카메라 R0-A 실기 확인에서 장치
 1280×960 안에 배치 가능했다. 이는 optical containment 후보 PASS이지 기존
 homography 바깥의 metric 정확도를 승인한 결과는 아니다.
 
-수동으로 배치한 `OBSERVE_CLEAR` 후보는 Top 영상에서 수건과 양팔 가림이 없었고,
-resident firmware `0x00024809`의 torque-off refresh에서 12축 present mask
-`0xFFF`를 확인했다. 관절값은 task contract에 기록했지만 아직 MoveIt plan과
-실제 명령 왕복으로 재현하지 않았으므로 visual candidate일 뿐이다.
+수동으로 배치했던 `OBSERVE_CLEAR` 후보는 R0-C에서 실제 왕복으로 승격했다.
+검증된 worktable collision과 오른팔 등록 URDF를 사용한 7구간 MoveIt plan-only
+경로를 0.01 rad 간격 469개 상태로 재검사했고, 비승인 접촉 0건과 허용된 메시
+접촉 최대 `2.451 mm`(제한 `4 mm`)를 확인했다. resident firmware
+`0x00024809`에서 `현재→clear→현재→clear`를 실행한 세 leg의 terminal 오차는
+최대 `0.013805 rad`, 두 clear 도착 간 관절 반복 오차는 `0 rad`였다. 두 도착의
+1280×960 Top 영상 모두 실제 300×300 mm 수건 전체와 네 모서리가 보였고
+robot/gripper 가림은 없었다. 마지막 coordinated STOP과 torque-off도 확인했다.
 
 R0-B에서는 Top `1280x960` eye-to-hand를 training `left_train_01..08,10`과
 완전 미사용 validation `left_validation_01..02`로 재수집했다. 관절 끝단에
@@ -65,6 +69,26 @@ RMS/max는 `3.630/5.166 mm`, 회전 RMS/max는 `0.921/1.711 deg`였고, 독립
 validation 위치 max는 `4.250 mm`, 회전 max는 `1.429 deg`로
 `EYE_TO_HAND_VALIDATED_MOTION_STILL_NOT_AUTHORIZED`를 통과했다. 원본과 해는
 `artifacts/calibration/top_eye_to_hand_20260825_r0b/`에 보존한다.
+
+R0-C에서는 오른팔의 실제 torque-on terminal anchor가 torque-off 관절값과 같은
+정지 자세에서 마커 위치 기준 `0.063 mm`, 회전 기준 `0.068 deg` 차이임을 먼저
+확인했다. 이후 resident hold의 owner/epoch와 terminal measured anchor가 일치한
+서로 다른 training 6개와 완전 미사용 validation 2개를 수집했다. 오른팔 nominal
+URDF만 사용한 해는 training RMS/max `6.112/9.751 mm`로 거절됐지만, 검증된
+왼팔 workcell-to-camera를 고정하고 오른팔 mount와 식별 가능한 shoulder/elbow/
+wrist-flex 영점만 training으로 적합한 해는 training RMS/max
+`2.211/2.804 mm`, validation RMS/max `2.781/3.272 mm`, validation 회전 max
+`0.966 deg`로 통과했다. 추정 영점은 각각 `-2.492/+2.615/+1.268 deg`이며
+base와 wrist-roll은 gauge freedom 때문에 0으로 고정했다. training 하나씩을
+제외한 민감도 검사에서도 validation max는 `3.131..4.176 mm`였다. 결과는
+`artifacts/calibration/top_eye_to_hand_20260825_r0c/`에 보존하지만 실제 동작
+승인은 아니며 `motion_authorized=false`를 유지한다.
+
+같은 등록 후보를 workcell shadow에 적용한 완전 미사용 validation 2개에서는
+작업대 x/y 오차 최대 `3.272 mm`, yaw 오차 최대 `0.515 deg`로 통과했다. 이는
+gripper marker의 workcell 좌표 검증이며, 오른팔 FK를 실제 tabletop 물체 motion
+target으로 사용하는 승인은 아니다. 이어서 위 `OBSERVE_CLEAR` plan-only와
+supervised 왕복도 통과했으므로 R0-C의 wrist camera 이전 범위는 완료했다.
 
 같은 고정 조건의 worktable 보정은 `calibration_01..06,07b,08`만 plane fit에
 사용하고 `validation_01..02`는 해에 넣지 않았다. 영상 경계가 `4.25 px`였던
@@ -79,9 +103,10 @@ config로 승격했다. Pi 재빌드 뒤 Top `1280x960@30`, 두 wrist `640x480@3
 
 ## 현재 blocker
 
-1. Top `OBSERVE_CLEAR` visual candidate는 확보했지만 자동 왕복 재현성은
-   미검증이다. left wrist는 gripper가 영상 일부를 영구 가리며, right wrist는
-   intrinsic, eye-in-hand와 URDF optical frame가 없다.
+1. Top left/right metric registration, workcell shadow와 `OBSERVE_CLEAR` 실기
+   왕복은 통과했다. 다만 left wrist는 gripper가 영상 일부를 영구 가리며,
+   right wrist는 intrinsic, eye-in-hand와 URDF optical frame가 없다. 오른팔 FK의
+   tabletop 물체 motion target 사용도 별도 독립 검증 전에는 금지한다.
 2. 1차 fold의 약 300 mm moving-edge separation과 두 fold의 약 150 mm arc
    높이를 양팔이 동시에 추종할 수 있는지 실제 MoveIt으로 검증되지 않았다.
 3. jaw gap, 단일/다층 접촉, slip, 장력, 테이블 마찰과 수건 물성이 미측정이다.
@@ -90,10 +115,13 @@ config로 승격했다. Pi 재빌드 뒤 Top `1280x960@30`, 두 wrist `640x480@3
 
 1. 수건 side tolerance, 두께, 질량, 재질과 상태 조건을 측정해 기존 task
    contract에 증빙과 함께 반영한다.
-2. 검증된 metric calibration에서 기록한 `OBSERVE_CLEAR` 후보의 plan-only 및
-   실제 왕복 재현성을 검증한다.
-3. right wrist intrinsic/eye-in-hand/optical frame를 완성한다.
+2. right wrist intrinsic/eye-in-hand/optical frame를 완성하고 left wrist의
+   고정 gripper 가림을 calibration/관측 계약에 명시한다.
+3. 오른팔 FK의 tabletop 물체 좌표를 독립 target으로 검증한다.
 4. 300 mm rigid proxy로 x/y축·양 방향·팔 배정의 MoveIt plan-only go/no-go를
    수행한다.
 5. 그 결과가 통과한 작업대 배치에서 실제 수건 데이터 수집과 mask backend를
    시작한다.
+6. R1 episode에 primitive 전후 state·outcome을 함께 기록하고, R2에서 Isaac Lab
+   S0/S1 재현성과 heuristic unfolding baseline을 만든다. 임의 구김용 learned
+   policy는 이 공통 action/observation 계약 위에서 R5 전에 학습·비교한다.

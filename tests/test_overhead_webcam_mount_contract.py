@@ -78,9 +78,30 @@ def test_physical_top_uses_hinge_removed_mesh_and_exact_insertion_depth() -> Non
     assert mesh.attrib["scale"] == "0.001 0.001 0.001"
     assert visual_origin.attrib["xyz"] == "0 0 0"
     assert top_joint_origin.attrib["xyz"] == "0.0187 0.2231 0.0365125"
-    collision_box = top.find("collision/geometry/box")
-    assert collision_box is not None
-    assert collision_box.attrib["size"] == "0.0254 0.2344404 0.036625"
+    collision_mesh = top.find("collision/geometry/mesh")
+    assert collision_mesh is not None
+    assert collision_mesh.attrib["filename"].endswith(
+        "overhead_webcam_cam_mount_top_hinge_removed.stl"
+    )
+    assert collision_mesh.attrib["scale"] == "0.001 0.001 0.001"
+
+
+def test_fixed_workcell_collision_uses_pinned_physical_meshes_not_filled_boxes() -> None:
+    root = _expand(use_overhead_webcam_mount=True)
+    links = {link.attrib["name"]: link for link in root.findall("link")}
+    expected = {
+        "top_arm_base_link": "overhead_webcam_arm_base.stl",
+        "top_cam_mount_bottom_link": "overhead_webcam_cam_mount_bottom.stl",
+        "top_cam_mount_top_link": "overhead_webcam_cam_mount_top_hinge_removed.stl",
+    }
+    for link_name, filename in expected.items():
+        collision = links[link_name].find("collision/geometry")
+        assert collision is not None
+        assert collision.find("box") is None
+        mesh = collision.find("mesh")
+        assert mesh is not None
+        assert mesh.attrib["filename"].endswith(filename)
+        assert mesh.attrib["scale"] == "0.001 0.001 0.001"
 
 
 def test_floor_and_right_side_groove_alignment_is_explicit() -> None:
