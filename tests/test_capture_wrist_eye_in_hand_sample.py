@@ -47,8 +47,34 @@ class CaptureWristEyeInHandSampleTest(unittest.TestCase):
         positions = MODULE.ordered_arm_positions(message)
         self.assertEqual(positions.tolist(), [1.0, 2.0, 3.0, 4.0, 5.0])
 
+    def test_right_joint_positions_use_the_right_arm_contract(self):
+        message = SimpleNamespace(
+            name=[
+                "right_wrist_roll_joint",
+                "right_elbow_joint",
+                "right_base_joint",
+                "right_wrist_flex_joint",
+                "right_shoulder_joint",
+            ],
+            position=[5.0, 3.0, 1.0, 4.0, 2.0],
+        )
+        positions = MODULE.ordered_arm_positions(message, "right")
+        self.assertEqual(positions.tolist(), [1.0, 2.0, 3.0, 4.0, 5.0])
+
     def test_expected_marker_ids_are_the_planar_gridboard_ids_10_to_29(self):
         self.assertEqual(MODULE.EXPECTED_MARKER_IDS, tuple(range(10, 30)))
+
+    def test_right_capture_is_fail_closed_on_resident_hold_proof(self):
+        source = (
+            TOOLS / "capture_wrist_eye_in_hand_sample.py"
+        ).read_text()
+        self.assertIn(
+            "WRIST_EYE_IN_HAND_RESIDENT_TORQUE_HOLD_CAPTURE_PASS",
+            source,
+        )
+        self.assertIn("--resident-required-owner", source)
+        self.assertIn("--resident-required-epoch", source)
+        self.assertIn("resident_terminal_measured_anchor", source)
 
     def test_generated_gridboard_is_recognized_only_when_complete(self):
         generator_spec = importlib.util.spec_from_file_location(

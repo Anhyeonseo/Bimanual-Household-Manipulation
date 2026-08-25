@@ -1,0 +1,57 @@
+# SO101 right wrist (wrist_b) intrinsic calibration.
+#
+# Captured: 2026-08-25
+# Resolution/format: 640x480 MJPEG
+# Pattern: 10x7 physical chessboard (9x6 inner corners), 0.025 m squares
+# Camera attached to the right wrist; checkerboard moved by hand.
+# Source: artifacts/calibration/wrist_b_intrinsic_20260825_r0/
+# calibrationdata.tar.gz
+#
+# All 43 saved images detected the complete checkerboard. A deterministic
+# held-out split (indices 4,9,...,39) reserved 8 images for independent PnP
+# reprojection validation. Of the remaining 35 training images, left-0030.png
+# was the only reprojection outlier (2.974618 px) and was excluded once.
+# Retained training: 34 images
+# Training OpenCV RMS: 0.549909 px
+# Training per-view RMS: mean 0.534797, median 0.507044,
+#                        p95 0.788921, max 0.947139 px
+# Held-out validation per-view RMS: mean 0.631583, median 0.607938,
+#                                   p95 0.856203, max 0.891427 px
+#
+# projection_matrix uses cv2.getOptimalNewCameraMatrix(alpha=0.0).
+# Do not reuse this file if wrist_b, resolution, focus, or lens changes.
+# Moving the camera mount preserves intrinsics but invalidates eye-in-hand.
+
+image_width: 640
+image_height: 480
+camera_name: so101_wrist_b
+
+camera_matrix:
+  rows: 3
+  cols: 3
+  data:
+    [561.443751503, 0.0, 310.257102661,
+     0.0, 564.723779081, 247.996088508,
+     0.0, 0.0, 1.0]
+
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [-0.503243940, 0.366669900, 0.008468919, -0.004041107, -0.166229554]
+
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data:
+    [1.0, 0.0, 0.0,
+     0.0, 1.0, 0.0,
+     0.0, 0.0, 1.0]
+
+projection_matrix:
+  rows: 3
+  cols: 4
+  data:
+    [461.016784668, 0.0, 300.799673056, 0.0,
+     0.0, 508.506805420, 253.070064384, 0.0,
+     0.0, 0.0, 1.0, 0.0]

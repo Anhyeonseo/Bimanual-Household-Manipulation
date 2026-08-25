@@ -534,8 +534,10 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
         raise TowelTaskContractError("contract schema_version must be 1")
     if contract.get("record_kind") != "towel_task_contract":
         raise TowelTaskContractError("record_kind must be towel_task_contract")
-    if contract.get("status") != "SOFTWARE_CONTRACT_ONLY":
-        raise TowelTaskContractError("candidate status must be SOFTWARE_CONTRACT_ONLY")
+    if contract.get("status") != "R0_STATIC_CONTACT_CANDIDATE":
+        raise TowelTaskContractError(
+            "candidate status must be R0_STATIC_CONTACT_CANDIDATE"
+        )
     if contract.get("motion_authorized") is not False:
         raise TowelTaskContractError(
             "candidate towel contract must keep motion_authorized=false"
@@ -543,9 +545,9 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
     towel = contract.get("towel")
     if not isinstance(towel, Mapping) or towel.get("shape") != "square":
         raise TowelTaskContractError("towel shape must be square")
-    if towel.get("provenance") != "user_reported_nominal_side_only":
+    if towel.get("provenance") != "supervised_operator_measurement_2026-08-25":
         raise TowelTaskContractError(
-            "towel provenance must record the user-reported nominal side"
+            "towel provenance must identify the supervised physical measurement"
         )
     nominal_side_mm = towel.get("nominal_side_mm")
     if (
@@ -555,13 +557,78 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
         or not math.isclose(float(nominal_side_mm), 300.0, abs_tol=1.0e-9)
     ):
         raise TowelTaskContractError("nominal towel side must remain 300 mm")
-    unmeasured_physical_fields = {
-        "side_tolerance_mm", "thickness_mm", "mass_g", "material",
-        "measurement_artifact",
-    }
-    if any(towel.get(name) is not None for name in unmeasured_physical_fields):
+    measured_sides = towel.get("measured_sides_mm")
+    if not isinstance(measured_sides, Mapping) or set(measured_sides) != {
+        "top", "right", "bottom", "left"
+    }:
         raise TowelTaskContractError(
-            "unmeasured towel properties other than nominal side must remain null"
+            "measured_sides_mm must contain top, right, bottom, and left"
+        )
+    try:
+        side_values = tuple(float(measured_sides[name]) for name in (
+            "top", "right", "bottom", "left"
+        ))
+        side_tolerance_mm = float(towel.get("side_tolerance_mm"))
+    except (TypeError, ValueError) as exc:
+        raise TowelTaskContractError(
+            "measured towel sides and tolerance must be numbers"
+        ) from exc
+    if (
+        not all(math.isfinite(value) and value > 0.0 for value in side_values)
+        or not math.isfinite(side_tolerance_mm)
+        or side_tolerance_mm < 0.0
+        or not math.isclose(sum(side_values) / len(side_values), 300.0)
+        or not math.isclose(
+            max(abs(value - 300.0) for value in side_values),
+            side_tolerance_mm,
+        )
+    ):
+        raise TowelTaskContractError(
+            "measured towel sides must support the 300 mm nominal and tolerance"
+        )
+    thickness = towel.get("thickness_mm")
+    if (
+        not isinstance(thickness, Mapping)
+        or thickness.get("method") != "ruler"
+        or thickness.get("approximate") is not True
+    ):
+        raise TowelTaskContractError(
+            "thickness must preserve the approximate ruler measurement method"
+        )
+    try:
+        thickness_values = tuple(float(thickness[name]) for name in (
+            "one_layer_body", "two_layer_body", "four_layer_body"
+        ))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise TowelTaskContractError(
+            "one-, two-, and four-layer thickness measurements are required"
+        ) from exc
+    if not (
+        all(math.isfinite(value) and value > 0.0 for value in thickness_values)
+        and thickness_values[0] < thickness_values[1] < thickness_values[2]
+    ):
+        raise TowelTaskContractError(
+            "layer thickness measurements must be finite, positive, and increasing"
+        )
+    if (
+        towel.get("mass_g") is not None
+        or towel.get("mass_measurement_status")
+        != "DEFERRED_BEFORE_DYNAMIC_MODEL_OR_PRIMITIVE"
+    ):
+        raise TowelTaskContractError(
+            "unmeasured mass must stay null and explicitly deferred"
+        )
+    condition = towel.get("condition")
+    if (
+        towel.get("material") != "cotton_100_percent"
+        or not isinstance(condition, Mapping)
+        or condition.get("dry") is not True
+        or condition.get("washed") is not False
+        or towel.get("measurement_artifact")
+        != "embedded_operator_measurements_2026-08-25"
+    ):
+        raise TowelTaskContractError(
+            "material, dry/unwashed condition, and measurement provenance are required"
         )
     workspace = contract.get("workspace")
     if not isinstance(workspace, Mapping) or not isinstance(
@@ -586,9 +653,9 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
     hardware = contract.get("hardware_limits")
     if not isinstance(hardware, Mapping):
         raise TowelTaskContractError("hardware_limits must be an object")
-    if hardware.get("provenance") != "not_measured":
+    if hardware.get("provenance") != "partially_measured_static_hold_only":
         raise TowelTaskContractError(
-            "candidate hardware provenance must be not_measured"
+            "hardware provenance must preserve the static-hold-only scope"
         )
     if set(hardware) != HARDWARE_LIMIT_FIELDS | {"provenance"}:
         raise TowelTaskContractError(
@@ -600,8 +667,76 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
         if name != "provenance"
     ):
         raise TowelTaskContractError(
-            "unmeasured hardware limits must remain null in the candidate"
+            "automatic and dynamic hardware limits must remain null"
         )
+    contact = contract.get("cloth_contact_candidate")
+    if (
+        not isinstance(contact, Mapping)
+        or contact.get("status")
+        != "STATIC_RETENTION_PASS_AUTOMATIC_CONTACT_NOT_AUTHORIZED"
+        or contact.get("coordinate") != "canonical_project_rad"
+        or contact.get("closing_direction") != "increasing_rad"
+        or contact.get("firmware_version") != "0x00024809"
+        or contact.get("commanded_motion_delta_rad") != 0.0
+        or contact.get("dynamic_slip_tested") is not False
+        or contact.get("operator_check")
+        != "gentle_pull_no_visible_slip_or_drop"
+    ):
+        raise TowelTaskContractError(
+            "static cloth-contact scope and operator verdict are required"
+        )
+    raw_step_rad = contact.get("raw_step_rad")
+    if (
+        isinstance(raw_step_rad, bool)
+        or not isinstance(raw_step_rad, (int, float))
+        or not math.isclose(float(raw_step_rad), 2.0 * math.pi / 4096.0)
+    ):
+        raise TowelTaskContractError("cloth-contact raw step is invalid")
+    for side in ("left", "right"):
+        side_contact = contact.get(side)
+        if not isinstance(side_contact, Mapping):
+            raise TowelTaskContractError(f"{side} cloth-contact evidence is required")
+        for layer in ("one_layer", "four_layer"):
+            sample = side_contact.get(layer)
+            if not isinstance(sample, Mapping):
+                raise TowelTaskContractError(
+                    f"{side} {layer} cloth-contact evidence is required"
+                )
+            try:
+                hold_anchor = float(sample["validated_hold_anchor_rad"])
+                candidate = float(sample["operational_candidate_rad"])
+                margin_raw = int(sample["closing_margin_raw"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise TowelTaskContractError(
+                    f"{side} {layer} cloth-contact values are invalid"
+                ) from exc
+            digest = sample.get("sha256")
+            artifact = sample.get("artifact")
+            if (
+                not math.isfinite(hold_anchor)
+                or not math.isfinite(candidate)
+                or margin_raw < 0
+                or not math.isclose(
+                    candidate,
+                    hold_anchor + margin_raw * float(raw_step_rad),
+                    abs_tol=5.0e-7,
+                )
+                or not isinstance(artifact, str)
+                or not artifact.startswith(
+                    "artifacts/contract/towel_contact_20260825/"
+                )
+                or not isinstance(digest, str)
+                or len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+            ):
+                raise TowelTaskContractError(
+                    f"{side} {layer} cloth-contact evidence is inconsistent"
+                )
+            expected_revalidated = margin_raw == 0
+            if sample.get("operational_candidate_revalidated") is not expected_revalidated:
+                raise TowelTaskContractError(
+                    f"{side} {layer} candidate validation flag is inconsistent"
+                )
     limits = PerceptionLimits.from_contract(contract)
     probability_fields = (
         "minimum_corner_confidence",

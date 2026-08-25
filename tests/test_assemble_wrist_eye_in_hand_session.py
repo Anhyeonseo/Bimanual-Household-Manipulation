@@ -33,6 +33,8 @@ class AssembleWristEyeInHandSessionTest(unittest.TestCase):
         *,
         marker_ids=tuple(range(10, 30)),
         motion_authorized=False,
+        arm="left",
+        resident_torque_hold=None,
     ) -> Path:
         directory = self.root / "captures" / capture_id
         directory.mkdir(parents=True)
@@ -41,11 +43,20 @@ class AssembleWristEyeInHandSessionTest(unittest.TestCase):
             image = directory / f"frame_{index:03d}.png"
             image.write_bytes(b"test-image")
             image_files.append(image.name)
+        if resident_torque_hold is None:
+            resident_torque_hold = arm == "right"
+        if resident_torque_hold:
+            motion_authorized = True
         document = {
             "schema_version": 1,
-            "status": "WRIST_EYE_IN_HAND_STATIONARY_CAPTURE_PASS",
+            "status": (
+                "WRIST_EYE_IN_HAND_RESIDENT_TORQUE_HOLD_CAPTURE_PASS"
+                if resident_torque_hold
+                else "WRIST_EYE_IN_HAND_STATIONARY_CAPTURE_PASS"
+            ),
             "motion_authorized": motion_authorized,
             "robot_target_available": False,
+            "arm": arm,
             "capture": {
                 "id": capture_id,
                 "measured_arm_rad": [0.1, 0.2, 0.3, 0.4, 0.5],
@@ -54,8 +65,23 @@ class AssembleWristEyeInHandSessionTest(unittest.TestCase):
                 "image_source_stamp_first": 100.0,
                 "image_source_stamp_last": 101.0,
                 "detected_marker_ids": list(marker_ids),
+                "joint_state_source": (
+                    "resident_terminal_measured_anchor"
+                    if resident_torque_hold
+                    else "timestamp_synchronized_joint_state"
+                ),
             },
         }
+        if resident_torque_hold:
+            document["resident_torque_hold"] = {
+                "status_service": "/bimanual_stream_adapter/status",
+                "owner": "resident_right_calibration_operator",
+                "arbiter_epoch": 12,
+                "torque_hold_active": True,
+                "terminal_anchor_stamp": 99.5,
+                "required_owner": "resident_right_calibration_operator",
+                "required_epoch": 12,
+            }
         (directory / "capture.yaml").write_text(
             yaml.safe_dump(document, sort_keys=False),
             encoding="utf-8",
@@ -109,6 +135,108 @@ class AssembleWristEyeInHandSessionTest(unittest.TestCase):
                 training,
                 validation,
                 self.output,
+            )
+
+    def test_assembles_right_arm_frames_without_reusing_left_names(self):
+        training = [
+            self.make_capture(f"right_train_{index:02d}", arm="right")
+            for index in range(1, 9)
+        ]
+        validation = [
+            self.make_capture(f"right_validation_{index:02d}", arm="right")
+            for index in range(1, 3)
+        ]
+        document = MODULE.assemble_document(
+            "right_session_01",
+            training,
+            validation,
+            self.output,
+            "right",
+        )
+        self.assertEqual(document["arm"], "right")
+        self.assertEqual(
+            document["capture_mode"],
+            "stationary_resident_torque_hold",
+        )
+        self.assertTrue(document["source_motion_authorized"])
+        self.assertEqual(document["frames"]["robot"], "right_base_link")
+        self.assertEqual(
+            document["frames"]["gripper"],
+            "right_gripper_frame_link",
+        )
+        self.assertEqual(
+            document["frames"]["camera"],
+            "right_wrist_camera_optical_frame",
+        )
+        capture = document["training_captures"][0]
+        self.assertTrue(capture["source_motion_authorized"])
+        self.assertEqual(
+            capture["resident_torque_hold"]["arbiter_epoch"],
+            12,
+        )
+
+    def test_rejects_legacy_torque_off_right_capture(self):
+        training = [
+            self.make_capture(
+                f"right_train_{index:02d}",
+                arm="right",
+                resident_torque_hold=False,
+            )
+            for index in range(1, 9)
+        ]
+        validation = [
+            self.make_capture(
+                f"right_validation_{index:02d}",
+                arm="right",
+                resident_torque_hold=False,
+            )
+            for index in range(1, 3)
+        ]
+        with self.assertRaisesRegex(ValueError, "stationary gate"):
+            MODULE.assemble_document(
+                "right_session_legacy",
+                training,
+                validation,
+                self.output,
+                "right",
+            )
+
+    def test_right_resident_session_accepts_six_diverse_training_captures(self):
+        training = [
+            self.make_capture(f"right_train_{index:02d}", arm="right")
+            for index in range(1, 7)
+        ]
+        validation = [
+            self.make_capture(f"right_validation_{index:02d}", arm="right")
+            for index in range(1, 3)
+        ]
+        document = MODULE.assemble_document(
+            "right_session_six",
+            training,
+            validation,
+            self.output,
+            "right",
+        )
+        self.assertEqual(len(document["training_captures"]), 6)
+
+        with self.assertRaisesRegex(ValueError, "training capture count 5 < 6"):
+            MODULE.assemble_document(
+                "right_session_five",
+                training[:5],
+                validation,
+                self.output,
+                "right",
+            )
+
+    def test_rejects_capture_from_the_other_arm(self):
+        training, validation = self.valid_inputs()
+        with self.assertRaisesRegex(ValueError, "capture arm left"):
+            MODULE.assemble_document(
+                "right_session_01",
+                training,
+                validation,
+                self.output,
+                "right",
             )
 
     def test_rejects_motion_authorized_capture(self):

@@ -37,6 +37,47 @@ def transform_error(first, second):
 
 
 class WristEyeInHandTest(unittest.TestCase):
+    def valid_right_registration(self):
+        joint_names = MODULE.ARM_JOINT_NAMES_BY_SIDE["right"]
+        return {
+            "status": MODULE.VALIDATED_EYE_TO_HAND_STATUS,
+            "motion_authorized": False,
+            "arm": "right",
+            "method": MODULE.RIGHT_REGISTRATION_METHOD,
+            "right_kinematic_registration": {
+                "training_only_fit": True,
+                "validation_used_in_fit": False,
+                "joint_zero_offsets_rad": {
+                    name: index * 0.01
+                    for index, name in enumerate(joint_names)
+                },
+            },
+        }
+
+    def valid_right_session(self):
+        def capture(capture_id, epoch):
+            return {
+                "id": capture_id,
+                "source_capture_mode": MODULE.RIGHT_CAPTURE_MODE,
+                "source_motion_authorized": True,
+                "resident_torque_hold": {
+                    "status_service": MODULE.RESIDENT_STATUS_SERVICE,
+                    "owner": "resident_right_calibration_operator",
+                    "arbiter_epoch": epoch,
+                    "torque_hold_active": True,
+                    "terminal_anchor_stamp": 100.0 + epoch,
+                    "required_owner": "resident_right_calibration_operator",
+                    "required_epoch": epoch,
+                },
+            }
+
+        return {
+            "capture_mode": MODULE.RIGHT_CAPTURE_MODE,
+            "source_motion_authorized": True,
+            "training_captures": [capture("train", 1)],
+            "validation_captures": [capture("validation", 2)],
+        }
+
     def synthetic_observations(self):
         gripper_to_camera = transform(
             [0.05, -0.02, 1.55],
@@ -98,6 +139,23 @@ class WristEyeInHandTest(unittest.TestCase):
         )
         self.assertEqual(failures, [])
 
+    def test_right_resident_track_accepts_six_training_captures(self):
+        observations, camera, target = self.synthetic_observations()
+        training = observations[:6]
+        validation = observations[10:]
+        status, failures = MODULE.classify(
+            training,
+            validation,
+            MODULE.residual_summary(training, camera, target),
+            MODULE.residual_summary(validation, camera, target),
+            MODULE.MIN_RIGHT_RESIDENT_TRAINING_CAPTURES,
+        )
+        self.assertEqual(
+            status,
+            "EYE_IN_HAND_VALIDATED_MOTION_STILL_NOT_AUTHORIZED",
+        )
+        self.assertEqual(failures, [])
+
     def test_small_pose_distribution_is_rejected(self):
         observations, camera, target = self.synthetic_observations()
         collapsed = [
@@ -137,7 +195,7 @@ class WristEyeInHandTest(unittest.TestCase):
     def test_pnp_reprojection_rms_at_limit_is_accepted(self):
         observations, camera, target = self.synthetic_observations()
         observations = [
-            replace(observation, pnp_rms_px=1.5)
+            replace(observation, pnp_rms_px=MODULE.MAX_PNP_RMS_PX)
             for observation in observations
         ]
         training = observations[:10]
@@ -158,7 +216,10 @@ class WristEyeInHandTest(unittest.TestCase):
 
     def test_pnp_reprojection_rms_above_limit_is_rejected(self):
         observations, camera, target = self.synthetic_observations()
-        observations[0] = replace(observations[0], pnp_rms_px=1.501)
+        observations[0] = replace(
+            observations[0],
+            pnp_rms_px=MODULE.MAX_PNP_RMS_PX + 0.001,
+        )
         training = observations[:10]
         validation = observations[10:]
 
@@ -183,6 +244,49 @@ class WristEyeInHandTest(unittest.TestCase):
             )
             self.assertLess(translation, 1e-9)
             self.assertLess(rotation, 1e-9)
+
+    def test_validated_right_registration_returns_ordered_offsets(self):
+        candidate = self.valid_right_registration()
+        offsets, registration = (
+            MODULE.validated_right_joint_zero_offsets(candidate)
+        )
+
+        np.testing.assert_allclose(offsets, [0.0, 0.01, 0.02, 0.03, 0.04])
+        self.assertTrue(registration["training_only_fit"])
+
+    def test_right_registration_rejects_validation_leakage(self):
+        candidate = self.valid_right_registration()
+        candidate["right_kinematic_registration"][
+            "validation_used_in_fit"
+        ] = True
+
+        with self.assertRaisesRegex(RuntimeError, "leaked validation"):
+            MODULE.validated_right_joint_zero_offsets(candidate)
+
+    def test_right_registration_rejects_incomplete_joint_set(self):
+        candidate = self.valid_right_registration()
+        del candidate["right_kinematic_registration"][
+            "joint_zero_offsets_rad"
+        ]["right_wrist_roll_joint"]
+
+        with self.assertRaisesRegex(RuntimeError, "incomplete"):
+            MODULE.validated_right_joint_zero_offsets(candidate)
+
+    def test_right_session_requires_resident_torque_hold_provenance(self):
+        session = self.valid_right_session()
+        MODULE.validate_session_capture_provenance(session, "right")
+
+        session["training_captures"][0]["source_capture_mode"] = (
+            "stationary_read_only"
+        )
+        with self.assertRaisesRegex(RuntimeError, "lacks consistent"):
+            MODULE.validate_session_capture_provenance(session, "right")
+
+    def test_legacy_right_session_is_rejected_before_solving(self):
+        session = self.valid_right_session()
+        session["capture_mode"] = "stationary_read_only"
+        with self.assertRaisesRegex(RuntimeError, "resident torque hold"):
+            MODULE.validate_session_capture_provenance(session, "right")
 
 
 if __name__ == "__main__":

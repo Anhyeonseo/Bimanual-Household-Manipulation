@@ -1,18 +1,32 @@
 schema_version: 1
 record_kind: towel_task_contract
-status: SOFTWARE_CONTRACT_ONLY
+status: R0_STATIC_CONTACT_CANDIDATE
 motion_authorized: false
 scope: crumpled_square_towel_unfold_then_two_orthogonal_half_folds
 
 towel:
   shape: square
   nominal_side_mm: 300.0
-  side_tolerance_mm: null
-  thickness_mm: null
+  measured_sides_mm:
+    top: 304.0
+    right: 296.0
+    bottom: 304.0
+    left: 296.0
+  side_tolerance_mm: 4.0
+  thickness_mm:
+    method: ruler
+    approximate: true
+    one_layer_body: 3.0
+    two_layer_body: 7.0
+    four_layer_body: 13.0
   mass_g: null
-  material: null
-  measurement_artifact: null
-  provenance: user_reported_nominal_side_only
+  mass_measurement_status: DEFERRED_BEFORE_DYNAMIC_MODEL_OR_PRIMITIVE
+  material: cotton_100_percent
+  condition:
+    dry: true
+    washed: false
+  measurement_artifact: embedded_operator_measurements_2026-08-25
+  provenance: supervised_operator_measurement_2026-08-25
 
 workspace:
   frame: workcell_base_link
@@ -119,8 +133,52 @@ recovery_limits:
   retry_after_fault: 0
   retry_after_workspace_exit: 0
 
+cloth_contact_candidate:
+  status: STATIC_RETENTION_PASS_AUTOMATIC_CONTACT_NOT_AUTHORIZED
+  coordinate: canonical_project_rad
+  closing_direction: increasing_rad
+  raw_step_rad: 0.0015339807878856412
+  firmware_version: "0x00024809"
+  commanded_motion_delta_rad: 0.0
+  dynamic_slip_tested: false
+  operator_check: gentle_pull_no_visible_slip_or_drop
+  left:
+    one_layer:
+      validated_hold_anchor_rad: 0.246971
+      operational_candidate_rad: 0.251573
+      closing_margin_raw: 3
+      operational_candidate_revalidated: false
+      artifact: artifacts/contract/towel_contact_20260825/left_1layer_hold.json
+      sha256: 48e5a8f397c9a03ac2b59d8aa4a824eaba64f9be38084e64c72064d7dbc7de19
+    four_layer:
+      validated_hold_anchor_rad: 0.210155
+      operational_candidate_rad: 0.210155
+      closing_margin_raw: 0
+      operational_candidate_revalidated: true
+      artifact: artifacts/contract/towel_contact_20260825/left_4layer_hold.json
+      sha256: 9f1b038dccda2d33ab9f7033cbdae209f9fd3f67cf8cb2b46d7f3c3f6a8ad21a
+  right:
+    one_layer:
+      validated_hold_anchor_rad: 0.188680
+      operational_candidate_rad: 0.188680
+      closing_margin_raw: 0
+      operational_candidate_revalidated: true
+      artifact: artifacts/contract/towel_contact_20260825/right_1layer_hold.json
+      sha256: b894c89ed02c5180fbda829a745674494ad087c614ddb5e80341eeeda697ddbd
+    four_layer:
+      validated_hold_anchor_rad: 0.128854
+      operational_candidate_rad: 0.128854
+      closing_margin_raw: 0
+      operational_candidate_revalidated: true
+      artifact: artifacts/contract/towel_contact_20260825/right_4layer_hold.json
+      sha256: 4184971a207499a3710685c9b3cf9987b4f6465beb7a05bcb010cad040f781ee
+  limitations:
+    - hold artifacts validate retention at manually established contact only
+    - automatic close-to-contact and contact residual thresholds remain uncommissioned
+    - no dynamic lift, drag, fold, shake, or tension limit is authorized
+
 hardware_limits:
-  provenance: not_measured
+  provenance: partially_measured_static_hold_only
   jaw_open_command_rad: null
   cloth_contact_command_rad: null
   cloth_contact_threshold_raw: null
@@ -145,10 +203,12 @@ acceptance:
   every_run_requires_artifact: true
 
 commissioning_gates:
-  - independently measure side tolerance, thickness, mass, and material
+  - measure mass before Isaac S1 material fitting or any dynamic cloth primitive
+  - validate towel-table slip before friction-dependent drag or fold execution
+  - commission automatic jaw opening, close-to-contact, and residual thresholds
   - validate perception candidate limits on a held-out towel dataset
   - independently validate top and wrist camera calibration
-  - measure every null hardware limit with supervised evidence
+  - measure each hardware limit before the primitive that consumes it
   - pass primitive plan-only and validate-only gates
   - execute each primitive supervised once before integrated motion
 

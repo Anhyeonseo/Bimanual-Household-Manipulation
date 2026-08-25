@@ -51,6 +51,33 @@ class ExecuteResidentRightCalibrationPoseOnceTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "complete GridBoard"):
                 MODULE.load_capture_target(path)
 
+    def test_loads_legacy_wrist_capture_as_a_motion_target_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "capture.yaml"
+            path.write_text(
+                yaml.safe_dump(
+                    {
+                        "status": "WRIST_EYE_IN_HAND_STATIONARY_CAPTURE_PASS",
+                        "motion_authorized": False,
+                        "arm": "right",
+                        "capture": {
+                            "id": "right_wrist_train_01",
+                            "measured_arm_rad": [0.1] * 5,
+                            "detected_marker_ids": list(range(10, 30)),
+                        },
+                    }
+                )
+            )
+            capture_id, target = MODULE.load_capture_target(path)
+            self.assertEqual(capture_id, "right_wrist_train_01")
+            self.assertEqual(target, (0.1,) * 5)
+
+            document = yaml.safe_load(path.read_text())
+            document["capture"]["detected_marker_ids"] = list(range(10, 29))
+            path.write_text(yaml.safe_dump(document))
+            with self.assertRaisesRegex(ValueError, "wrist target capture"):
+                MODULE.load_capture_target(path)
+
     def test_composition_holds_left_arm_and_both_grippers(self):
         anchor = tuple(float(index) for index in range(12))
         right = (-1.0, -2.0, -3.0, -4.0, -5.0)
@@ -58,6 +85,19 @@ class ExecuteResidentRightCalibrationPoseOnceTest(unittest.TestCase):
         self.assertEqual(target[:6], anchor[:6])
         self.assertEqual(target[6:11], right)
         self.assertEqual(target[11], anchor[11])
+
+    def test_operator_target_offset_is_small_and_explicit(self):
+        source = (0.0,) * 5
+        actual = MODULE.offset_right_target(
+            source,
+            (0.12, 0.0, 0.0, 0.0, 0.0),
+        )
+        self.assertEqual(actual, (0.12, 0.0, 0.0, 0.0, 0.0))
+        with self.assertRaisesRegex(ValueError, "approved bound"):
+            MODULE.offset_right_target(
+                source,
+                (0.151, 0.0, 0.0, 0.0, 0.0),
+            )
 
     def test_segmentation_bounds_every_subleg(self):
         start = (0.0,) * 12

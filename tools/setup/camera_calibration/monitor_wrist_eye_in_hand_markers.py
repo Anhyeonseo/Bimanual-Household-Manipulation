@@ -21,9 +21,6 @@ from sensor_msgs.msg import Image
 
 
 EXPECTED_MARKER_IDS = tuple(range(10, 30))
-WINDOW_NAME = "wrist_a eye-in-hand marker monitor"
-
-
 def decode_image(message: Image) -> np.ndarray:
     if message.width <= 0 or message.height <= 0:
         raise ValueError("image dimensions must be positive")
@@ -109,13 +106,14 @@ def main() -> int:
     args = parse_args()
     rclpy.init()
     node = MarkerMonitor(args.image_topic)
-    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
+    window_name = f"{args.image_topic} eye-in-hand marker monitor"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     try:
         while rclpy.ok():
             rclpy.spin_once(node, timeout_sec=0.05)
             frame = node.render()
             if frame is not None:
-                cv2.imshow(WINDOW_NAME, frame)
+                cv2.imshow(window_name, frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
     except KeyboardInterrupt:

@@ -8,14 +8,18 @@ image/joint_state pair is taken; the diverse poses come from repeating this
 tool across a buffered-leg move between captures, not from motion within one
 capture.
 
-This node only subscribes to image and joint-state topics. It never creates a
-motion publisher, Action client, service client, or serial connection.
+This node never commands motion.  Right-arm captures additionally read the
+resident status service and its terminal measured anchor so a frame is accepted
+only while the already-positioned arm is held under torque by the resident
+adapter.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
+import sys
 import time
 from pathlib import Path
 
@@ -24,17 +28,33 @@ import numpy as np
 import rclpy
 import yaml
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import Image, JointState
-
-
-ARM_JOINT_NAMES = (
-    "left_base_joint",
-    "left_shoulder_joint",
-    "left_elbow_joint",
-    "left_wrist_flex_joint",
-    "left_wrist_roll_joint",
+from rclpy.qos import (
+    DurabilityPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+    qos_profile_sensor_data,
 )
+from sensor_msgs.msg import Image, JointState
+from std_srvs.srv import Trigger
+
+TOOLS_DIR = Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
+from capture_top_eye_to_hand_sample import (
+    RESIDENT_ANCHOR_TOPIC,
+    RESIDENT_STATUS_SERVICE,
+    resident_torque_hold_matches,
+)
+
+
+ARM_JOINT_NAMES_BY_SIDE = {
+    side: tuple(
+        f"{side}_{joint}_joint"
+        for joint in ("base", "shoulder", "elbow", "wrist_flex", "wrist_roll")
+    )
+    for side in ("left", "right")
+}
 EXPECTED_MARKER_IDS = tuple(range(10, 30))
 
 
@@ -79,13 +99,19 @@ def decode_image(message: Image) -> np.ndarray:
     return image.copy()
 
 
-def ordered_arm_positions(message: JointState) -> np.ndarray:
+def ordered_arm_positions(
+    message: JointState,
+    arm: str = "left",
+) -> np.ndarray:
+    if arm not in ARM_JOINT_NAMES_BY_SIDE:
+        raise ValueError(f"unsupported arm: {arm}")
+    joint_names = ARM_JOINT_NAMES_BY_SIDE[arm]
     positions = dict(zip(message.name, message.position, strict=True))
-    missing = [name for name in ARM_JOINT_NAMES if name not in positions]
+    missing = [name for name in joint_names if name not in positions]
     if missing:
         raise ValueError(f"joint state is missing {missing}")
     result = np.asarray(
-        [positions[name] for name in ARM_JOINT_NAMES],
+        [positions[name] for name in joint_names],
         dtype=np.float64,
     )
     if not np.all(np.isfinite(result)):
@@ -120,11 +146,25 @@ class WristEyeInHandSampleCapture(Node):
         self._joint_positions: list[np.ndarray] = []
         self._last_capture_monotonic = -math.inf
         self._finished = False
+        self._frames_received = 0
+        self._waiting_for_torque_hold = 0
+        self._resident_status: dict | None = None
+        self._resident_status_monotonic = -math.inf
+        self._resident_status_future = None
+        self._resident_status_requests = 0
+        self._resident_status_responses = 0
+        self._resident_status_error = ""
+        self._resident_status_last_state = "none"
+        joint_qos: int | QoSProfile = 10
+        if args.resident_torque_hold_anchor:
+            joint_qos = QoSProfile(depth=1)
+            joint_qos.reliability = ReliabilityPolicy.RELIABLE
+            joint_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self._joint_subscription = self.create_subscription(
             JointState,
             args.joint_topic,
             self._on_joint_state,
-            10,
+            joint_qos,
         )
         self._image_subscription = self.create_subscription(
             Image,
@@ -132,6 +172,24 @@ class WristEyeInHandSampleCapture(Node):
             self._on_image,
             qos_profile_sensor_data,
         )
+        self._resident_status_client = None
+        self._resident_status_timer = None
+        if args.resident_torque_hold_anchor:
+            self._resident_status_client = self.create_client(
+                Trigger,
+                RESIDENT_STATUS_SERVICE,
+            )
+            if not self._resident_status_client.wait_for_service(
+                timeout_sec=min(args.timeout, 2.0)
+            ):
+                raise RuntimeError(
+                    "resident status service unavailable: "
+                    f"{RESIDENT_STATUS_SERVICE}"
+                )
+            self._resident_status_timer = self.create_timer(
+                0.1,
+                self._request_resident_status,
+            )
 
     @property
     def finished(self) -> bool:
@@ -139,14 +197,62 @@ class WristEyeInHandSampleCapture(Node):
 
     def _on_joint_state(self, message: JointState) -> None:
         try:
-            ordered_arm_positions(message)
+            ordered_arm_positions(message, self._args.arm)
         except ValueError as error:
             self.get_logger().warning(str(error))
             return
         self._latest_joint_state = message
 
+    def _request_resident_status(self) -> None:
+        client = self._resident_status_client
+        if client is None:
+            return
+        future = self._resident_status_future
+        if future is not None:
+            if not future.done():
+                return
+            try:
+                response = future.result()
+                document = json.loads(response.message)
+                self._resident_status_responses += 1
+                self._resident_status_last_state = str(
+                    document.get("state", "missing")
+                )
+                self._resident_status = (
+                    document
+                    if response.success
+                    and resident_torque_hold_matches(
+                        document,
+                        required_owner=self._args.resident_required_owner,
+                        required_epoch=self._args.resident_required_epoch,
+                    )
+                    else None
+                )
+                self._resident_status_monotonic = time.monotonic()
+                self._resident_status_error = ""
+            except Exception as error:
+                self._resident_status = None
+                self._resident_status_error = (
+                    f"{type(error).__name__}: {error}"
+                )
+            self._resident_status_future = None
+        self._resident_status_future = client.call_async(Trigger.Request())
+        self._resident_status_requests += 1
+
     def _on_image(self, message: Image) -> None:
-        if self._finished or self._latest_joint_state is None:
+        if self._finished:
+            return
+        self._frames_received += 1
+        if (
+            self._args.resident_torque_hold_anchor
+            and (
+                self._resident_status is None
+                or time.monotonic() - self._resident_status_monotonic > 0.5
+            )
+        ):
+            self._waiting_for_torque_hold += 1
+            return
+        if self._latest_joint_state is None:
             return
         now = time.monotonic()
         if now - self._last_capture_monotonic < self._args.interval:
@@ -156,11 +262,17 @@ class WristEyeInHandSampleCapture(Node):
         if image_stamp <= 0.0 or joint_stamp <= 0.0:
             self.get_logger().warning("zero source timestamp; frame rejected")
             return
-        if abs(image_stamp - joint_stamp) > self._args.max_stamp_skew:
+        if (
+            not self._args.resident_torque_hold_anchor
+            and abs(image_stamp - joint_stamp) > self._args.max_stamp_skew
+        ):
             return
         try:
             image = decode_image(message)
-            positions = ordered_arm_positions(self._latest_joint_state)
+            positions = ordered_arm_positions(
+                self._latest_joint_state,
+                self._args.arm,
+            )
         except ValueError as error:
             self.get_logger().warning(str(error))
             return
@@ -203,11 +315,20 @@ class WristEyeInHandSampleCapture(Node):
         median_positions = np.median(positions, axis=0)
         document = {
             "schema_version": 1,
-            "status": "WRIST_EYE_IN_HAND_STATIONARY_CAPTURE_PASS",
-            "motion_authorized": False,
+            "status": (
+                "WRIST_EYE_IN_HAND_RESIDENT_TORQUE_HOLD_CAPTURE_PASS"
+                if self._args.resident_torque_hold_anchor
+                else "WRIST_EYE_IN_HAND_STATIONARY_CAPTURE_PASS"
+            ),
+            "motion_authorized": self._args.resident_torque_hold_anchor,
+            "source_motion_authorized": (
+                self._args.resident_torque_hold_anchor
+            ),
             "robot_target_available": False,
+            "arm": self._args.arm,
             "capture": {
                 "id": self._args.capture_id,
+                "arm": self._args.arm,
                 "measured_arm_rad": [
                     float(value) for value in median_positions
                 ],
@@ -216,8 +337,28 @@ class WristEyeInHandSampleCapture(Node):
                 "image_source_stamp_first": self._image_stamps[0],
                 "image_source_stamp_last": self._image_stamps[-1],
                 "detected_marker_ids": list(EXPECTED_MARKER_IDS),
+                "joint_state_source": (
+                    "resident_terminal_measured_anchor"
+                    if self._args.resident_torque_hold_anchor
+                    else "timestamp_synchronized_joint_state"
+                ),
             },
         }
+        if self._args.resident_torque_hold_anchor:
+            resident_status = self._resident_status
+            if resident_status is None:
+                raise RuntimeError("resident torque hold disappeared")
+            document["resident_torque_hold"] = {
+                "status_service": RESIDENT_STATUS_SERVICE,
+                "owner": resident_status["owner"],
+                "arbiter_epoch": int(resident_status["arbiter_epoch"]),
+                "torque_hold_active": True,
+                "terminal_anchor_stamp": stamp_seconds(
+                    self._latest_joint_state
+                ),
+                "required_owner": self._args.resident_required_owner,
+                "required_epoch": self._args.resident_required_epoch,
+            }
         output_yaml = output_directory / "capture.yaml"
         output_yaml.write_text(
             yaml.safe_dump(document, sort_keys=False),
@@ -230,13 +371,36 @@ class WristEyeInHandSampleCapture(Node):
             f"output={output_yaml}"
         )
 
+    def timeout_diagnostic(self) -> str:
+        return (
+            "WRIST_EYE_IN_HAND_CAPTURE_TIMEOUT "
+            f"frames_received={self._frames_received} "
+            f"accepted={len(self._images)} "
+            f"waiting_for_torque_hold={self._waiting_for_torque_hold} "
+            f"status_requests={self._resident_status_requests} "
+            f"status_responses={self._resident_status_responses} "
+            f"status_last_state={self._resident_status_last_state} "
+            f"status_error={self._resident_status_error!r}"
+        )
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--arm", choices=("left", "right"), default="left")
     parser.add_argument("--capture-id", required=True)
     parser.add_argument("--output-directory", required=True, type=Path)
     parser.add_argument("--image-topic", default="/camera/wrist_a/image_raw")
     parser.add_argument("--joint-topic", default="/joint_states")
+    parser.add_argument(
+        "--resident-torque-hold-anchor",
+        action="store_true",
+        help=(
+            "Require an armed resident READY hold and consume its terminal "
+            "measured anchor"
+        ),
+    )
+    parser.add_argument("--resident-required-owner", default="")
+    parser.add_argument("--resident-required-epoch", type=int, default=0)
     parser.add_argument("--frames", type=int, default=20)
     parser.add_argument("--interval", type=float, default=0.2)
     parser.add_argument("--max-stamp-skew", type=float, default=0.25)
@@ -253,6 +417,39 @@ def parse_args() -> argparse.Namespace:
         parser.error("--max-joint-span must be positive")
     if args.timeout <= 0.0:
         parser.error("--timeout must be positive")
+    if args.arm == "right" and not args.resident_torque_hold_anchor:
+        parser.error(
+            "right wrist calibration requires "
+            "--resident-torque-hold-anchor"
+        )
+    if args.arm == "right" and not args.resident_required_owner:
+        parser.error(
+            "right wrist calibration requires an explicit "
+            "--resident-required-owner"
+        )
+    if args.arm == "right" and args.resident_required_epoch <= 0:
+        parser.error(
+            "right wrist calibration requires a positive "
+            "--resident-required-epoch"
+        )
+    if (
+        args.resident_torque_hold_anchor
+        and args.joint_topic != RESIDENT_ANCHOR_TOPIC
+    ):
+        parser.error(
+            "--resident-torque-hold-anchor requires --joint-topic "
+            f"{RESIDENT_ANCHOR_TOPIC}"
+        )
+    if args.resident_required_epoch < 0:
+        parser.error("--resident-required-epoch must be non-negative")
+    if (
+        (args.resident_required_owner or args.resident_required_epoch)
+        and not args.resident_torque_hold_anchor
+    ):
+        parser.error(
+            "resident owner/epoch requirements need "
+            "--resident-torque-hold-anchor"
+        )
     return args
 
 
@@ -264,6 +461,7 @@ def main() -> int:
     try:
         while rclpy.ok() and not node.finished:
             if time.monotonic() >= deadline:
+                print(node.timeout_diagnostic())
                 raise RuntimeError(
                     "capture timed out before all valid frames arrived"
                 )

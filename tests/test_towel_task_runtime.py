@@ -60,16 +60,49 @@ def estimate(value):
     )
 
 
-def test_candidate_contract_is_motion_locked_with_300_mm_nominal_towel():
+def test_candidate_contract_records_measured_towel_and_stays_motion_locked():
     document = contract()
     assert document["motion_authorized"] is False
+    assert document["status"] == "R0_STATIC_CONTACT_CANDIDATE"
     assert document["towel"]["nominal_side_mm"] == pytest.approx(300.0)
-    assert document["towel"]["provenance"] == "user_reported_nominal_side_only"
+    assert document["towel"]["measured_sides_mm"] == {
+        "top": 304.0,
+        "right": 296.0,
+        "bottom": 304.0,
+        "left": 296.0,
+    }
+    assert document["towel"]["side_tolerance_mm"] == pytest.approx(4.0)
+    assert document["towel"]["thickness_mm"]["four_layer_body"] == pytest.approx(
+        13.0
+    )
+    assert document["towel"]["mass_g"] is None
+    assert document["towel"]["material"] == "cotton_100_percent"
     assert all(
         value is None
         for key, value in document["hardware_limits"].items()
         if key != "provenance"
     )
+
+
+def test_static_contact_candidate_has_four_scoped_hold_artifacts():
+    contact = contract()["cloth_contact_candidate"]
+    assert contact["commanded_motion_delta_rad"] == pytest.approx(0.0)
+    assert contact["dynamic_slip_tested"] is False
+    samples = [
+        contact[side][layer]
+        for side in ("left", "right")
+        for layer in ("one_layer", "four_layer")
+    ]
+    assert len({sample["sha256"] for sample in samples}) == 4
+    assert all(len(sample["sha256"]) == 64 for sample in samples)
+    left_one = contact["left"]["one_layer"]
+    assert left_one["validated_hold_anchor_rad"] == pytest.approx(0.246971)
+    assert left_one["closing_margin_raw"] == 3
+    assert left_one["operational_candidate_rad"] == pytest.approx(0.251573)
+    assert left_one["operational_candidate_revalidated"] is False
+    assert contact["left"]["four_layer"][
+        "operational_candidate_revalidated"
+    ] is True
 
 
 def test_workcell_observation_candidate_remains_fail_closed():
@@ -108,7 +141,16 @@ def test_candidate_contract_rejects_missing_hardware_field_and_wrong_towel_size(
         validate_towel_contract(document)
     document = contract()
     document["towel"]["mass_g"] = 50
-    with pytest.raises(TowelTaskContractError, match="other than nominal side"):
+    with pytest.raises(TowelTaskContractError, match="mass must stay null"):
+        validate_towel_contract(document)
+
+
+def test_unvalidated_contact_margin_must_match_raw_steps():
+    document = contract()
+    document["cloth_contact_candidate"]["left"]["one_layer"][
+        "operational_candidate_rad"
+    ] += 0.01
+    with pytest.raises(TowelTaskContractError, match="evidence is inconsistent"):
         validate_towel_contract(document)
 
 

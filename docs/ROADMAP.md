@@ -36,13 +36,35 @@ workcell shadow는 x/y max `3.272 mm`, yaw max `0.515 deg`로 통과했다. 이�
 수건 전체·네 모서리에 robot 가림이 없었다. 이 결과는 clear observation 자세만
 승격하며 URDF/제어 영점이나 일반 실제 motion을 승인하지 않는다.
 
-- side tolerance, 두께, 질량, 재질과 세탁·방향 조건
-- 좌우 jaw gap, 한 겹/다층 cloth contact와 slip 기준
-- 수건-작업대 마찰, 허용 TCP separation과 양팔 속도 차이
-- 실제 Top 장치 경로·해상도와 runtime camera config의 일치
-- Top-to-base, 작업대 plane, left/right wrist intrinsic·eye-in-hand
-- 양팔이 수건을 가리지 않는 `OBSERVE_CLEAR`와 안전 퇴피 자세
-- 300 mm 수건 전체와 승인된 외곽 여유가 Top의 검증된 metric 영역 안에 있음
+R0-D에서는 실제 마른 미세탁 면 100% 수건의 네 변 `304/296/304/296 mm`, 자로
+잰 몸통 두께 `1/2/4겹≈3/7/13 mm`를 등록했다. 좌우 그리퍼에서 각각 1겹과
+4겹을 현재 자세로 두 차례 유지하고 가볍게 당겼을 때 빠짐이나 가시적 미끄러짐이
+없었으며, 모든 실행이 coordinated STOP과 torque-off로 끝났다. 이는 수동으로
+만든 접촉점의 정적 retention 증거이지 자동 close-to-contact, 동적 slip, lift,
+장력 또는 fold 승인은 아니다.
+
+R0-E에서는 right wrist `640×480` intrinsic을 34개 training과 완전 미사용
+8개 validation 영상으로 검증했고 validation reprojection max는 `0.891 px`였다.
+초기 torque-off eye-in-hand 세트의 위치 오차가 최대 `30.739 mm`였던 원인은
+R0-C의 torque-on FK 등록과 source load state가 달랐기 때문으로 확인했다.
+resident hold owner/epoch와 terminal measured anchor가 일치하는 6개 training과
+완전 미사용 validation 2개를 다시 수집한 결과 training RMS/max
+`8.463/13.517 mm`, validation RMS/max `5.473/5.625 mm`, validation 회전 max
+`0.898 deg`로 통과했다. 검증 transform을 right wrist optical frame에 반영했지만
+이는 손목 영상 단독 3D나 일반 실제 motion을 승인하지 않는다.
+
+현재까지 고정된 R0 계약은 다음과 같다.
+
+- 완료: side tolerance, 근사 두께, 재질과 세탁·건조 조건
+- 완료: 좌우 한 겹/4겹 정적 cloth retention
+- 완료: 실제 Top 장치 경로·해상도와 runtime camera config의 일치
+- 완료: Top-to-base, 작업대 plane, left/right wrist intrinsic·eye-in-hand
+- 완료: 양팔이 수건을 가리지 않는 `OBSERVE_CLEAR` 왕복과 안전 정지
+- 완료: 300 mm 수건 전체와 승인된 외곽 여유가 Top의 검증된 metric 영역 안에 있음
+- 연기: 질량과 수건-작업대 마찰은 이를 소비하는 동적 gate 전에 측정
+- 미완료: 오른팔 FK tabletop 물체 좌표의 독립 target 검증
+- 미완료: 자동 contact/slip, 허용 TCP separation과 양팔 속도 차이는 이를
+  소비하는 primitive 전에 commission
 
 동시에 300 mm rigid proxy와 실제 MoveIt으로 아래 최소 envelope를 검증한다.
 
@@ -52,9 +74,12 @@ workcell shadow는 x/y max `3.272 mm`, yaw max `0.515 deg`로 통과했다. 이�
 - 2차 fold moving-edge separation 최대 약 150 mm
 - 모든 pregrasp, lift, lay-down, release와 retreat에서 양팔·작업대 collision 없음
 
-완료 조건: 선택 가능한 축·방향·팔 배정이 적어도 하나 존재하고, 카메라·작업대
-좌표와 수건 전체가 같은 검증된 workcell frame에 들어온다. 값이 비어 있거나
-좌표계가 거부된 동안 `motion_authorized=false`를 유지한다.
+완료 조건: 오른팔 tabletop target 독립 검증을 통과하고, 실제 MoveIt에서 선택
+가능한 축·방향·팔 배정이 적어도 하나 존재하며, 카메라·작업대 좌표와 수건 전체가
+같은 검증된 workcell frame에 들어온다. R0에서 직접 소비하지 않는 질량과 마찰,
+자동 contact와 동적 한계는 필요한 후속 gate와 비활성화할 동작을 명시해 연기할
+수 있다. 그 밖의 필수값이 비어 있거나 좌표계가 거부된 동안
+`motion_authorized=false`를 유지한다.
 
 ## R1 — 실제 관측·가림·topology
 
