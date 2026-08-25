@@ -191,7 +191,7 @@ def test_validated_right_wrist_camera_frames_are_present_by_default() -> None:
     mount_origin = joints["right_wrist_camera_mount_joint"].find("origin")
     optical_origin = joints["right_wrist_camera_optical_joint"].find("origin")
     assert mount_origin.attrib["xyz"] == (
-        "0.000752553355 0.012058633035 -0.008833814916"
+        "-0.005240079432 -0.001776520493 -0.000017288627"
     )
     assert optical_origin.attrib["rpy"] == (
         "0.018617155252 0.007963771556 3.122102338518"

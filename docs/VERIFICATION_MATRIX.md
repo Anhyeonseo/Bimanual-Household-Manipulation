@@ -4,8 +4,8 @@
 |---|---|---|---|
 | T0 | protocol manifest, firmware/host parity와 양팔 fault stop | 자동+HIL | 유지 |
 | T1 | 양팔 URDF, operational limits, 300 mm proxy FK와 collision | 자동+MoveIt | 실제 동시 도달성 미검증 |
-| T2 | 실제 Top/left/right wrist 장치 identity, intrinsic, timestamp | 실기+오프라인 | PASS: Top 1280, left W3, right intrinsic·torque-hold eye-in-hand·URDF optical frame |
-| T3 | Top-to-base, 작업대 metric 영역, clear observation pose | 실기+오프라인 | PASS: left/right 등록·작업대 영역·right shadow·clear 왕복/무가림; tabletop right FK target은 별도 gate |
+| T2 | 실제 Top/left/right wrist 장치 identity, intrinsic, timestamp | 실기+오프라인 | PASS: Top 1280, right intrinsic·torque-hold eye-in-hand·tabletop translation; left W3는 URDF 기록 보존, 새 staged 검증은 metric 사용 전 필요 |
+| T3 | Top-to-base, 작업대 metric 영역, clear observation pose | 실기+오프라인 | PASS: left/right 등록·작업대 영역·right shadow·clear 왕복/무가림·right tabletop 독립 staged target |
 | T4 | 300 mm task contract, 물성 증빙과 episode 단위 데이터 분리 | 리뷰+자동 | 네 변·근사 두께·면/건조 상태 등록; 질량은 동적 gate 전까지 연기 |
 | T5 | 실제 mask, component, frame border와 robot occlusion | 오프라인+실기 | annotation backend만 구현 |
 | T6 | corner, 말린 edge, layer ambiguity, height/flatness | 오프라인+실기 | 순수 기하만 구현 |

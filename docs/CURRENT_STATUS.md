@@ -1,6 +1,6 @@
 # 현재 상태
 
-기준일: 2026-08-25
+기준일: 2026-08-26
 
 최신 기록된 자동검증 결과는
 [2026-08-20 수건 software foundation 검증](test-results/2026-08-20-towel-software-foundation.md)이다.
@@ -108,6 +108,26 @@ RMS/max는 `5.473/5.625 mm`, 회전 max는 `0.898 deg`로
 `0.018617155/0.007963772/3.122102339 rad`로 dual URDF에 반영했다. right capture
 조립기와 solver는 이제 torque-off source를 fail-closed로 거절한다.
 
+R0-F에서는 동일 보드를 움직이지 않은 채 팔이 비운 Top stage와 controlled
+resident hold의 wrist stage를 시간 순서대로 결합해, 구조적인 Top 가림 없이
+tabletop 좌표를 검증했다. 동시촬영 controlled 01/02만 translation correction
+학습에 사용하고 staged validation 01/02는 완전히 제외했다. 회전을 고정한
+그리퍼 기준 평행이동 보정은 `[5.993, 16.265, 2.143] mm`였고 크기는
+`17.466 mm`였다. 독립 validation의 XY RMS/max는 `10.327/12.309 mm`, Z max는
+`12.313 mm`, yaw max는 `1.232 deg`였으며, 둘 모두 wrist 영상 경계 여유
+`≥30.5 px`에서 측정됐다. 따라서 right wrist optical xyz를 mount-center 기준
+`[-0.005240079, -0.001776520, -0.000017289] m`로 갱신했고 회전은 그대로
+유지했다. 이 결과는 rigid-proxy plan-only 좌표만 승인하며 실제 motion은
+승인하지 않는다.
+
+left wrist는 기록이 없는 상태가 아니다. `640x480` intrinsic은 44장 중 43장을
+사용해 RMS `0.5666 px`로 통과했고, 과거 W3의 10 training/2 validation
+eye-in-hand 결과는 validation 위치/회전 RMS `8.18 mm/1.63 deg`로 URDF에
+반영돼 있다. 다만 현재 저장소에는 당시 원본 candidate/session artifact가 없고
+이번 right처럼 독립 staged tabletop 교차검증을 새로 수행하지 않았다. R0의
+metric 경로가 Top+right wrist이므로 재수집은 연기하되, left wrist를 metric
+target fusion이나 motion correction에 쓰기 전 같은 staged gate를 통과시킨다.
+
 같은 고정 조건의 worktable 보정은 `calibration_01..06,07b,08`만 plane fit에
 사용하고 `validation_01..02`는 해에 넣지 않았다. 영상 경계가 `4.25 px`였던
 초기 `calibration_07`은 기록만 보존하고 제외했다. 10 mm coverage-hull inset
@@ -121,11 +141,10 @@ config로 승격했다. Pi 재빌드 뒤 Top `1280x960@30`, 두 wrist `640x480@3
 
 ## 현재 blocker
 
-1. Top left/right metric registration, workcell shadow와 `OBSERVE_CLEAR` 실기
-   왕복 및 right wrist intrinsic·eye-in-hand·URDF optical frame는 통과했다.
-   다만 left wrist는 gripper가 영상 일부를 영구 가리며 양쪽 wrist robot mask와
-   confidence 계약은 R1에서 연결해야 한다. 오른팔 FK의 tabletop 물체 motion
-   target 사용도 별도 독립 검증 전에는 금지한다.
+1. Top/right metric registration, workcell shadow, `OBSERVE_CLEAR` 실기 왕복과
+   right wrist tabletop 교차검증은 통과했다. 다만 left wrist는 gripper가 영상
+   일부를 영구 가리며 새 staged metric 검증과 양쪽 wrist robot mask/confidence
+   계약은 R1에서 연결해야 한다.
 2. 1차 fold의 약 300 mm moving-edge separation과 두 fold의 약 150 mm arc
    높이를 양팔이 동시에 추종할 수 있는지 실제 MoveIt으로 검증되지 않았다.
 3. 좌우 단일/4겹 정적 retention은 통과했다. 자동 jaw open/close-to-contact,
@@ -133,13 +152,12 @@ config로 승격했다. Pi 재빌드 뒤 Top `1280x960@30`, 두 wrist `640x480@3
 
 ## 바로 다음 작업
 
-1. 오른팔 FK의 tabletop 물체 좌표를 독립 target으로 검증한다.
-2. 300 mm rigid proxy로 x/y축·양 방향·팔 배정의 MoveIt plan-only go/no-go를
+1. 300 mm rigid proxy로 x/y축·양 방향·팔 배정의 MoveIt plan-only go/no-go를
    수행한다.
-3. 위 두 gate가 통과하면 R0를 닫고, left wrist의 고정 gripper 가림과 양쪽
+2. 위 gate가 통과하면 R0를 닫고, left wrist의 고정 gripper 가림과 양쪽
    wrist robot mask를 R1 관측 계약에 연결한다.
-4. 통과한 작업대 배치에서 실제 수건 데이터 수집과 mask backend를
+3. 통과한 작업대 배치에서 실제 수건 데이터 수집과 mask backend를
    시작한다.
-5. R1 episode에 primitive 전후 state·outcome을 함께 기록하고, R2에서 Isaac Lab
+4. R1 episode에 primitive 전후 state·outcome을 함께 기록하고, R2에서 Isaac Lab
    S0/S1 재현성과 heuristic unfolding baseline을 만든다. 임의 구김용 learned
    policy는 이 공통 action/observation 계약 위에서 R5 전에 학습·비교한다.

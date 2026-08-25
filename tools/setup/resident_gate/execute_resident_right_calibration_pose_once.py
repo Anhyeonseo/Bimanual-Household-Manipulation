@@ -41,6 +41,7 @@ def load_capture_target(path: Path) -> tuple[str, tuple[float, ...]]:
     if status not in (
         "STATIONARY_READ_ONLY_CAPTURE_PASS",
         "WRIST_EYE_IN_HAND_STATIONARY_CAPTURE_PASS",
+        "WRIST_ROUTE_TARGET_STATIONARY_CAPTURE_PASS",
     ):
         raise ValueError("target must come from a passed read-only capture")
     if bool(document.get("motion_authorized", False)):
@@ -65,6 +66,14 @@ def load_capture_target(path: Path) -> tuple[str, tuple[float, ...]]:
         raise ValueError(
             "wrist target capture did not observe the complete GridBoard"
         )
+    if status == "WRIST_ROUTE_TARGET_STATIONARY_CAPTURE_PASS" and (
+        document.get("record_kind") != "right_wrist_visibility_route_target"
+        or document.get("purpose") != "visibility_route_target_only"
+        or document.get("robot_target_available") is not True
+        or capture.get("joint_state_source")
+        != "timestamp_synchronized_joint_state"
+    ):
+        raise ValueError("wrist route target provenance is incomplete")
     capture_id = str(capture.get("id", "")).strip()
     if not capture_id:
         raise ValueError("target capture id is missing")

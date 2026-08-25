@@ -53,16 +53,28 @@ resident hold owner/epoch와 terminal measured anchor가 일치하는 6개 train
 `0.898 deg`로 통과했다. 검증 transform을 right wrist optical frame에 반영했지만
 이는 손목 영상 단독 3D나 일반 실제 motion을 승인하지 않는다.
 
+R0-F에서는 로봇팔이 Top을 가리는 실제 구조 때문에 한 시점의 동시 촬영을
+강제하지 않고, 고정한 GridBoard를 팔이 비운 Top stage와 resident hold의 wrist
+stage로 나눠 찍는 fail-closed 계약을 사용했다. controlled training 2자세만으로
+right eye-in-hand의 그리퍼 기준 평행이동 3축을 적합하고 회전은 고정했다. 보정
+크기는 `17.466 mm`였으며, 보정에 전혀 쓰지 않은 staged validation 2자세에서
+XY RMS/max `10.327/12.309 mm`, Z max `12.313 mm`, yaw max `1.232 deg`였다.
+전체 4자세의 XY span은 `223.716 mm`, 비공선 높이는 `111.456 mm`였다. 이
+결과는 tabletop 물체 좌표와 300 mm rigid-proxy plan-only 사용만 승인하며 실제
+motion은 계속 승인하지 않는다.
+
 현재까지 고정된 R0 계약은 다음과 같다.
 
 - 완료: side tolerance, 근사 두께, 재질과 세탁·건조 조건
 - 완료: 좌우 한 겹/4겹 정적 cloth retention
 - 완료: 실제 Top 장치 경로·해상도와 runtime camera config의 일치
-- 완료: Top-to-base, 작업대 plane, left/right wrist intrinsic·eye-in-hand
+- 완료: Top-to-base, 작업대 plane, right wrist intrinsic·eye-in-hand·tabletop 교차검증
+- 보존: left wrist intrinsic과 과거 eye-in-hand URDF 값. 새 staged tabletop
+  교차검증은 R1에서 metric 융합 전에 수행
 - 완료: 양팔이 수건을 가리지 않는 `OBSERVE_CLEAR` 왕복과 안전 정지
 - 완료: 300 mm 수건 전체와 승인된 외곽 여유가 Top의 검증된 metric 영역 안에 있음
 - 연기: 질량과 수건-작업대 마찰은 이를 소비하는 동적 gate 전에 측정
-- 미완료: 오른팔 FK tabletop 물체 좌표의 독립 target 검증
+- 완료: 오른팔 FK+wrist tabletop 물체 좌표의 독립 target 검증
 - 미완료: 자동 contact/slip, 허용 TCP separation과 양팔 속도 차이는 이를
   소비하는 primitive 전에 commission
 
@@ -74,9 +86,9 @@ resident hold owner/epoch와 terminal measured anchor가 일치하는 6개 train
 - 2차 fold moving-edge separation 최대 약 150 mm
 - 모든 pregrasp, lift, lay-down, release와 retreat에서 양팔·작업대 collision 없음
 
-완료 조건: 오른팔 tabletop target 독립 검증을 통과하고, 실제 MoveIt에서 선택
-가능한 축·방향·팔 배정이 적어도 하나 존재하며, 카메라·작업대 좌표와 수건 전체가
-같은 검증된 workcell frame에 들어온다. R0에서 직접 소비하지 않는 질량과 마찰,
+남은 완료 조건: 실제 MoveIt에서 선택 가능한 축·방향·팔 배정이 적어도 하나
+존재해야 한다. 카메라·작업대 좌표와 수건 전체가 같은 검증된 workcell frame에
+들어오는 조건은 R0-F에서 통과했다. R0에서 직접 소비하지 않는 질량과 마찰,
 자동 contact와 동적 한계는 필요한 후속 gate와 비활성화할 동작을 명시해 연기할
 수 있다. 그 밖의 필수값이 비어 있거나 좌표계가 거부된 동안
 `motion_authorized=false`를 유지한다.
