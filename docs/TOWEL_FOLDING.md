@@ -14,7 +14,9 @@
 ### 입력
 
 - nominal 300×300 mm인 한 장의 정사각형 수건
-- side tolerance, 두께, 질량과 재질은 task contract에 등록돼 있음
+- side tolerance, 근사 두께, 재질·건조 상태는 task contract에 등록돼 있음
+- 질량과 작업대 마찰은 해당 동적 primitive 전에 실측하며 미측정 동안 이를
+  소비하는 drag, shake와 동역학 기반 명령은 비활성화함
 - 수건 전체가 작업대와 상단 카메라 시야 안에서 시작함
 - 초기 자세와 구김은 임의지만 매듭이나 외부 물체 얽힘은 없음
 - 작업대에는 수건 조작을 방해하는 다른 물체가 없음
@@ -113,9 +115,11 @@ fold arc와 같이 수건이 들린 상태에서는 RGB-D, 검증된 다중 시�
 gripper에 붙은 조건부 TCP constraint가 없으면 3D corner를 만들지 않는다.
 
 Top 영상의 팔 가림은 검증된 camera-to-base와 URDF로 robot mask를 투영해
-분리한다. 가려진 픽셀을 cloth로 추정해 채우지 않으며, right wrist의 intrinsic,
-eye-in-hand와 optical frame가 검증되기 전에는 해당 영상을 metric motion
-목표에 사용하지 않는다.
+분리한다. 가려진 픽셀을 cloth로 추정해 채우지 않는다. right wrist의 intrinsic,
+torque-hold eye-in-hand와 optical frame는 R0에서 검증됐지만, 검증된 자세·화면
+경계 밖으로 외삽하거나 손목 영상 하나만으로 들린 수건의 3D 점을 만들지 않는다.
+left wrist의 고정 gripper 가림과 양쪽 wrist의 robot mask는 관측 confidence에
+반영한다.
 
 ## 5. 수건 상태 표현
 

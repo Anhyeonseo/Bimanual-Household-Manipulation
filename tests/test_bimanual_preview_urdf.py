@@ -169,9 +169,10 @@ def test_validated_left_wrist_camera_frames_are_present_by_default() -> None:
     assert optical_origin.attrib["rpy"] == "-0.02242196 0.03092788 3.02135163"
 
 
-def test_right_uses_same_camera_mount_wrist_part_without_fake_optical_frame() -> None:
+def test_validated_right_wrist_camera_frames_are_present_by_default() -> None:
     root = _expand()
     links = {link.attrib["name"]: link for link in root.findall("link")}
+    joints = _joints(root)
     assert "right_wrist_camera_mount_center_link" in links
     right_gripper_meshes = links["right_gripper_link"].findall(
         "visual/geometry/mesh"
@@ -185,6 +186,22 @@ def test_right_uses_same_camera_mount_wrist_part_without_fake_optical_frame() ->
         filename.endswith("wrist_roll_follower_so101_v1.stl")
         for filename in filenames
     )
+    assert "right_wrist_camera_link" in links
+    assert "right_wrist_camera_optical_frame" in links
+    mount_origin = joints["right_wrist_camera_mount_joint"].find("origin")
+    optical_origin = joints["right_wrist_camera_optical_joint"].find("origin")
+    assert mount_origin.attrib["xyz"] == (
+        "0.000752553355 0.012058633035 -0.008833814916"
+    )
+    assert optical_origin.attrib["rpy"] == (
+        "0.018617155252 0.007963771556 3.122102338518"
+    )
+
+
+def test_right_optical_frame_is_absent_when_mount_is_disabled() -> None:
+    root = _expand(right_use_wrist_camera_mount=False)
+    links = {link.attrib["name"] for link in root.findall("link")}
+    assert "right_wrist_camera_mount_center_link" not in links
     assert "right_wrist_camera_link" not in links
     assert "right_wrist_camera_optical_frame" not in links
 

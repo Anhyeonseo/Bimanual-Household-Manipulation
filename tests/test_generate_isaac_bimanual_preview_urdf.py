@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from xml.etree import ElementTree as ET
 
 import numpy as np
@@ -90,3 +92,26 @@ def test_registration_candidate_must_be_validated_and_fail_closed() -> None:
         path.write_text(yaml.safe_dump(document), encoding="utf-8")
         with pytest.raises(RuntimeError, match="not independently validated"):
             MODULE._load_registration_candidate(path)
+
+
+def test_generated_manifest_reports_validated_right_optical_frame() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        output = Path(directory) / "preview.urdf"
+        args = SimpleNamespace(
+            output=output,
+            right_registration_candidate=None,
+            right_mount_xyz_m=(0.0, -0.232064146, 0.0),
+            right_mount_rpy_rad=(0.0, 0.0, 0.0),
+            right_wrist_camera_mount=True,
+        )
+        urdf, manifest, _ = MODULE.generate(args)
+        links = {
+            link.attrib["name"]
+            for link in ET.parse(urdf).getroot().findall("link")
+        }
+        document = json.loads(manifest.read_text())
+        assert "right_wrist_camera_optical_frame" in links
+        assert document["wrist_camera_mount_geometry"][
+            "right_optical_frame"
+        ] == "VALIDATED_TORQUE_HOLD_EYE_IN_HAND"
+        assert document["motion_authorized"] is False

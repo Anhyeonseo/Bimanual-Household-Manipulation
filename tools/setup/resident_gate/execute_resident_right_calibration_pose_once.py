@@ -27,6 +27,7 @@ RIGHT_ARM_INDICES = (6, 7, 8, 9, 10)
 POINT_OFFSETS_MS = (100, 200, 300, 400)
 MAXIMUM_SUBLEG_DELTA_RAD = 0.04
 MAXIMUM_ALLOWED_TOTAL_DELTA_RAD = 0.45
+MAXIMUM_TARGET_OFFSET_RAD = 0.15
 # Captures use the measured terminal anchor, not the requested waypoint.  This
 # remains a fail-closed gross-settle bound while allowing ordinary SO-101
 # position quantization and loaded gear residual at a visibility waypoint.
@@ -36,21 +37,34 @@ FINAL_RESIDUAL_LIMIT_RAD = 0.05
 def load_capture_target(path: Path) -> tuple[str, tuple[float, ...]]:
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
     capture = document.get("capture", {})
-    if document.get("status") != "STATIONARY_READ_ONLY_CAPTURE_PASS":
+    status = document.get("status")
+    if status not in (
+        "STATIONARY_READ_ONLY_CAPTURE_PASS",
+        "WRIST_EYE_IN_HAND_STATIONARY_CAPTURE_PASS",
+    ):
         raise ValueError("target must come from a passed read-only capture")
     if bool(document.get("motion_authorized", False)):
         raise ValueError("target capture must be motion_authorized=false")
-    if capture.get("arm") != "right":
+    capture_arm = capture.get("arm", document.get("arm"))
+    if capture_arm != "right":
         raise ValueError("target capture must describe the right arm")
     values = tuple(float(value) for value in capture.get("measured_arm_rad", ()))
     if len(values) != 5 or not all(math.isfinite(value) for value in values):
         raise ValueError("target capture must contain five finite joint values")
-    if float(capture.get("pnp_rms_px_max", math.inf)) > float(
-        capture.get("pnp_rms_px_limit", 0.0)
-    ):
-        raise ValueError("target capture PnP check did not pass")
-    if tuple(capture.get("detected_marker_ids", ())) != (0, 1, 2, 3):
-        raise ValueError("target capture did not observe the complete GridBoard")
+    marker_ids = tuple(capture.get("detected_marker_ids", ()))
+    if status == "STATIONARY_READ_ONLY_CAPTURE_PASS":
+        if float(capture.get("pnp_rms_px_max", math.inf)) > float(
+            capture.get("pnp_rms_px_limit", 0.0)
+        ):
+            raise ValueError("target capture PnP check did not pass")
+        if marker_ids != (0, 1, 2, 3):
+            raise ValueError(
+                "target capture did not observe the complete GridBoard"
+            )
+    elif marker_ids != tuple(range(10, 30)):
+        raise ValueError(
+            "wrist target capture did not observe the complete GridBoard"
+        )
     capture_id = str(capture.get("id", "")).strip()
     if not capture_id:
         raise ValueError("target capture id is missing")
@@ -67,6 +81,23 @@ def compose_bimanual_target(
     for index, value in zip(RIGHT_ARM_INDICES, right_target, strict=True):
         result[index] = value
     return tuple(result)
+
+
+def offset_right_target(
+    source: tuple[float, ...],
+    offsets: tuple[float, ...],
+) -> tuple[float, ...]:
+    if len(source) != 5 or len(offsets) != 5:
+        raise ValueError("right target and offset must each contain five values")
+    if (
+        not all(math.isfinite(value) for value in offsets)
+        or max(abs(value) for value in offsets) > MAXIMUM_TARGET_OFFSET_RAD
+    ):
+        raise ValueError("right target offset exceeds the approved bound")
+    return tuple(
+        value + offset
+        for value, offset in zip(source, offsets, strict=True)
+    )
 
 
 def segmented_targets(
@@ -125,6 +156,17 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--confirmation", required=True)
     parser.add_argument("--target-capture", required=True, type=Path)
+    parser.add_argument(
+        "--right-target-offset-rad",
+        nargs=5,
+        type=float,
+        default=(0.0, 0.0, 0.0, 0.0, 0.0),
+        metavar=("BASE", "SHOULDER", "ELBOW", "WRIST_FLEX", "WRIST_ROLL"),
+        help=(
+            "Apply a bounded operator-approved offset to the five-joint "
+            "right-arm target; each absolute offset must be <= 0.15 rad"
+        ),
+    )
     parser.add_argument(
         "--precheck-only",
         action="store_true",
@@ -196,6 +238,15 @@ def parse_args() -> argparse.Namespace:
         parser.error(
             "--maximum-total-joint-delta-rad must be within 0.04.."
             f"{MAXIMUM_ALLOWED_TOTAL_DELTA_RAD}"
+        )
+    if (
+        not all(math.isfinite(value) for value in args.right_target_offset_rad)
+        or max(abs(value) for value in args.right_target_offset_rad)
+        > MAXIMUM_TARGET_OFFSET_RAD
+    ):
+        parser.error(
+            "each --right-target-offset-rad value must be finite and within "
+            f"+/-{MAXIMUM_TARGET_OFFSET_RAD}"
         )
     return args
 
@@ -312,7 +363,13 @@ def main() -> int:
     from so101_interfaces.srv import BimanualStreamCommand
 
     args = parse_args()
-    capture_id, right_target = load_capture_target(args.target_capture)
+    capture_id, source_right_target = load_capture_target(args.target_capture)
+    right_target = offset_right_target(
+        source_right_target,
+        tuple(args.right_target_offset_rad),
+    )
+    if any(args.right_target_offset_rad):
+        capture_id = f"{capture_id}_offset"
     rclpy.init()
     node = Node("resident_right_calibration_pose_once")
     qos = QoSProfile(depth=1)
@@ -531,6 +588,8 @@ def main() -> int:
             "final_epoch": final_epoch,
             "initial_positions_rad": list(anchor),
             "requested_right_positions_rad": list(right_target),
+            "source_right_positions_rad": list(source_right_target),
+            "right_target_offset_rad": list(args.right_target_offset_rad),
             "terminal_right_positions_rad": list(final_right),
             "maximum_total_delta_rad": maximum_total_delta,
             "maximum_subleg_delta_rad": MAXIMUM_SUBLEG_DELTA_RAD,

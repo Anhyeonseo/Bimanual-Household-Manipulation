@@ -9,10 +9,11 @@
 
 ## 프로젝트 상태
 
-최종 목표 수건은 nominal 300×300 mm로 확정됐다. 실제 side tolerance, 두께,
-질량, 재질과 접촉·마찰 한계는 아직 측정되지 않았다. 프로젝트는 계속
-`SOFTWARE_FOUNDATION` 단계이며 실제 수건 motion은 승인되지 않았고
-`motion_authorized=false`다.
+최종 목표 수건은 nominal 300×300 mm로 확정됐다. 실제 네 변, 근사 두께,
+면 100%·건조·미세탁 조건과 좌우 1/4겹 정적 retention을 등록했다. 질량,
+작업대 마찰, 자동 contact와 동적 slip·장력 한계는 아직 측정되지 않았다.
+프로젝트는 R0 물리/contact candidate 단계이며 실제 수건 motion은 승인되지
+않았고 `motion_authorized=false`다.
 
 ## 재사용 가능한 기반
 
@@ -29,7 +30,8 @@
 
 | 구성 | 현재 | 다음 승인 조건 |
 |---|---|---|
-| 태스크 범위 | nominal 300×300 mm, 최종 150×150 mm | 나머지 물성·허용편차 실측 |
+| 태스크 범위 | 실측 304/296/304/296 mm, 면 100%, dry/unwashed, 최종 nominal 150×150 mm | 질량은 동적 모델/primitive 전 측정 |
+| cloth contact | 좌우 1겹·4겹 current-pose hold 2회와 가벼운 pull PASS | 자동 open/close-to-contact, 동적 slip·장력 승격 |
 | annotation 계약 | schema, validator, deterministic split manifest | 실제 episode index 생성 |
 | 수건 데이터셋 | synthetic example만 있음 | 구김·평탄·1차/2차 fold 실제 데이터 |
 | segmentation | reviewed polygon→metric observation backend | 실제 mask, component, border 검사 |
@@ -90,6 +92,22 @@ gripper marker의 workcell 좌표 검증이며, 오른팔 FK를 실제 tabletop 
 target으로 사용하는 승인은 아니다. 이어서 위 `OBSERVE_CLEAR` plan-only와
 supervised 왕복도 통과했으므로 R0-C의 wrist camera 이전 범위는 완료했다.
 
+R0-E에서는 right wrist `640x480` intrinsic을 43개 완전 검출 영상에서
+결정적 34 training/8 held-out split으로 검증했다. training OpenCV RMS는
+`0.550 px`, held-out per-view max는 `0.891 px`였다. 최초 right eye-in-hand
+세트는 torque-off joint state로 수집되어 R0-C의 torque-on 오른팔 등록과 load
+state가 달랐고, 그 결과 training 위치 RMS/max `14.005/30.739 mm`로 거절됐다.
+사진 크기·1280 Top intrinsic·URDF·GridBoard `95x120 mm`를 재검증한 뒤,
+resident hold owner/epoch와 terminal measured anchor가 일치하는 6개 training과
+완전 미사용 validation 2개를 재수집했다. 최종 training 위치 RMS/max는
+`8.463/13.517 mm`, 회전 RMS/max는 `1.296/2.053 deg`였고, validation 위치
+RMS/max는 `5.473/5.625 mm`, 회전 max는 `0.898 deg`로
+`EYE_IN_HAND_VALIDATED_MOTION_STILL_NOT_AUTHORIZED`를 통과했다. 결과를
+`right_wrist_camera_mount_center_link` 기준 xyz
+`0.000752553/0.012058633/-0.008833815 m`, optical rpy
+`0.018617155/0.007963772/3.122102339 rad`로 dual URDF에 반영했다. right capture
+조립기와 solver는 이제 torque-off source를 fail-closed로 거절한다.
+
 같은 고정 조건의 worktable 보정은 `calibration_01..06,07b,08`만 plane fit에
 사용하고 `validation_01..02`는 해에 넣지 않았다. 영상 경계가 `4.25 px`였던
 초기 `calibration_07`은 기록만 보존하고 제외했다. 10 mm coverage-hull inset
@@ -104,24 +122,24 @@ config로 승격했다. Pi 재빌드 뒤 Top `1280x960@30`, 두 wrist `640x480@3
 ## 현재 blocker
 
 1. Top left/right metric registration, workcell shadow와 `OBSERVE_CLEAR` 실기
-   왕복은 통과했다. 다만 left wrist는 gripper가 영상 일부를 영구 가리며,
-   right wrist는 intrinsic, eye-in-hand와 URDF optical frame가 없다. 오른팔 FK의
-   tabletop 물체 motion target 사용도 별도 독립 검증 전에는 금지한다.
+   왕복 및 right wrist intrinsic·eye-in-hand·URDF optical frame는 통과했다.
+   다만 left wrist는 gripper가 영상 일부를 영구 가리며 양쪽 wrist robot mask와
+   confidence 계약은 R1에서 연결해야 한다. 오른팔 FK의 tabletop 물체 motion
+   target 사용도 별도 독립 검증 전에는 금지한다.
 2. 1차 fold의 약 300 mm moving-edge separation과 두 fold의 약 150 mm arc
    높이를 양팔이 동시에 추종할 수 있는지 실제 MoveIt으로 검증되지 않았다.
-3. jaw gap, 단일/다층 접촉, slip, 장력, 테이블 마찰과 수건 물성이 미측정이다.
+3. 좌우 단일/4겹 정적 retention은 통과했다. 자동 jaw open/close-to-contact,
+   동적 slip·장력과 테이블 마찰은 미측정이며 해당 동작은 비활성 상태다.
 
 ## 바로 다음 작업
 
-1. 수건 side tolerance, 두께, 질량, 재질과 상태 조건을 측정해 기존 task
-   contract에 증빙과 함께 반영한다.
-2. right wrist intrinsic/eye-in-hand/optical frame를 완성하고 left wrist의
-   고정 gripper 가림을 calibration/관측 계약에 명시한다.
-3. 오른팔 FK의 tabletop 물체 좌표를 독립 target으로 검증한다.
-4. 300 mm rigid proxy로 x/y축·양 방향·팔 배정의 MoveIt plan-only go/no-go를
+1. 오른팔 FK의 tabletop 물체 좌표를 독립 target으로 검증한다.
+2. 300 mm rigid proxy로 x/y축·양 방향·팔 배정의 MoveIt plan-only go/no-go를
    수행한다.
-5. 그 결과가 통과한 작업대 배치에서 실제 수건 데이터 수집과 mask backend를
+3. 위 두 gate가 통과하면 R0를 닫고, left wrist의 고정 gripper 가림과 양쪽
+   wrist robot mask를 R1 관측 계약에 연결한다.
+4. 통과한 작업대 배치에서 실제 수건 데이터 수집과 mask backend를
    시작한다.
-6. R1 episode에 primitive 전후 state·outcome을 함께 기록하고, R2에서 Isaac Lab
+5. R1 episode에 primitive 전후 state·outcome을 함께 기록하고, R2에서 Isaac Lab
    S0/S1 재현성과 heuristic unfolding baseline을 만든다. 임의 구김용 learned
    policy는 이 공통 action/observation 계약 위에서 R5 전에 학습·비교한다.

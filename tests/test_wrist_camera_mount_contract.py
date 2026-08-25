@@ -5,6 +5,8 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DESCRIPTION = ROOT / "ros2_ws/src/so101_description"
@@ -24,6 +26,10 @@ CAMERA_MOUNT_MESH = (
 )
 CAMERA_MOUNT_SHA256 = (
     "b4345ccf23f1f2ed3f4885c205cac5afbed6ddd1b183617c4801751e3bafb7b4"
+)
+RIGHT_CAMERA_INFO = (
+    ROOT
+    / "ros2_ws/src/manipulation_camera_manager/config/wrist_b_camera_info.yaml"
 )
 XACRO_NS = "http://www.ros.org/wiki/xacro"
 
@@ -64,6 +70,18 @@ def ascii_stl_bounds(path: Path):
 
 
 class WristCameraMountContractTest(unittest.TestCase):
+    def test_right_wrist_intrinsic_is_a_distinct_validated_camera_model(self) -> None:
+        right = yaml.safe_load(RIGHT_CAMERA_INFO.read_text(encoding="utf-8"))
+        self.assertEqual(right["camera_name"], "so101_wrist_b")
+        self.assertEqual((right["image_width"], right["image_height"]), (640, 480))
+        matrix = right["camera_matrix"]["data"]
+        distortion = right["distortion_coefficients"]["data"]
+        self.assertEqual(len(matrix), 9)
+        self.assertEqual(len(distortion), 5)
+        self.assertGreater(matrix[0], 500.0)
+        self.assertGreater(matrix[4], 500.0)
+        self.assertLess(distortion[0], -0.4)
+
     def test_asset_is_the_verified_official_so101_stl(self) -> None:
         digest = hashlib.sha256(CAMERA_MOUNT_MESH.read_bytes()).hexdigest()
         self.assertEqual(digest, CAMERA_MOUNT_SHA256)

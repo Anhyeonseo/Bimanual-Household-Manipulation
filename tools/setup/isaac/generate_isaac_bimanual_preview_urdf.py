@@ -285,7 +285,11 @@ def generate(args: argparse.Namespace) -> tuple[Path, Path, str]:
             "right": bool(args.right_wrist_camera_mount),
             "same_wrist_joint_origin": True,
             "left_optical_frame": "VALIDATED",
-            "right_optical_frame": "ABSENT_AWAITING_CAMERA_CALIBRATION",
+            "right_optical_frame": (
+                "VALIDATED_TORQUE_HOLD_EYE_IN_HAND"
+                if args.right_wrist_camera_mount
+                else "DISABLED_WITH_CAMERA_MOUNT"
+            ),
         },
         "isaac_import": {
             "input_file": str(output),
