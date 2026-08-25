@@ -195,6 +195,20 @@ contract를 사용한다.
 이 단계의 목표는 즉시 완전 평탄화가 아니라 정밀 corner recovery가 가능한
 `PARTIALLY_OPEN` 또는 `TWO_CORNERS_VISIBLE` 상태에 도달하는 것이다.
 
+초기에는 위 절차를 deterministic baseline으로 구현한다. 최종 시스템에서는
+임의 구김과 self-occlusion 때문에 1·3·6번의 grasp/primitive 선택을 learned
+policy가 담당한다. 정책은 관절 명령을 직접 내리지 않고 다음 후보를 출력한다.
+
+- primitive 종류와 좌/우 또는 양팔 배정
+- image/workcell상의 pick point와 필요하면 place point
+- contract 안의 lift height, separation, 속도·반복 횟수
+- confidence와 `abstain`
+
+후보는 기존 workspace, collision, contact와 recovery gate를 모두 통과해야 한다.
+실제 episode는 성공뿐 아니라 action 전후 visible area, corner/topology state,
+slip, 시도 횟수와 실패 원인을 저장해 simulator randomization과 policy 학습에
+되먹임한다.
+
 ## 8. 정밀 평탄화와 정렬
 
 부분적으로 펼쳐진 수건에서 겹친 모서리와 말린 edge를 식별하고, 필요한
@@ -259,10 +273,10 @@ correction 또는 `FAILED`로 끝낸다.
 기록한다. 같은 실패 원인이 반복되거나 fault, stale calibration, workspace
 이탈이 발생하면 남은 횟수와 관계없이 안전 정지한다.
 
-## 12. Isaac Sim 사용 범위
+## 12. Isaac Lab과 학습 사용 범위
 
 현재 Isaac workcell은 표시 전용이므로 수건 mesh만 추가해서는 cloth 실험이
-성립하지 않는다. 기존 stage를 보존하고 다음 세 단계의 별도 physics layer로
+성립하지 않는다. 기존 stage를 보존하고 다음 네 단계의 별도 physics layer로
 승격한다.
 
 1. `S0 rigid proxy`: 300×300 mm 평판으로 FOV, 양팔 IK, collision과 두 fold
@@ -272,11 +286,48 @@ correction 또는 `FAILED`로 끝낸다.
    순서를 검증한다.
 3. `S2 contact/randomized cloth`: 질량, 두께, bend, damping과 dynamic friction을
    실측 범위에서 바꾸며 실패 사례와 perception 데이터를 생성한다.
+4. `S3 Isaac Lab policy task`: S1/S2를 vectorized 환경으로 감싸고 제한된
+   primitive action, 실제 카메라와 동형인 observation, progress/safety reward와
+   유한 termination을 구현한다.
 
 시뮬레이션의 solver, mesh, material, attachment와 random seed는 artifact에
 기록한다. Isaac 결과는 경로·충돌·가림과 실패 사례 생성에는 사용할 수 있지만
 실제 jaw force, 정지 마찰, fling 속도나 motion authorization의 근거로 사용하지
 않는다.
+
+### 학습 순서와 선택 기준
+
+1. R3의 scripted primitive를 S1에서 replay해 contact·attachment·termination이
+   맞는지 먼저 확인한다.
+2. heuristic 펼치기 정책을 S2의 고정 seed suite에서 baseline으로 기록한다.
+3. 같은 action/observation 계약으로 behavior cloning 또는 self-supervised
+   policy와 RL을 학습한다.
+4. simulator held-out material/shape/lighting에서 성공률, coverage, action 수,
+   collision/drop을 비교한다.
+5. 실제 수건에서는 supervised-once와 작은 고정 evaluation set으로 시작하고,
+   sim-to-real gap이 크면 실제 replay buffer 기반 fine-tuning을 우선한다.
+
+학습을 R5에서 처음 시작하지 않는다. R1 실제 데이터 수집부터 episode split과
+action outcome을 보존하고, R2에서 Isaac Lab 환경·baseline·평가기를 만들며,
+R3/R4의 검증된 primitive와 평탄 수건 접기 결과를 학습 action과 성공 판정의
+ground truth로 재사용한다.
+
+강화학습은 특히 임의 구김의 펼치기·정규화에 우선 적용한다. 평탄 수건의 두
+번 접기는 기하 baseline을 유지하고, learned scorer가 필요할 때 grasp/placement
+후보만 개선한다. 이는 학습을 축소하는 것이 아니라 탐색이 필요한 상태 선택과
+정확한 실행·안전 검증을 분리해 실제 데이터 효율과 재현성을 높이기 위함이다.
+
+이 구조는 임의 cloth를 learned bimanual primitive로 펼친
+[FlingBot](https://proceedings.mlr.press/v164/ha22a.html), 정규화 뒤 단순한
+downstream fold를 사용한 [Cloth Funnels](https://clothfunnels.cs.columbia.edu/),
+학습된 grasp pair와 구조화된 primitive를 결합한
+[SpeedFolding](https://pantor.github.io/speedfolding/), 한 시간의 실제
+self-supervised 경험으로 goal-conditioned pick-and-place를 학습한
+[Learning Arbitrary-Goal Fabric Folding](https://proceedings.mlr.press/v155/lee21a.html)의
+공통 패턴을 따른다. Isaac Lab의 surface-deformable cloth 지원은 활용하되 현재
+[VBD/Newton cloth 경로도 새 task마다 asset, material, contact와 coupling을
+검증·튜닝해야 한다](https://isaac-sim.github.io/IsaacLab/develop/source/overview/core-concepts/physical-backends/newton/using-vbd-solver.html)는
+공식 범위를 감안해 실제 validation을 없애지 않는다.
 
 ## 13. 최종 benchmark
 

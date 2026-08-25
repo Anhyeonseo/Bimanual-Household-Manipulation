@@ -13,8 +13,16 @@ import yaml
 
 EXPECTED_MARKER_IDS = (0, 1, 2, 3)
 MIN_TRAINING_CAPTURES = 8
+MIN_RESIDENT_TORQUE_HOLD_TRAINING_CAPTURES = 6
 MIN_VALIDATION_CAPTURES = 2
 ARM_JOINT_COUNT = 5
+READ_ONLY_CAPTURE_MODE = "stationary_read_only"
+RESIDENT_TORQUE_HOLD_CAPTURE_MODE = "stationary_resident_torque_hold"
+CAPTURE_MODES = (
+    READ_ONLY_CAPTURE_MODE,
+    RESIDENT_TORQUE_HOLD_CAPTURE_MODE,
+)
+STATUS_SERVICE = "/bimanual_stream_adapter/status"
 
 
 def load_yaml(path: Path) -> dict:
@@ -49,13 +57,53 @@ def validated_capture(
     input_value: Path,
     output_directory: Path,
     arm: str = "left",
+    capture_mode: str = READ_ONLY_CAPTURE_MODE,
 ) -> dict:
     yaml_path = capture_yaml_path(input_value)
     document = load_yaml(yaml_path)
-    if document.get("status") != "STATIONARY_READ_ONLY_CAPTURE_PASS":
+    expected_status = {
+        READ_ONLY_CAPTURE_MODE: "STATIONARY_READ_ONLY_CAPTURE_PASS",
+        RESIDENT_TORQUE_HOLD_CAPTURE_MODE: (
+            "STATIONARY_RESIDENT_TORQUE_HOLD_CAPTURE_PASS"
+        ),
+    }.get(capture_mode)
+    if expected_status is None:
+        raise ValueError(f"unsupported capture mode: {capture_mode}")
+    if document.get("status") != expected_status:
         raise ValueError(f"capture did not pass stationary gate: {yaml_path}")
-    if bool(document.get("motion_authorized", False)):
-        raise ValueError(f"capture authorizes motion: {yaml_path}")
+    source_motion_authorized = document.get("motion_authorized", False)
+    resident_hold: dict | None = None
+    if capture_mode == READ_ONLY_CAPTURE_MODE:
+        if bool(source_motion_authorized):
+            raise ValueError(f"capture authorizes motion: {yaml_path}")
+    else:
+        if source_motion_authorized is not True:
+            raise ValueError(
+                f"resident capture lacks armed-session evidence: {yaml_path}"
+            )
+        resident_hold = document.get("resident_torque_hold")
+        if not isinstance(resident_hold, dict):
+            raise ValueError(
+                f"resident torque-hold evidence is missing: {yaml_path}"
+            )
+        owner = str(resident_hold.get("owner", "")).strip()
+        required_owner = str(
+            resident_hold.get("required_owner", "")
+        ).strip()
+        epoch = int(resident_hold.get("arbiter_epoch", 0))
+        required_epoch = int(resident_hold.get("required_epoch", 0))
+        if (
+            resident_hold.get("status_service") != STATUS_SERVICE
+            or resident_hold.get("torque_hold_active") is not True
+            or not owner
+            or required_owner != owner
+            or epoch <= 0
+            or required_epoch != epoch
+            or float(resident_hold.get("terminal_anchor_stamp", 0.0)) <= 0.0
+        ):
+            raise ValueError(
+                f"resident torque-hold evidence is inconsistent: {yaml_path}"
+            )
     if bool(document.get("robot_target_available", False)):
         raise ValueError(f"capture exposes robot target: {yaml_path}")
 
@@ -97,6 +145,14 @@ def validated_capture(
         raise ValueError(
             f"{capture_id} joint_span_rad has {len(joint_span)} values"
         )
+    if (
+        capture_mode == RESIDENT_TORQUE_HOLD_CAPTURE_MODE
+        and capture.get("joint_state_source")
+        != "resident_terminal_measured_anchor"
+    ):
+        raise ValueError(
+            f"{capture_id} did not use the resident terminal anchor"
+        )
 
     image_values = capture.get("image_files", [])
     if not image_values:
@@ -110,7 +166,7 @@ def validated_capture(
             raise FileNotFoundError(image_path)
         image_paths.append(relative_path(image_path, output_directory))
 
-    return {
+    result = {
         "id": capture_id,
         "arm": capture_arm,
         "measured_arm_rad": measured,
@@ -128,7 +184,30 @@ def validated_capture(
             output_directory,
         ),
         "source_capture_sha256": file_sha256(yaml_path),
+        "source_capture_mode": capture_mode,
+        "source_motion_authorized": bool(source_motion_authorized),
     }
+    if resident_hold is not None:
+        result["resident_torque_hold"] = {
+            "status_service": STATUS_SERVICE,
+            "owner": str(resident_hold["owner"]),
+            "arbiter_epoch": int(resident_hold["arbiter_epoch"]),
+            "torque_hold_active": True,
+            "terminal_anchor_stamp": float(
+                resident_hold["terminal_anchor_stamp"]
+            ),
+            "required_owner": str(resident_hold["required_owner"]),
+            "required_epoch": int(resident_hold["required_epoch"]),
+        }
+    return result
+
+
+def minimum_training_captures(capture_mode: str) -> int:
+    if capture_mode == READ_ONLY_CAPTURE_MODE:
+        return MIN_TRAINING_CAPTURES
+    if capture_mode == RESIDENT_TORQUE_HOLD_CAPTURE_MODE:
+        return MIN_RESIDENT_TORQUE_HOLD_TRAINING_CAPTURES
+    raise ValueError(f"unsupported capture mode: {capture_mode}")
 
 
 def assemble_document(
@@ -137,16 +216,26 @@ def assemble_document(
     validation_values: list[Path],
     output_path: Path,
     arm: str = "left",
+    capture_mode: str = READ_ONLY_CAPTURE_MODE,
 ) -> dict:
     session_id = session_id.strip()
     if not session_id:
         raise ValueError("session_id must not be empty")
     if arm not in ("left", "right"):
         raise ValueError(f"unsupported arm: {arm}")
-    if len(training_values) < MIN_TRAINING_CAPTURES:
+    if (
+        capture_mode == RESIDENT_TORQUE_HOLD_CAPTURE_MODE
+        and arm != "right"
+    ):
+        raise ValueError(
+            "resident torque-hold capture mode is restricted to the "
+            "workcell-anchored right-arm registration gate"
+        )
+    training_minimum = minimum_training_captures(capture_mode)
+    if len(training_values) < training_minimum:
         raise ValueError(
             f"training capture count {len(training_values)} < "
-            f"{MIN_TRAINING_CAPTURES}"
+            f"{training_minimum}"
         )
     if len(validation_values) < MIN_VALIDATION_CAPTURES:
         raise ValueError(
@@ -156,11 +245,11 @@ def assemble_document(
 
     output_directory = output_path.resolve().parent
     training = [
-        validated_capture(value, output_directory, arm)
+        validated_capture(value, output_directory, arm, capture_mode)
         for value in training_values
     ]
     validation = [
-        validated_capture(value, output_directory, arm)
+        validated_capture(value, output_directory, arm, capture_mode)
         for value in validation_values
     ]
     capture_ids = [
@@ -176,6 +265,10 @@ def assemble_document(
         "motion_authorized": False,
         "robot_target_available": False,
         "arm": arm,
+        "capture_mode": capture_mode,
+        "source_motion_authorized": (
+            capture_mode == RESIDENT_TORQUE_HOLD_CAPTURE_MODE
+        ),
         "frames": {
             "robot": f"{arm}_base_link",
             "gripper": f"{arm}_gripper_frame_link",
@@ -204,11 +297,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--session-id", required=True)
     parser.add_argument("--arm", choices=("left", "right"), default="left")
     parser.add_argument(
+        "--capture-mode",
+        choices=CAPTURE_MODES,
+        default=READ_ONLY_CAPTURE_MODE,
+        help=(
+            "stationary_read_only preserves the original torque-off gate; "
+            "stationary_resident_torque_hold accepts only captures carrying "
+            "a matching armed READY owner/epoch terminal-anchor record"
+        ),
+    )
+    parser.add_argument(
         "--training-capture",
         required=True,
         action="append",
         type=Path,
-        help="capture directory or capture.yaml; repeat at least eight times",
+        help=(
+            "capture directory or capture.yaml; repeat eight times for "
+            "read-only capture or six times for resident torque-hold capture"
+        ),
     )
     parser.add_argument(
         "--validation-capture",
@@ -229,6 +335,7 @@ def main() -> int:
         args.validation_capture,
         args.output,
         args.arm,
+        args.capture_mode,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
@@ -239,6 +346,7 @@ def main() -> int:
         "TOP_EYE_TO_HAND_SESSION_ASSEMBLY_PASS "
         f"training={len(document['training_captures'])} "
         f"validation={len(document['validation_captures'])} "
+        f"capture_mode={document['capture_mode']} "
         f"motion_authorized=0 output={args.output}"
     )
     return 0

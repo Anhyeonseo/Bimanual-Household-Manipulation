@@ -243,3 +243,77 @@ right=[ 0.814544, 0.181010, -0.509282, -0.401903,  0.076699, 0.151864]
 이 자세는 수동 배치 한 번만 확인했으므로 MoveIt plan-only, collision, 실제
 명령 왕복과 재관측을 통과하기 전에는 named pose나 motion target으로 사용하지
 않는다. 모든 결과는 `motion_authorized=false`다.
+
+## 2026-08-25 R0-B/C metric 등록 후속
+
+R0-B에서는 고정된 Top 카메라와 검증된 1280×960 intrinsic으로 왼팔
+eye-to-hand와 작업대 plane을 다시 계산했다. 왼팔 독립 validation 위치 max는
+`4.250 mm`, 회전 max는 `1.429 deg`였고, 작업대 독립 metric XY max는
+`1.608 mm`였다. 10 mm coverage inset 뒤 유효 영역 `377.296×371.513 mm`는
+nominal 300 mm 수건과 사방 30 mm 영역을 포함한다.
+
+R0-C 오른팔 캡처는 움직이는 중의 `/joint_states`를 사용하지 않았다. 각 자세가
+끝난 뒤 resident adapter가 `READY`, `torque_hold_active=true`, 지정 owner와
+epoch 일치를 증명한 terminal measured anchor에서만 5프레임을 받았다. 조립기는
+이 provenance가 하나라도 빠지거나 owner/epoch가 다르면 거절하며, 출력 session은
+원본 캡처 당시의 armed 상태와 별개로 계속 `motion_authorized=false`다.
+
+| 항목 | 결과 |
+|---|---:|
+| training/validation | 6/2, validation은 fit에 미사용 |
+| training 위치 RMS/max | `2.211/2.804 mm` |
+| validation 위치 RMS/max | `2.781/3.272 mm` |
+| validation 회전 RMS/max | `0.822/0.966 deg` |
+| training PnP max | `1.810 px` |
+| validation PnP max | `1.376 px` |
+| 최소 marker border | training `173.502 px`, validation `225.545 px` |
+| 영점 보정 shoulder/elbow/wrist-flex | `-2.492/+2.615/+1.268 deg` |
+
+nominal 오른팔 URDF만 사용한 비교 해는 training RMS/max가
+`6.112/9.751 mm`여서 거절됐다. constrained 해에서 training 하나씩을 제외한
+6개 민감도 검사도 독립 validation max `3.131..4.176 mm`를 유지했다. session
+SHA-256은 `e1e1859008137e3804e29912c68d51f771aca417b0196296ff76aef9e7ec6a8d`,
+candidate SHA-256은
+`a4584689c6e645b12b485f8d46c1d4b4a9c4de56861525092e050d5cc4dc5019`다.
+이 결과는 right shadow 좌표 검증 후보이며 URDF/하드웨어 영점 승격이나 실제
+motion authorization으로 사용하지 않는다.
+
+### R0-C workcell shadow와 OBSERVE_CLEAR 실기 왕복
+
+오른팔 등록 후보를 고정된 left-base workcell에만 shadow 적용하고, fit에 쓰지
+않은 validation 2개에서 gripper marker의 작업대 x/y/yaw를 다시 비교했다.
+x/y 오차 max는 `3.272 mm`, yaw 오차 max는 `0.515 deg`였고 실행 명령은
+0건이었다. 이는 tabletop 물체 target 검증이 아니라 held-out gripper marker
+좌표 검증이므로 실제 물체 motion target 승인은 계속 보류한다.
+
+실기 clear 검증에서는 검증된 worktable collision과 등록 preview URDF로 오른팔을
+먼저 펼치는 7구간 MoveIt 경로를 만들었다. 실행 전 0.01 rad 간격 469개 상태에서
+비승인 접촉은 0건, 알려진 folded-pose 메시 접촉 깊이는 최대 `2.451 mm`로
+`4 mm` 제한 안이었다. plan SHA-256은
+`2d7afe03a91a16a5b96ca4c14dbe3433b39bbf5085f389d194535d2780dfb0e4`다.
+
+firmware `0x00024809`에서 명시적 확인 후
+`현재→OBSERVE_CLEAR→현재→OBSERVE_CLEAR`를 한 번 실행했다. 세 leg의 terminal
+오차 max는 `0.013805 rad`, 두 clear 도착 간 반복 오차는 `0 rad`였으며 마지막
+coordinated STOP 뒤 `state=stopped`, `torque_hold_active=false`를 확인했다.
+두 1280×960 캡처에서 실제 300×300 mm 수건 전체와 네 모서리가 모두 보였고
+arm/gripper가 수건을 가리지 않았다. 이미지 SHA-256은 각각
+`202280bf32fbc6861cf9160dbe2208d25699bff01bbd01c7b7df2a13107f56df`,
+`fa5788a7e2f172f837681bff97aacbea86e2cd223f37ce1242e6962a0d2f1ff3`다.
+결과는 `artifacts/calibration/top_eye_to_hand_20260825_r0c/`에 보존하며 전체
+시스템의 `motion_authorized=false`는 유지한다.
+
+R0-C 재현 도구의 책임은 다음처럼 분리한다.
+
+- `capture_top_eye_to_hand_sample.py`: terminal measured anchor와 image 동시 캡처
+- `assemble_top_eye_to_hand_session.py`: training/validation 분리와 torque-hold
+  provenance 검증
+- `solve_top_eye_to_hand.py`: nominal 해와 workcell-anchored 오른팔 등록 해 비교
+- `validate_right_registration_shadow.py`: held-out workcell x/y/yaw motionless 검증
+- `generate_isaac_bimanual_preview_urdf.py`: 등록값을 simulation-only preview에 적용
+- `plan_observe_clear_once.py`: worktable collision 포함 strict MoveIt plan-only
+- `run_observe_clear_roundtrip_once.py`: SHA-pinned plan의 supervised 왕복·영상 캡처
+
+실패 탐색 중 사용했던 임의 via waypoint 재사용 경로는 최종 도구에서 제거했다.
+통과한 경로는 명시적인 7구간 `staged_right_clearance` 하나이며, plan artifact의
+SHA와 10분 freshness gate 없이는 왕복 executor가 실행되지 않는다.

@@ -10,7 +10,7 @@
 | `setup/camera_calibration/` | 카메라 표적 생성, 캡처, 보정, 보정 상태 모니터링 |
 | `setup/can_perception/` | 선행 캔 OBB 데이터 준비·검증과 gripper 실측 |
 | `setup/firmware/` | protocol header 생성과 초기 firmware gate |
-| `setup/isaac/` | Isaac Sim workcell·preview 자산 생성 |
+| `setup/isaac/` | Isaac Sim workcell·preview 생성과 legacy rigid grasp 진단; towel Isaac Lab 학습기는 아직 없음 |
 | `setup/resident_gate/` | resident 양팔 adapter의 무동작·제한 동작 승인 gate |
 | `diagnostics/` | read-only 관측 또는 명시적으로 제한된 진단 |
 | `contract_evidence/` | STM32/양팔 계약의 재현 가능한 증빙 수집 |

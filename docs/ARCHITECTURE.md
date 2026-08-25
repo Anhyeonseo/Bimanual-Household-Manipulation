@@ -7,7 +7,8 @@ Top + wrist cameras
   → manipulation_camera_manager
   → towel segmentation / height / boundary observations
   → deformable-state estimator
-  → towel task state machine and bounded recovery policy
+  → learned action proposer + deterministic baseline
+  → towel task state machine and bounded recovery gate
   → bimanual grasp/fold planner + MoveIt collision checks
   → towel-task executor
   → bimanual_stream_adapter
@@ -40,7 +41,8 @@ Top 영상에서 팔이나 gripper에 가려진 영역은 추정으로 채우지
 | Camera manager | 상단·손목 프레임, timestamp, phase별 rate | task 판단, motion 명령 |
 | Towel perception | mask, 높이, 경계, 모서리, grasp 후보, 신뢰도 | robot command 생성 |
 | State estimator | 구김·부분 펼침·평탄·접힘 상태와 관측 이력 | stale 관측 승인 |
-| Task manager | primitive 선택, 시도 횟수, 실패·복구 전이 | serial 직접 접근 |
+| Learning proposer | 펼치기·복구 primitive와 bounded grasp/placement 후보, confidence·abstain | 관절/토크 명령, planner·gate 우회 |
+| Task manager | heuristic/learned 후보 선택, 시도 횟수, 실패·복구 전이 | serial 직접 접근 |
 | Planner/MoveIt | 양팔 IK, fold arc, 장력 proxy, joint/collision 검사 | 안전 gate 우회 |
 | Towel executor | SHA 고정 plan, 단계 동기화, terminal 검증 | 무한 자동 재시도 |
 | Resident adapter | 12축 owner/epoch, finite stream, feedback | 복수 serial owner |
@@ -95,6 +97,27 @@ CRUMPLED
 
 각 primitive는 사전 조건, 최대 시간·거리·속도·시도 횟수, terminal measured
 feedback, 사후 visual condition을 별도 계약으로 가진다.
+
+## 학습 경계
+
+임의 구김은 규칙만으로 열거하기 어려우므로 `COARSE_UNFOLD`와 recovery의
+action selection은 학습 대상이다. 반면 동기 양팔 trajectory, collision 검사,
+contact 제한과 stop은 deterministic 계층에 남긴다.
+
+```text
+versioned observation
+  → heuristic 또는 learned proposer
+  → primitive + bounded parameters + confidence/abstain
+  → task/recovery budget gate
+  → MoveIt + contact/safety validation
+  → finite resident execution
+  → measured/visual outcome → episode dataset
+```
+
+학습기는 Isaac Lab randomized rollout, 실제 self-supervised episode 또는 둘을
+함께 사용할 수 있다. 어느 방법이든 dataset split, environment/checkpoint SHA와
+baseline 비교 없이 승격하지 않는다. end-to-end image-to-joint 정책은 이 책임
+경계를 우회하므로 현재 구조에서 허용하지 않는다.
 
 ## 안전 불변식
 

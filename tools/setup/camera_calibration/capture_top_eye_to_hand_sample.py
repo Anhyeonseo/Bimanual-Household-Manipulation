@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Capture one stationary Top eye-to-hand calibration sample.
 
-This node only subscribes to image and joint-state topics.  It never creates a
-motion publisher, Action client, service client, or serial connection.
+The default mode is read-only and torque-off.  The optional resident-hold mode
+also reads the resident status service so a terminal measured anchor is used
+only while the adapter reports an active torque hold.  Neither mode creates a
+motion publisher, motion service client, Action client, or serial connection.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import time
 from pathlib import Path
@@ -17,8 +20,14 @@ import numpy as np
 import rclpy
 import yaml
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import (
+    DurabilityPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+    qos_profile_sensor_data,
+)
 from sensor_msgs.msg import Image, JointState
+from std_srvs.srv import Trigger
 
 
 ARM_JOINT_NAMES_BY_SIDE = {
@@ -42,6 +51,35 @@ GRIDBOARD_MARKERS_Y = 2
 GRIDBOARD_MARKER_LENGTH_M = 0.020
 GRIDBOARD_MARKER_SEPARATION_M = 0.005
 GRIDBOARD_DICTIONARY = cv2.aruco.DICT_4X4_50
+RESIDENT_STATUS_SERVICE = "/bimanual_stream_adapter/status"
+RESIDENT_ANCHOR_TOPIC = "/bimanual_stream_adapter/anchor_joint_states"
+
+
+def resident_torque_hold_is_valid(document: dict) -> bool:
+    """Return whether status proves a stationary armed resident hold."""
+    return bool(
+        document.get("motion_authorized") is True
+        and document.get("state") == "ready"
+        and document.get("torque_hold_active") is True
+        and document.get("owner")
+        and int(document.get("arbiter_epoch", 0)) > 0
+        and document.get("fault_diagnostic") is None
+    )
+
+
+def resident_torque_hold_matches(
+    document: dict,
+    *,
+    required_owner: str = "",
+    required_epoch: int = 0,
+) -> bool:
+    if not resident_torque_hold_is_valid(document):
+        return False
+    if required_owner and document.get("owner") != required_owner:
+        return False
+    if required_epoch > 0 and int(document.get("arbiter_epoch", 0)) != required_epoch:
+        return False
+    return True
 
 
 def stamp_seconds(message) -> float:
@@ -281,16 +319,28 @@ class EyeToHandSampleCapture(Node):
         self._stamp_skew_rejections = 0
         self._marker_rejections = 0
         self._pnp_rejections = 0
+        self._waiting_for_torque_hold = 0
+        self._resident_status: dict | None = None
+        self._resident_status_future = None
+        self._resident_status_requests = 0
+        self._resident_status_responses = 0
+        self._resident_status_error = ""
+        self._resident_status_last_state = "none"
         self._camera_matrix, self._distortion = load_camera_model(
             args.camera_info
         )
         self._last_capture_monotonic = -math.inf
         self._finished = False
+        joint_qos: int | QoSProfile = 10
+        if args.resident_torque_hold_anchor:
+            joint_qos = QoSProfile(depth=1)
+            joint_qos.reliability = ReliabilityPolicy.RELIABLE
+            joint_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self._joint_subscription = self.create_subscription(
             JointState,
             args.joint_topic,
             self._on_joint_state,
-            10,
+            joint_qos,
         )
         self._image_subscription = self.create_subscription(
             Image,
@@ -298,6 +348,24 @@ class EyeToHandSampleCapture(Node):
             self._on_image,
             qos_profile_sensor_data,
         )
+        self._resident_status_client = None
+        self._resident_status_timer = None
+        if args.resident_torque_hold_anchor:
+            self._resident_status_client = self.create_client(
+                Trigger,
+                RESIDENT_STATUS_SERVICE,
+            )
+            if not self._resident_status_client.wait_for_service(
+                timeout_sec=min(args.timeout, 2.0)
+            ):
+                raise RuntimeError(
+                    "resident status service unavailable: "
+                    f"{RESIDENT_STATUS_SERVICE}"
+                )
+            self._resident_status_timer = self.create_timer(
+                0.1,
+                self._request_resident_status,
+            )
 
     @property
     def finished(self) -> bool:
@@ -311,10 +379,51 @@ class EyeToHandSampleCapture(Node):
             return
         self._latest_joint_state = message
 
+    def _request_resident_status(self) -> None:
+        client = self._resident_status_client
+        if client is None:
+            return
+        future = self._resident_status_future
+        if future is not None:
+            if not future.done():
+                return
+            try:
+                response = future.result()
+                document = json.loads(response.message)
+                self._resident_status_responses += 1
+                self._resident_status_last_state = str(
+                    document.get("state", "missing")
+                )
+                self._resident_status = (
+                    document
+                    if response.success
+                    and resident_torque_hold_matches(
+                        document,
+                        required_owner=self._args.resident_required_owner,
+                        required_epoch=self._args.resident_required_epoch,
+                    )
+                    else None
+                )
+                self._resident_status_error = ""
+            except Exception as error:
+                self._resident_status = None
+                self._resident_status_error = (
+                    f"{type(error).__name__}: {error}"
+                )
+            self._resident_status_future = None
+        self._resident_status_future = client.call_async(Trigger.Request())
+        self._resident_status_requests += 1
+
     def _on_image(self, message: Image) -> None:
         if self._finished:
             return
         self._frames_received += 1
+        if (
+            self._args.resident_torque_hold_anchor
+            and self._resident_status is None
+        ):
+            self._waiting_for_torque_hold += 1
+            return
         if self._latest_joint_state is None:
             self._waiting_for_joint_state += 1
             return
@@ -326,7 +435,10 @@ class EyeToHandSampleCapture(Node):
         if image_stamp <= 0.0 or joint_stamp <= 0.0:
             self.get_logger().warning("zero source timestamp; frame rejected")
             return
-        if abs(image_stamp - joint_stamp) > self._args.max_stamp_skew:
+        if (
+            not self._args.resident_torque_hold_anchor
+            and abs(image_stamp - joint_stamp) > self._args.max_stamp_skew
+        ):
             self._stamp_skew_rejections += 1
             return
         try:
@@ -427,6 +539,10 @@ class EyeToHandSampleCapture(Node):
                 f"rejected_windows={self._rejected_windows}"
             )
             return False
+        resident_status = self._resident_status
+        resident_hold = self._args.resident_torque_hold_anchor
+        if resident_hold and resident_status is None:
+            return False
         output_directory = self._args.output_directory.resolve()
         output_directory.mkdir(parents=True, exist_ok=False)
         image_files = []
@@ -438,8 +554,12 @@ class EyeToHandSampleCapture(Node):
         median_positions = np.median(positions, axis=0)
         document = {
             "schema_version": 1,
-            "status": "STATIONARY_READ_ONLY_CAPTURE_PASS",
-            "motion_authorized": False,
+            "status": (
+                "STATIONARY_RESIDENT_TORQUE_HOLD_CAPTURE_PASS"
+                if resident_hold
+                else "STATIONARY_READ_ONLY_CAPTURE_PASS"
+            ),
+            "motion_authorized": resident_hold,
             "robot_target_available": False,
             "capture": {
                 "id": self._args.capture_id,
@@ -457,8 +577,26 @@ class EyeToHandSampleCapture(Node):
                 "image_source_stamp_first": self._image_stamps[0],
                 "image_source_stamp_last": self._image_stamps[-1],
                 "detected_marker_ids": list(EXPECTED_MARKER_IDS),
+                "joint_state_source": (
+                    "resident_terminal_measured_anchor"
+                    if resident_hold
+                    else "timestamp_synchronized_joint_state"
+                ),
             },
         }
+        if resident_hold:
+            assert resident_status is not None
+            document["resident_torque_hold"] = {
+                "status_service": RESIDENT_STATUS_SERVICE,
+                "owner": resident_status["owner"],
+                "arbiter_epoch": int(resident_status["arbiter_epoch"]),
+                "torque_hold_active": True,
+                "terminal_anchor_stamp": stamp_seconds(
+                    self._latest_joint_state
+                ),
+                "required_owner": self._args.resident_required_owner,
+                "required_epoch": self._args.resident_required_epoch,
+            }
         output_yaml = output_directory / "capture.yaml"
         output_yaml.write_text(
             yaml.safe_dump(document, sort_keys=False),
@@ -480,6 +618,11 @@ class EyeToHandSampleCapture(Node):
             f"frames_received={self._frames_received} "
             f"accepted={len(self._images)} "
             f"waiting_for_joint_state={self._waiting_for_joint_state} "
+            f"waiting_for_torque_hold={self._waiting_for_torque_hold} "
+            f"status_requests={self._resident_status_requests} "
+            f"status_responses={self._resident_status_responses} "
+            f"status_last_state={self._resident_status_last_state} "
+            f"status_error={self._resident_status_error!r} "
             f"stamp_skew_rejections={self._stamp_skew_rejections} "
             f"marker_rejections={self._marker_rejections} "
             f"pnp_rejections={self._pnp_rejections}"
@@ -494,6 +637,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-directory", required=True, type=Path)
     parser.add_argument("--image-topic", default="/camera/top/image_raw")
     parser.add_argument("--joint-topic", default="/joint_states")
+    parser.add_argument(
+        "--resident-torque-hold-anchor",
+        action="store_true",
+        help=(
+            "Use the resident terminal measured anchor only while the status "
+            "service proves an armed READY torque hold"
+        ),
+    )
+    parser.add_argument("--resident-required-owner", default="")
+    parser.add_argument("--resident-required-epoch", type=int, default=0)
     parser.add_argument(
         "--camera-info",
         type=Path,
@@ -529,6 +682,24 @@ def parse_args() -> argparse.Namespace:
         parser.error("--max-target-rotation-span-deg must be positive")
     if args.timeout <= 0.0:
         parser.error("--timeout must be positive")
+    if (
+        args.resident_torque_hold_anchor
+        and args.joint_topic != RESIDENT_ANCHOR_TOPIC
+    ):
+        parser.error(
+            "--resident-torque-hold-anchor requires --joint-topic "
+            f"{RESIDENT_ANCHOR_TOPIC}"
+        )
+    if args.resident_required_epoch < 0:
+        parser.error("--resident-required-epoch must be non-negative")
+    if (
+        (args.resident_required_owner or args.resident_required_epoch)
+        and not args.resident_torque_hold_anchor
+    ):
+        parser.error(
+            "resident owner/epoch requirements need "
+            "--resident-torque-hold-anchor"
+        )
     return args
 
 

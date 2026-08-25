@@ -141,13 +141,18 @@ reachability/collision 미검증을 명시한다.
 현재 reachable/collision fixture 주입과 전 후보 거부 회귀시험이 구현됐다.
 실제 MoveIt request/response adapter는 남아 있다.
 
-### P2.3 Isaac cloth experiment
+### P2.3 Isaac Lab cloth와 학습 환경
 
 - 300×300 mm rigid proxy로 FOV, IK와 collision을 먼저 검증
 - surface deformable과 명시적 gripper attachment는 후속 layer로 분리
-- simulation은 planner 정답이 아니라 실패 사례 생성과 시각 검토에 사용
+- Isaac Lab vectorized reset/observation/action/reward/termination 계약 구현
+- 승인된 primitive와 bounded pick/place 파라미터만 action으로 노출
+- heuristic baseline 뒤 self-supervised/모방학습과 RL을 같은 seed에서 비교
+- simulation은 planner 정답이 아니라 rollout·실패 사례·perception data에 사용
 - solver/material parameter provenance 저장
-- simulation 성공을 실제 motion 승인 근거로 사용하지 않음
+- reward exploit, collision/drop과 workspace 이탈 회귀시험
+- simulation 성공을 실제 motion 승인 근거로 사용하지 않음; sim-to-real gap이
+  크면 실제 replay 기반 fine-tuning으로 전환
 
 ### P2.4 CI (hardware-free workflow 구현)
 
