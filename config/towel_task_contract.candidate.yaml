@@ -105,9 +105,33 @@ workcell_observation_candidate:
       - fa5788a7e2f172f837681bff97aacbea86e2cd223f37ce1242e6962a0d2f1ff3
 
 fold_policy:
-  first_axis: lowest_planning_cost_of_workcell_x_or_y
-  second_axis: orthogonal_to_first_axis
-  first_direction: lowest_planning_cost
+  strategy: asymmetric_single_arm_then_bimanual
+  first_axis: workcell_y
+  first_direction: negative_to_positive
+  first_active_arm_preference: right_then_left
+  first_primitive: single_arm_coarse_fold
+  first_correction_primitives:
+    - micro_drag
+    - lift_pull_place
+  maximum_first_fold_corrections: 2
+  correction_envelope_mm: 30.0
+  require_clear_reobservation_after_each_attempt: true
+  second_axis: workcell_x
+  second_direction_candidates:
+    - positive_to_negative
+    - negative_to_positive
+  second_primitive: fold_edge_pair
+  second_endpoint_assignment_candidates:
+    - left_to_high_y
+    - left_to_low_y
+  kinematic_contract:
+    arm_dof: 5
+    arbitrary_exact_6d_pose_claimed: false
+    required_constraints:
+      - tcp_xyz
+      - jaw_opening_line_yaw
+      - downward_approach_cone
+      - full_6d_fk_recorded
   target_area_ratio_after_first_fold: 0.5
   target_area_ratio_after_second_fold: 0.25
 
@@ -129,7 +153,7 @@ recovery_limits:
   corner_redetection: 3
   lift_and_unfold: 2
   corner_drag_per_corner: 2
-  fold_placement_correction_per_fold: 1
+  fold_placement_correction_per_fold: 2
   retry_after_fault: 0
   retry_after_workspace_exit: 0
 
@@ -222,6 +246,8 @@ software_artifacts:
   runtime_module: tools/lib/towel_task_runtime.py
   replay_module: tools/lib/towel_task_replay.py
   fake_reachability_module: tools/lib/towel_fake_reachability.py
+  asymmetric_task_pose_module: tools/lib/towel_asymmetric_planning.py
   planner: tools/run/plan_towel_task_once.py
+  asymmetric_moveit_planner: tools/run/plan_towel_asymmetric_sequence_once.py
   contract_validator: tools/run/validate_towel_contract.py
   task_design: docs/TOWEL_FOLDING.md

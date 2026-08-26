@@ -43,7 +43,7 @@ Top 영상에서 팔이나 gripper에 가려진 영역은 추정으로 채우지
 | State estimator | 구김·부분 펼침·평탄·접힘 상태와 관측 이력 | stale 관측 승인 |
 | Learning proposer | 펼치기·복구 primitive와 bounded grasp/placement 후보, confidence·abstain | 관절/토크 명령, planner·gate 우회 |
 | Task manager | heuristic/learned 후보 선택, 시도 횟수, 실패·복구 전이 | serial 직접 접근 |
-| Planner/MoveIt | 양팔 IK, fold arc, 장력 proxy, joint/collision 검사 | 안전 gate 우회 |
+| Planner/MoveIt | 5-DOF task-constrained IK(TCP xyz+jaw yaw+downward cone), fold·보정 primitive, full 6D FK 기록, joint/collision 검사 | 안전 gate 우회, 임의 exact 6D pose 주장 |
 | Towel executor | SHA 고정 plan, 단계 동기화, terminal 검증 | 무한 자동 재시도 |
 | Resident adapter | 12축 owner/epoch, finite stream, feedback | 복수 serial owner |
 | STM32 | 동기 출력, tracking, heartbeat, stop/latch | 수건 상태 판단 |
@@ -51,19 +51,17 @@ Top 영상에서 팔이나 gripper에 가려진 영역은 추정으로 채우지
 ## 현재 연결된 motion-free 경로
 
 ```text
-reviewed pixel annotation
-  → homography 기반 metric observation
-  → fail-closed state estimate
-  → bounded task decision / offline replay
-  → two orthogonal FoldSpec
-  → synchronized geometric semicircle
-  → fake reachability candidate selection
+reviewed metric worktable와 300 mm task contract
+  → 비대칭 단팔 coarse fold·bounded correction·2차 양팔 후보
+  → TCP xyz+jaw yaw+downward cone task-pose IK
+  → MoveIt segment planning과 dense full-state collision 재검사
   → JSON artifact (motion_authorized=false, motion_commands=0)
 ```
 
 이 경로는 executor, ROS action client, serial과 motor API를 생성하지 않는다.
-기하 arc와 fake reachability 결과는 설계·회귀용이며 IK, self/world collision,
-장력 또는 실제 도달성을 증명하지 않는다.
+R0에서는 선택된 비대칭 sequence의 정적 도달성과 robot/table/camera-mount
+collision envelope만 승인한다. cloth attachment·변형, 자동 contact, 장력과 실제
+fold 성공은 증명하지 않는다.
 
 ## 변형체 상태 모델
 
@@ -90,8 +88,11 @@ CRUMPLED
 - `tension_spread`
 - `controlled_shake`
 - `drag_corner`
+- `micro_drag`
+- `lift_pull_place`
 - `lay_flat`
 - `align_square`
+- `single_arm_coarse_fold`
 - `fold_edge_pair`
 - `release_and_smooth`
 
@@ -100,9 +101,10 @@ feedback, 사후 visual condition을 별도 계약으로 가진다.
 
 ## 학습 경계
 
-임의 구김은 규칙만으로 열거하기 어려우므로 `COARSE_UNFOLD`와 recovery의
-action selection은 학습 대상이다. 반면 동기 양팔 trajectory, collision 검사,
-contact 제한과 stop은 deterministic 계층에 남긴다.
+임의 구김뿐 아니라 1차 coarse fold 뒤의 위치·회전·느슨함도 규칙만으로 결과를
+정확히 예측하기 어려우므로 recovery action selection은 학습 대상이다. 반면
+단팔/양팔 trajectory, collision 검사, contact 제한과 stop은 deterministic
+계층에 남긴다.
 
 ```text
 versioned observation
@@ -118,6 +120,13 @@ versioned observation
 함께 사용할 수 있다. 어느 방법이든 dataset split, environment/checkpoint SHA와
 baseline 비교 없이 승격하지 않는다. end-to-end image-to-joint 정책은 이 책임
 경계를 우회하므로 현재 구조에서 허용하지 않는다.
+
+첫 fold correction policy의 한 step은 `OBSERVE_CLEAR`에서 얻은 현재/목표 Top
+mask, corner·edge 오차, 직전 action history를 받아 승인된 macro primitive와
+bounded grasp/pull/place 파라미터 또는 `ACCEPT/RETRY`를 제안한다. Isaac은
+surface cloth와 vertex-patch attachment를 이용해 대량 pretraining에 사용하고,
+실제 action 전후 replay로 sim-to-real residual을 offline 보정한다. 실제에서
+무제한 exploration하거나 simulator 성능을 실제 승인으로 대체하지 않는다.
 
 ## 안전 불변식
 

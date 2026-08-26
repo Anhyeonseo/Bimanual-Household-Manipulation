@@ -17,6 +17,7 @@
 - synthetic aligned observation과 회귀 시험
 - annotation validator와 deterministic split-safe dataset manifest
 - observation sequence offline replay와 유한 terminal artifact
+- 비대칭 단팔 1차·bounded correction·양팔 2차의 task-pose MoveIt plan-only gate
 
 ## P0 — 데이터·관측 계약
 
@@ -138,21 +139,29 @@ reachability/collision 미검증을 명시한다.
 - 좌우 grasp 가능 여부와 collision 결과를 fixture로 주입
 - 모든 후보 거부, 한 축만 가능, 팔 배정 swap scenario
 
-현재 reachable/collision fixture 주입과 전 후보 거부 회귀시험이 구현됐다.
-실제 MoveIt request/response adapter는 남아 있다.
+reachable/collision fixture 주입과 전 후보 거부 회귀시험은 유지한다. 실제
+MoveIt task-pose planner는 R0-G에서 별도 연결해 비대칭 후보 하나와 correction
+probe를 통과했으며, 이 절의 fake backend는 hardware-free 정책 회귀용이다.
 
 ### P2.3 Isaac Lab cloth와 학습 환경
 
-- 300×300 mm rigid proxy로 FOV, IK와 collision을 먼저 검증
-- surface deformable과 명시적 gripper attachment는 후속 layer로 분리
+- 300×300 mm rigid proxy는 FOV, 5-DOF task-constrained 접근과 collision만
+  검증하고 fold 성공 근거로 사용하지 않음
+- 1차 단팔 coarse fold·bounded correction과 2차 양팔 fold를 서로 다른
+  primitive로 모델링
+- 304×296 mm 삼각 surface deformable과 명시적 vertex-patch attachment를 후속
+  layer로 분리
 - Isaac Lab vectorized reset/observation/action/reward/termination 계약 구현
-- 승인된 primitive와 bounded pick/place 파라미터만 action으로 노출
+- 승인된 primitive, bounded pick/place·pull 파라미터와 `ACCEPT/RETRY`만
+  action으로 노출
 - heuristic baseline 뒤 self-supervised/모방학습과 RL을 같은 seed에서 비교
 - simulation은 planner 정답이 아니라 rollout·실패 사례·perception data에 사용
 - solver/material parameter provenance 저장
 - reward exploit, collision/drop과 workspace 이탈 회귀시험
 - simulation 성공을 실제 motion 승인 근거로 사용하지 않음; sim-to-real gap이
   크면 실제 replay 기반 fine-tuning으로 전환
+- 첫 학습 목표는 Top 현재/목표 mask와 action history에서 다음 fold correction을
+  고르는 residual policy이며 실제 무작위 exploration은 금지
 
 ### P2.4 CI (hardware-free workflow 구현)
 
@@ -164,15 +173,18 @@ reachability/collision 미검증을 명시한다.
 재생성과 `motion_authorized=false`를 확인한다. 문서 링크 검사는 로컬 QA에
 남아 있다.
 
-## 하드웨어 전까지 고정하지 않는 값
+## 후속 동적 gate 전까지 고정하지 않는 값
 
-- 실제 300 mm 한 변의 tolerance, 두께, 질량과 재질 편차
+- 수건 질량과 batch별 재질 편차
 - jaw open/contact command와 접촉 residual
 - 최대 장력 proxy와 TCP separation
 - 양팔 속도 차이
 - controlled shake 진폭·주파수·횟수
 - 수건-작업대 마찰
-- 실제 camera error와 perception acceptance threshold
+- 실제 mask/topology perception acceptance threshold
 
-이 값들은 candidate contract의 null을 유지한다. 값이 비어 있는 동안 생성되는
-모든 artifact는 motion_authorized=false, motion_commands=0이어야 한다.
+한 변 `304/296/304/296 mm`, 1/2/4겹 근사 두께 `3/7/13 mm`, 면 100%·건조·
+미세탁 조건, Top/right camera 오차와 좌우 1/4겹 정적 retention은 R0에서 이미
+고정했다. 위 동적 값은 이를 처음 소비하는 R2/R3 gate까지 candidate contract의
+null을 유지하며, 그 전 artifact는 `motion_authorized=false`,
+`motion_commands=0`이어야 한다.

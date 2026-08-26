@@ -34,14 +34,17 @@
 | 단계 | nominal footprint | 면적 | 순수 기하 기준 |
 |---|---:|---:|---|
 | 펼침 | 300×300 mm | 0.0900 m² | 네 모서리와 전체 edge 노출 |
-| 1차 접기 | 300×150 mm | 0.0450 m² | 이동 edge 파지점 간격 최대 약 300 mm |
-| 2차 접기 | 150×150 mm | 0.0225 m² | 이동 edge 파지점 간격 최대 약 150 mm |
+| 1차 접기 | 300×150 mm | 0.0450 m² | 단팔 corner 이동과 후속 폐루프 정렬 |
+| 2차 접기 | 150×150 mm | 0.0225 m² | 양팔 이동 edge 파지점 간격 최대 약 150 mm |
 
 두 중심선 접기의 이상적인 corner 이동 거리는 각각 300 mm이고, 반원 arc의
-반경과 최대 높이는 150 mm다. 실제 명령은 jaw가 모서리에서 안쪽으로 들어가는
-grasp inset, 수건 처짐과 작업대 마찰을 반영하므로 이 수치를 그대로 복사하지
-않는다. 다만 양팔 동시 IK, TCP separation, 카메라 FOV와 작업대 여유를
-검증하는 최소 설계 envelope로 사용한다.
+반경과 최대 높이는 150 mm다. 실제 명령은 이 수치를 그대로 복사하지 않는다.
+1차는 한 팔이 국소 corner patch만 제어하므로 반대 endpoint가 같은 arc를 따른다고
+가정할 수 없고, clear 재관측과 보정을 설계에 포함한다. 2차는 짧아진 edge의
+양팔 endpoint grasp 후보를 사용하되 TCP 위치, jaw opening-line yaw, downward
+approach cone, TCP separation, 카메라 FOV와 작업대 여유를 검증한다. SO-101 한
+팔은 5-DOF이므로 임의의 exact 6D pose를 요구하지 않고 full 6D FK를 증빙으로
+기록한다.
 
 ## 3. 전체 상태기계
 
@@ -54,6 +57,7 @@ OBSERVE_INITIAL
   → ALIGN
   → VERIFY_FLAT
   → FOLD_FIRST
+  → CORRECT_FIRST
   → VERIFY_FIRST
   → FOLD_SECOND
   → VERIFY_FINAL
@@ -175,6 +179,14 @@ gripper tracking residual과 추정 장력을 제한한다.
 말리거나 겹친 모서리 하나를 작업대 위에서 외곽 방향으로 당긴다. 수건 밖
 영역을 긁거나 다른 모서리를 다시 접지 않도록 매 동작 뒤 재관측한다.
 
+### `single_arm_coarse_fold`, `micro_drag`, `lift_pull_place`
+
+`single_arm_coarse_fold`는 반대 팔을 clear pose에 둔 채 한 corner patch를 집어
+첫 중심선 반대편으로 넘긴다. `micro_drag`는 clear 관측에서 측정한 평행이동
+오차만 짧게 줄이고, `lift_pull_place`는 틀어진 corner를 낮게 들어 장력을 준
+뒤 다시 놓는다. 세 primitive 모두 한 번의 실행 뒤 팔을 치우고 새 Top 관측을
+요구하며, 같은 session에서 보이지 않는 cloth 상태를 연속 추측하지 않는다.
+
 ### `lay_flat`과 `align_square`
 
 장력을 유지하며 내려놓고 네 모서리, 변, 대각선과 작업대 축을 기준으로 최종
@@ -183,8 +195,9 @@ gripper tracking residual과 추정 장력을 제한한다.
 ### `fold_edge_pair`
 
 한쪽 변의 두 모서리를 동시에 잡아 중심선을 지나는 fold arc로 반대쪽에
-정렬한다. 첫 번째 fold와 여러 겹을 잡는 두 번째 fold는 별도 contact
-contract를 사용한다.
+정렬한다. 현재 기본 전략에서는 1차 단팔 coarse fold가 검증된 뒤 짧아진
+multi-layer edge의 2차 접기에만 사용한다. 각 팔은 자기 쪽 endpoint에 접근하며
+jaw 방향과 bundle contact를 별도 contract로 검증한다.
 
 ## 7. 거친 펼치기 전략
 
@@ -231,26 +244,37 @@ slip, 시도 횟수와 실패 원인을 저장해 simulator randomization과 pol
 
 ## 9. 첫 번째 반 접기
 
-1. 한쪽 변의 두 모서리에 양팔 pregrasp를 배치한다.
-2. 양쪽 contact를 확인하고 수직으로 들어 올린다.
-3. 중심선을 지나는 동기 fold arc를 실행한다.
-4. 이동 모서리를 반대편 두 모서리 위에 정렬한다.
-5. 장력을 줄이며 내려놓고 동시에 release한다.
-6. 새 직사각형 outline, 대응 모서리와 첫 접힘선을 검증한다.
+1. 반대 팔은 `OBSERVE_CLEAR`에 두고 작업 팔이 접근성과 가시성이 가장 좋은
+   moving-side corner 하나에 task-constrained pregrasp를 배치한다.
+2. single-layer contact를 확인하고 낮게 들어 올려 중심선 반대편의 대응 corner
+   근처로 `single_arm_coarse_fold`를 실행한다.
+3. cloth가 작업대에 닿은 뒤 필요하면 잡은 상태에서 짧은 tension pull을 하고
+   release한다.
+4. 양팔을 clear pose로 물린 뒤 현재 mask, 두 대응 corner, edge와 fold-line을
+   새로 관측한다.
+5. 평행이동이면 `micro_drag`, 회전·느슨함이면 `lift_pull_place`를 한 번 실행하고
+   다시 clear 관측한다. 첫 fold의 correction budget은 최대 2회다.
+6. stationary half가 함께 미끄러지는 현상이 반복될 때만 반대 팔의 멀리 떨어진
+   low-force passive pin을 별도 검증해 사용한다.
 
-중간 형상이 비틀렸거나 corner/fold-line 기준을 통과하지 못하면 두 번째
-fold를 실행하지 않는다.
+한 gripper는 오른쪽 변 전체가 아니라 작은 corner patch만 제어한다. 따라서
+coarse fold 한 번으로 300×150 mm 직사각형이 완성된다고 가정하지 않으며, 실제
+전후 관측이 없는 open-loop 보정은 금지한다. corner/fold-line 기준을 통과하지
+못하거나 두 번의 보정이 개선을 만들지 못하면 두 번째 fold를 실행하지 않고
+`RETRY` 또는 `FAILED`로 끝낸다.
 
-300 mm 수건의 nominal 목표는 300×150 mm다. moving edge의 두 grasp point는
-corner inset 전 기준 약 300 mm 떨어지고, 각 점은 중심선 반경 약 150 mm의
-경로를 지난다. 실제 path는 수직 lift, 장력 유지, 저속 lay-down과 동시 release
-구간으로 나누며 순수 반원은 후보 생성의 기준으로만 사용한다.
+초기 correction 판정은 metric calibration floor보다 충분히 큰 실제 허용값으로
+시작한다. corner 최대 오차 `12 mm` 이하는 진행 후보, `12–30 mm`는 bounded
+correction 후보, `30 mm` 초과·대각 겹침·corner 소실은 재시도 후보로 기록하되,
+최종 임계값은 실제 held-out fold episode로 확정한다.
 
 ## 10. 두 번째 반 접기
 
 1차 fold 뒤에는 수건이 여러 겹이므로 새 외곽선을 다시 추정한다. 한쪽 짧은
-변의 두 layer grasp point를 잡아 첫 접힘선과 직교하는 중심선으로 접는다.
-첫 fold를 펴지 않도록 접근 높이와 fold arc를 별도로 검증한다.
+변의 두 endpoint를 각 팔이 자기 쪽에서 잡을 수 있을 때만 양팔 동기 fold를
+사용한다. 두 layer grasp point의 jaw 방향과 bundle contact를 확인하고 첫
+접힘선과 직교하는 중심선으로 접는다. 첫 fold를 펴지 않도록 접근 높이와 fold
+arc를 별도로 검증한다.
 
 release 뒤 필요하면 제한된 `release_and_smooth`를 실행하고 다음을 확인한다.
 
@@ -271,7 +295,8 @@ correction 또는 `FAILED`로 끝낸다.
 | 모서리 재탐색 | 3회 |
 | lift-and-unfold | 2회 |
 | corner drag | 모서리당 2회 |
-| fold placement 보정 | fold 단계당 1회 |
+| 1차 fold placement 보정 | 최대 2회 |
+| 2차 fold placement 보정 | 최대 1회 |
 
 각 시도는 독립 plan과 confirmation, attempt counter, 전후 observation을
 기록한다. 같은 실패 원인이 반복되거나 fault, stale calibration, workspace
@@ -283,11 +308,13 @@ correction 또는 `FAILED`로 끝낸다.
 성립하지 않는다. 기존 stage를 보존하고 다음 네 단계의 별도 physics layer로
 승격한다.
 
-1. `S0 rigid proxy`: 300×300 mm 평판으로 FOV, 양팔 IK, collision과 두 fold
-   envelope를 검증한다.
-2. `S1 attached cloth`: 삼각 surface-deformable mesh와 작업대 collider를 만들고,
-   파지된 vertex patch를 gripper frame에 명시적으로 attach해 경로·release
-   순서를 검증한다.
+1. `S0 rigid proxy`: 300×300 mm 평판으로 FOV, task-constrained 접근과
+   collision만 검증한다.
+   정적 proxy 주변에서 TCP가 움직인 결과를 fold 성공으로 해석하지 않는다.
+2. `S1 attached cloth`: 304×296 mm 실측을 반영한 삼각 surface-deformable
+   mesh와 작업대 collider를 만들고, 파지된 vertex patch를 gripper frame에
+   명시적으로 attach해 `drop→settle→attach→lift→place→release`와 단팔
+   correction 순서를 검증한다.
 3. `S2 contact/randomized cloth`: 질량, 두께, bend, damping과 dynamic friction을
    실측 범위에서 바꾸며 실패 사례와 perception 데이터를 생성한다.
 4. `S3 Isaac Lab policy task`: S1/S2를 vectorized 환경으로 감싸고 제한된
@@ -301,11 +328,13 @@ correction 또는 `FAILED`로 끝낸다.
 
 ### 학습 순서와 선택 기준
 
-1. R3의 scripted primitive를 S1에서 replay해 contact·attachment·termination이
-   맞는지 먼저 확인한다.
-2. heuristic 펼치기 정책을 S2의 고정 seed suite에서 baseline으로 기록한다.
-3. 같은 action/observation 계약으로 behavior cloning 또는 self-supervised
-   policy와 RL을 학습한다.
+1. R3의 scripted primitive를 S1 한 환경에서 replay해
+   contact·attachment·self-contact·termination이 맞는지 먼저 확인한다.
+2. coarse fold 뒤 평행이동·회전·느슨함을 만든 S2 고정 seed suite에서 heuristic
+   correction baseline을 기록한다.
+3. 같은 action/observation 계약으로 goal-conditioned residual RL을 학습한다.
+   한 step은 저수준 joint command가 아니라 `MICRO_DRAG`, `LIFT_PULL_PLACE`,
+   `ACCEPT`, `RETRY` 중 하나와 bounded 파라미터다.
 4. simulator held-out material/shape/lighting에서 성공률, coverage, action 수,
    collision/drop을 비교한다.
 5. 실제 수건에서는 supervised-once와 작은 고정 evaluation set으로 시작하고,
@@ -316,10 +345,22 @@ action outcome을 보존하고, R2에서 Isaac Lab 환경·baseline·평가기�
 R3/R4의 검증된 primitive와 평탄 수건 접기 결과를 학습 action과 성공 판정의
 ground truth로 재사용한다.
 
-강화학습은 특히 임의 구김의 펼치기·정규화에 우선 적용한다. 평탄 수건의 두
-번 접기는 기하 baseline을 유지하고, learned scorer가 필요할 때 grasp/placement
-후보만 개선한다. 이는 학습을 축소하는 것이 아니라 탐색이 필요한 상태 선택과
-정확한 실행·안전 검증을 분리해 실제 데이터 효율과 재현성을 높이기 위함이다.
+강화학습은 1차 coarse fold 뒤의 자잘한 위치 오차·회전·느슨함처럼 한 조작이
+cloth 전체에 비선형 영향을 주는 residual correction에 먼저 적용한다. 입력은
+현재/목표 Top mask, corner·edge 오차, 직전 action history와 필요할 때 wrist
+grasp crop이며, simulator에서는 privileged particle state를 reward와 teacher에만
+사용한다. 실제에서는 매 macro-action 뒤 `OBSERVE_CLEAR`로 상태를 다시 잡아
+sim-to-real 오차가 open-loop로 누적되지 않게 한다.
+
+Isaac은 실제 천의 정답 복제본이 아니라 물성·접촉·초기 오차를 넓게 randomize한
+대량 훈련장이다. 실제 수건의 bounded episode는 shadow 검증 뒤 replay buffer에
+쌓고 offline fine-tuning과 simulator 범위 보정에 사용한다. 실제에서 무작위
+exploration하거나 simulator checkpoint만으로 motion을 승인하지 않는다.
+
+첫 시연은 학습 완료에 종속시키지 않는다. 사람이 correction point만 승인하고
+MoveIt과 executor가 자동 실행하는 assisted-autonomous 단계, 규칙 기반 폐루프,
+learned residual correction, 임의 구김 순으로 승격한다. ACT식 continuous teleop
+trajectory는 현재 시스템의 필수 전제가 아니다.
 
 이 구조는 임의 cloth를 learned bimanual primitive로 펼친
 [FlingBot](https://proceedings.mlr.press/v164/ha22a.html), 정규화 뒤 단순한
@@ -370,12 +411,14 @@ tools/
   lib/towel_task_planning.py
   lib/towel_task_replay.py
   lib/towel_fake_reachability.py
+  lib/towel_asymmetric_planning.py
   run/validate_towel_contract.py
   run/validate_towel_schemas.py
   run/validate_towel_dataset.py
   run/plan_towel_task_once.py
   run/replay_towel_task.py
   run/select_towel_fake_reachability.py
+  run/plan_towel_asymmetric_sequence_once.py
 tests/
   test_towel_geometry.py
   test_towel_fold_path.py

@@ -9,16 +9,17 @@
 → 제한 반복 → 통합` 순서로만 승격한다. 앞 gate가 실패하면 뒤 단계의 실제
 동작을 실행하지 않는다.
 
-학습은 최종 목표에서 선택 사항이 아니다. 사람이 펴 둔 수건의 정형 접기에는
-기하·MoveIt baseline을 먼저 사용하지만, 임의 구김에서의 펼치기·정규화와
-원인별 복구에는 실제 데이터와 시뮬레이션을 결합한 learned policy를 R5의 필수
-구성으로 둔다. 다만 `강화학습`이라는 이름만으로 방법을 고정하지 않는다. 같은
+학습은 최종 목표에서 선택 사항이 아니다. 사람이 펴 둔 수건의 큰 접기 동작에는
+기하·MoveIt baseline을 먼저 사용하지만, 1차 coarse fold 뒤의 자잘한 오차·구김
+보정과 임의 구김의 펼치기·정규화에는 실제 데이터와 시뮬레이션을 결합한
+learned policy를 R5의 필수 구성으로 둔다. 다만 `강화학습`이라는 이름만으로
+방법을 고정하지 않는다. 같은
 관측·primitive·평가 split에서 heuristic, self-supervised/모방학습, model-based
 planning과 RL을 비교하고, held-out 성능과 실제 안전성이 가장 좋은 방법을
 승격한다. 학습 출력은 저수준 관절·토크가 아니라 승인된 primitive와 제한된
 grasp/placement 파라미터이며 MoveIt과 실행 gate를 우회할 수 없다.
 
-## R0 — 물리 계약·작업셀 go/no-go (진행 중)
+## R0 — 물리 계약·작업셀 go/no-go (완료)
 
 nominal 수건 크기는 300×300 mm로 확정됐다. 다음 값과 좌표계를 실제 증빙으로
 고정한다.
@@ -63,6 +64,29 @@ XY RMS/max `10.327/12.309 mm`, Z max `12.313 mm`, yaw max `1.232 deg`였다.
 결과는 tabletop 물체 좌표와 300 mm rigid-proxy plan-only 사용만 승인하며 실제
 motion은 계속 승인하지 않는다.
 
+R0-G의 초기 탐색은 300×300×13 mm 정적 rigid proxy 주변에서 두 TCP 위치만
+접기 arc에 맞췄다. 이 탐색과 1차 양팔 moving-edge 전략은 jaw 방향과 팔 간섭을
+설명하지 못해 접기 해로 승격하지 않았다. 최종 gate는 아래 비대칭 전략으로
+다시 수행해 통과했다.
+
+- 1차: 한 팔의 `single_arm_coarse_fold` 뒤 clear 재관측과 최대 2회의
+  `micro_drag` 또는 `lift_pull_place` 보정
+- 1차가 어긋난 경우 2차 금지; 필요하면 반대 팔의 멀리 떨어진 passive pin을
+  별도 후보로 검증
+- 2차: 300×150 mm 결과의 짧은 moving edge를 양팔이 자기 쪽 endpoint에서
+  잡는 동기 접기
+- 모든 grasp에서 TCP xyz, jaw opening-line yaw, downward approach cone,
+  손목·카메라 거치대와 케이블 keep-out을 검사
+
+SO-101 한 팔의 5-DOF를 반영해 임의 exact 6D pose를 요구하지 않고, 위 세
+task constraint를 만족하는 IK와 full 6D FK를 기록했다. 선택된 해는 오른팔의
+화면 오른쪽→왼쪽 1차 접기, high/low-x 양쪽 ±30 mm correction envelope,
+`+x→-x` 양팔 2차 접기와 `left_to_high_y` endpoint 배정이다. 217개 segment,
+17,921개 dense full-state sample에서 비승인 접촉 0건, 최소 joint-limit margin
+`0.043430 rad`를 확인했다. 의도된 jaw-table 접촉 최대 깊이는 `0.0274 mm`
+(한계 `0.1 mm`)였고 실제 motion 명령은 0개였다. 이 승인은 정적 task-pose
+envelope에 한정되며 cloth attachment·변형·fold 성공을 주장하지 않는다.
+
 현재까지 고정된 R0 계약은 다음과 같다.
 
 - 완료: side tolerance, 근사 두께, 재질과 세탁·건조 조건
@@ -75,23 +99,26 @@ motion은 계속 승인하지 않는다.
 - 완료: 300 mm 수건 전체와 승인된 외곽 여유가 Top의 검증된 metric 영역 안에 있음
 - 연기: 질량과 수건-작업대 마찰은 이를 소비하는 동적 gate 전에 측정
 - 완료: 오른팔 FK+wrist tabletop 물체 좌표의 독립 target 검증
+- 완료: 1차 단팔·폐루프 보정과 2차 양팔 접기의 task-pose MoveIt plan-only envelope
 - 미완료: 자동 contact/slip, 허용 TCP separation과 양팔 속도 차이는 이를
   소비하는 primitive 전에 commission
 
-동시에 300 mm rigid proxy와 실제 MoveIt으로 아래 최소 envelope를 검증한다.
+300 mm rigid proxy와 실제 MoveIt으로 아래 R0 최소 envelope를 검증했다.
 
 - 펼침 footprint 300×300 mm
-- 1차 fold moving-edge separation 최대 약 300 mm
-- 두 fold의 corner 이동 약 300 mm와 기준 arc 높이 약 150 mm
-- 2차 fold moving-edge separation 최대 약 150 mm
-- 모든 pregrasp, lift, lay-down, release와 retreat에서 양팔·작업대 collision 없음
+- 1차 단팔 corner grasp, lift-over-place와 테이블 마찰 또는 승인된 passive pin
+- clear 재관측에서 현재/목표 mask·corner·fold-line 오차를 계산하는 bounded 보정
+- 2차 fold moving-edge separation 최대 약 150 mm의 양팔 endpoint grasp
+- 모든 pregrasp, lift, lay-down, release와 retreat에서 robot·작업대·카메라
+  거치대·케이블 keep-out 위반 없음
+- 정적 proxy 도달성은 cloth가 실제로 따라오거나 집힌다는 증거로 사용하지 않음
 
-남은 완료 조건: 실제 MoveIt에서 선택 가능한 축·방향·팔 배정이 적어도 하나
-존재해야 한다. 카메라·작업대 좌표와 수건 전체가 같은 검증된 workcell frame에
-들어오는 조건은 R0-F에서 통과했다. R0에서 직접 소비하지 않는 질량과 마찰,
-자동 contact와 동적 한계는 필요한 후속 gate와 비활성화할 동작을 명시해 연기할
-수 있다. 그 밖의 필수값이 비어 있거나 좌표계가 거부된 동안
-`motion_authorized=false`를 유지한다.
+완료 판정: 물리·좌표계, clear observation과 비대칭 task-pose MoveIt plan-only
+후보 하나가 통과해 R0를 종료한다. 후보 탐색은 고정된 우선순위에서 첫 승인 해가
+나오면 멈추며, 그 전에 평가한 거부 해만 이유를 기록한다. 이번에는 첫 후보가
+통과해 나머지 7개는 `not_evaluated_after_selection`으로 명시됐다. 실제 수건
+fold는 여전히 승인하지 않으며 R1 이후 gate에서도 `motion_authorized=false`를
+기본값으로 유지한다.
 
 ## R1 — 실제 관측·가림·topology
 
@@ -111,17 +138,16 @@ layer를 안전하게 거부하지 못하면 RGB-D 또는 고정 사선 카메�
 분류가 검증 임계값을 통과하고, 가려짐·들림·다층 ambiguity를 `ALIGNED`로
 승인하지 않는다.
 
-## R2 — 30 cm plan-only와 Isaac Lab 학습 기반
+## R2 — Isaac Lab cloth와 학습 기반
 
-- 실제 MoveIt request/response reachability backend 연결
-- x/y축, 양 방향, arm assignment와 grasp inset 후보 전수 평가
-- 수직 lift, tension 유지, fold, 저속 lay-down, 동시 release, retreat로 path 분할
-- waypoint별 양팔 IK, joint margin, self/world collision과 cable keep-out 검사
-- `S0` 300 mm rigid proxy로 FOV·충돌·fold envelope 검증
-- `S1` surface deformable과 명시적 vertex attachment로 grasp/release 순서 검증
+- R0의 비대칭 task-pose sequence와 실제 R1 observation을 공통 baseline으로 사용
+- `S0`에서 R0 plan artifact 재생, vectorized reset과 FOV·접근·충돌 재현성을 검사
+- `S1` 삼각 surface deformable과 명시적 vertex-patch attachment로 단팔 fold,
+  bounded correction과 양팔 fold의 grasp/release 순서 검증
 - `S2` 실측 범위 material randomization으로 실패 사례와 영상 생성
 - Isaac Lab 환경을 `reset/observation/action/reward/termination` 계약으로 구현
-- 행동 공간은 승인된 primitive 종류와 양팔 pick/place·높이·장력 파라미터로 제한
+- 행동 공간은 승인된 단팔/양팔 primitive, pick/place·높이·장력과
+  `ACCEPT/RETRY`로 제한
 - coverage, corner/topology, 정렬 진전과 collision·drop·workspace·시도 비용을
   분리해 reward hacking을 replay와 oracle state로 검사
 - 병렬 randomized rollout과 scripted baseline을 먼저 통과한 뒤 RL 학습 시작
@@ -132,9 +158,9 @@ Isaac 성공은 실제 cloth dynamics나 grasp의 승인 근거로 사용하지 
 못하면 simulator를 더 복잡하게 맞추기보다 real self-supervised/offline 학습으로
 전환한다.
 
-완료 조건: 300 mm nominal observation에서 적어도 한 개의 두-fold sequence가
-MoveIt plan-only를 통과하고, 모든 거부 후보는 재현 가능한 이유를 남긴다. 또한
-Isaac Lab S0 vectorized smoke test와 S1의 고정 scripted trajectory가 결정적으로
+완료 조건: R0의 300 mm 비대칭 plan artifact가 Isaac Lab S0 vectorized smoke
+test에서 결정적으로 재생되고, S1의
+`drop→settle→attach→lift→place→release` 및 correction trajectory가 결정적으로
 재생되며, 학습 전에 실제와 비교할 상태·행동·결과 metric이 확정돼 있다.
 
 ## R3 — 안전 primitive와 접촉 계약
@@ -146,8 +172,9 @@ Isaac Lab S0 vectorized smoke test와 S1의 고정 scripted trajectory가 결정
 3. `lift_and_observe`, `lay_flat`
 4. `tension_spread`
 5. `drag_corner`, `align_square`
-6. `fold_edge_pair`, `release_and_smooth`
-7. `controlled_shake`는 앞의 저속 primitive가 부족하다는 증거가 있을 때만 추가
+6. `single_arm_coarse_fold`, `micro_drag`, `lift_pull_place`
+7. `fold_edge_pair`, `release_and_smooth`
+8. `controlled_shake`는 앞의 저속 primitive가 부족하다는 증거가 있을 때만 추가
 
 각 primitive는 pre/postcondition, timeout, 최대 이동·속도, 장력 proxy, slip과
 fault 중단, terminal measured feedback와 새 clear observation을 가진다. 한 팔의
@@ -162,19 +189,22 @@ fault는 같은 session의 양팔 정지로 이어진다.
 전체 구김 문제와 분리해 사람이 평탄·정렬한 300×300 mm 수건에서 먼저 fold
 executor를 완성한다.
 
-- 1차 single-layer dual grasp와 nominal 300×150 mm 결과 검증
-- corner 대응, fold-line, twist와 stationary-half 미끄러짐 검사
-- 2차 multi-layer bundle grasp와 첫 접힘 보존
+- 1차 single-layer 단팔 corner grasp와 nominal 300×150 mm coarse 결과 검증
+- clear 재관측 뒤 평행이동·회전·느슨함을 최대 2회의 bounded correction으로 보정
+- stationary-half가 함께 미끄러지면 pull 축소 또는 승인된 passive pin 사용
+- 2차 multi-layer 양팔 endpoint grasp와 첫 접힘 보존
 - nominal 150×150 mm 결과, rebound와 stack 돌출 검사
 - 실패한 1차 fold에서 2차 fold 금지
 
 완료 조건: 고정된 수건·작업셀 조건에서 각 fold 단계가 독립 20회 중 19회
 이상 품질 기준을 통과하고 충돌, 낙하와 workspace 이탈이 0회다.
 
-이 baseline은 R5 학습의 비교군이자 안전한 fold executor다. 이후 학습 정책이
-fold grasp/placement를 제안하더라도 동일한 executor와 사후 검증을 사용한다.
+이 baseline은 R5 학습의 비교군이자 안전한 fold executor다. 첫 실기 시연은
+사람이 correction point만 승인하고 MoveIt·executor가 자동 실행하는
+assisted-autonomous 단계로 시작할 수 있다. 이후 학습 정책이 fold
+grasp/placement를 제안하더라도 동일한 executor와 사후 검증을 사용한다.
 
-## R5 — 학습 기반 거친 펼치기와 정규화
+## R5 — 학습 기반 residual correction과 거친 펼치기
 
 - 가장 안전한 노출 지점의 single grasp와 낮은 lift
 - 늘어진 실루엣에서 반대쪽 grasp 후보 재관측
@@ -182,21 +212,25 @@ fold grasp/placement를 제안하더라도 동일한 executor와 사후 검증�
 - 필요한 경우에만 제한된 작은 shake
 - slip, 다층 grasp와 workspace 이탈의 즉시 중단
 - Top/손목 관측에서 primitive와 양팔 grasp 파라미터를 고르는 learned policy
+- 1차 coarse fold 뒤 현재/목표 mask, corner·edge 오차와 직전 action history로
+  다음 bounded correction 또는 `ACCEPT/RETRY`를 고르는 goal-conditioned policy
 - Isaac Lab domain randomization pretraining과 실제 episode fine-tuning 비교
 - 같은 episode split에서 heuristic, behavior cloning/self-supervised, RL을 비교
 - policy confidence가 낮거나 분포 밖이면 `abstain`하고 제한 복구 또는 정지
 
-첫 학습 목표는 end-to-end 12축 제어가 아니라 `CRUMPLED`에서
-`PARTIALLY_OPEN/TWO_CORNERS_VISIBLE`, 이어 `FOUR_CORNERS_VISIBLE`로 가는
-action selection이다. Fling처럼 고속 동작은 SO-101의 가동범위·그립·추종오차
-실측이 저속 primitive의 한계를 입증하고 별도 안전 gate를 통과한 뒤에만 후보로
-추가한다.
+첫 학습 목표는 end-to-end 12축 제어나 teleop trajectory 복제가 아니다. 평탄
+수건의 1차 coarse fold 뒤 최대 2회 macro-action으로 오차를 줄이는 visual
+residual policy를 먼저 만들고, 같은 action 계약을 `CRUMPLED`에서
+`PARTIALLY_OPEN/TWO_CORNERS_VISIBLE`, 이어 `FOUR_CORNERS_VISIBLE`로 가는 선택에
+확장한다. Fling처럼 고속 동작은 SO-101의 가동범위·그립·추종오차 실측이 저속
+primitive의 한계를 입증하고 별도 안전 gate를 통과한 뒤에만 후보로 추가한다.
 
-완료 조건: 대표 구김 입력 20회 중 19회 이상이 계약된 시도 횟수 안에
-`PARTIALLY_OPEN` 또는 `TWO_CORNERS_VISIBLE`로 승격되고 안전 사고가 0회다.
-승격된 정책은 고정된 held-out 초기 상태에서 heuristic baseline보다 사전에
-정한 핵심 지표(성공률 우선, 동률이면 시도 횟수·시간)를 개선해야 하며, simulator
-checkpoint만으로 실제 실행을 승인하지 않는다.
+완료 조건: fold residual policy는 고정된 held-out coarse-fold 오류에서 같은
+최대 2회 action budget의 heuristic보다 1차 fold 승인률을 개선해야 한다. 거친
+펼치기 정책은 대표 구김 입력 20회 중 19회 이상을 계약된 시도 횟수 안에
+`PARTIALLY_OPEN` 또는 `TWO_CORNERS_VISIBLE`로 승격하고 안전 사고가 0회여야
+한다. 동률이면 시도 횟수·시간을 비교하며 simulator checkpoint만으로 실제
+실행을 승인하지 않는다.
 
 ## R6 — 정밀 평탄화와 정렬
 
