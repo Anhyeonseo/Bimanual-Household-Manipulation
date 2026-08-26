@@ -84,13 +84,13 @@ def test_candidate_contract_records_measured_towel_and_stays_motion_locked():
     )
 
 
-def test_candidate_contract_records_approved_asymmetric_plan_policy():
+def test_candidate_contract_records_canonical_fold_policy():
     document = contract()
     policy = document["fold_policy"]
-    assert policy["strategy"] == "asymmetric_single_arm_then_bimanual"
-    assert policy["first_axis"] == "workcell_y"
+    assert policy["strategy"] == "bimanual_first_then_single_arm_second"
+    assert policy["first_axis"] == "workcell_x"
     assert policy["first_direction"] == "negative_to_positive"
-    assert policy["first_active_arm_preference"] == "right_then_left"
+    assert policy["first_arm_assignment"] == "left_to_high_y_right_to_low_y"
     assert policy["first_correction_primitives"] == [
         "micro_drag",
         "lift_pull_place",
@@ -98,7 +98,9 @@ def test_candidate_contract_records_approved_asymmetric_plan_policy():
     assert policy["maximum_first_fold_corrections"] == 2
     assert policy["correction_envelope_mm"] == pytest.approx(30.0)
     assert policy["require_clear_reobservation_after_each_attempt"] is True
-    assert policy["second_axis"] == "workcell_x"
+    assert policy["second_axis"] == "workcell_y"
+    assert policy["second_active_arm_candidates"] == ["right", "left"]
+    assert policy["second_inactive_arm_policy"] == "remain_at_observe_clear"
     assert policy["kinematic_contract"]["arm_dof"] == 5
     assert policy["kinematic_contract"][
         "arbitrary_exact_6d_pose_claimed"

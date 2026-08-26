@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan the asymmetric two-fold towel sequence with zero motion commands.
+"""Plan the canonical bimanual-then-single towel sequence with zero motion commands.
 
 This is the final R0 reachability gate.  It combines deterministic task-pose
 IK with MoveIt planning, dense strict collision checks, the registered wrist
@@ -37,18 +37,19 @@ if str(ROOT) not in sys.path:
 from tools.lib import desk_task_planning as planning  # noqa: E402
 from tools.lib.desk_task_runtime import CANONICAL_JOINTS  # noqa: E402
 from tools.lib.grasp_yaw_kinematics import GraspYawKinematics  # noqa: E402
-from tools.lib.towel_asymmetric_planning import (  # noqa: E402
-    AsymmetricPlanningError,
+from tools.lib.towel_task_pose_planning import (  # noqa: E402
+    TowelPlanningError,
     CandidateSpec,
     CorrectionProbe,
     PhaseSpec,
-    build_asymmetric_candidates,
     build_correction_probes,
     phase_to_dict,
-    SECOND_TRANSFER_STAGGER_M,
     solve_task_pose_branches,
     towel_bounds_from_worktable,
     validate_phase_contract,
+)
+from tools.lib.towel_bimanual_then_single_planning import (  # noqa: E402
+    build_bimanual_then_single_candidates,
 )
 from tools.run.plan_observe_clear_once import (  # noqa: E402
     APPLY_SCENE_SERVICE,
@@ -64,7 +65,7 @@ from tools.run.plan_observe_clear_once import (  # noqa: E402
 )
 
 
-STATUS = "ASYMMETRIC_TOWEL_TASK_POSE_PLAN_ONLY_PASS"
+STATUS = "TOWEL_BIMANUAL_THEN_SINGLE_TASK_POSE_PLAN_ONLY_PASS"
 PATH_VALIDATION_STEP_RAD = 0.020
 MAXIMUM_GOAL_RESIDUAL_RAD = 0.001
 PLANNING_ATTEMPTS_PER_IK_BRANCH = 8
@@ -1159,13 +1160,13 @@ def evaluate_candidate(
     minimum_margin = min(evaluated_joint_margins)
     result = {
         "candidate_id": candidate.candidate_id,
-        "first_active_arm": candidate.first_active_arm,
+        "first_arm_assignment": candidate.first_arm_assignment,
         "first_axis": candidate.first_axis,
         "first_direction": candidate.first_direction,
         "second_axis": candidate.second_axis,
         "second_direction": candidate.second_direction,
-        "second_assignment": candidate.second_assignment,
-        "second_release_endpoint_x_separation_m": 2.0 * SECOND_TRANSFER_STAGGER_M,
+        "second_active_arm": candidate.second_active_arm,
+        "second_grasp_strategy": "single_arm_moving_edge_midpoint_multilayer",
         "final_footprint_requires_bounded_visual_correction": True,
         "first_expected_footprint_xyxy_m": list(
             candidate.first_expected_footprint_xyxy_m
@@ -1225,7 +1226,7 @@ def main() -> int:
         board["calibrated_span_m"], board["origin_in_left_base_link_xy_m"]
     )
     table_z = float(board["table_z_in_left_base_link_m"])
-    candidates = build_asymmetric_candidates(towel_bounds, table_z)
+    candidates = build_bimanual_then_single_candidates(towel_bounds, table_z)
     corrections = build_correction_probes(
         candidates[0].first_expected_footprint_xyxy_m, table_z
     )
@@ -1246,7 +1247,7 @@ def main() -> int:
     grippers = gripper_modes(contract, inputs["cable"])
 
     rclpy.init()
-    node = Node("towel_asymmetric_plan_only")
+    node = Node("towel_fold_sequence_plan_only")
     gate = MoveItPlanOnlyGate(node, args.timeout_s, grippers, clear)
     selected = None
     rejected = []
@@ -1264,12 +1265,12 @@ def main() -> int:
                     bounds,
                 )
                 break
-            except (RuntimeError, AsymmetricPlanningError) as exc:
+            except (RuntimeError, TowelPlanningError) as exc:
                 rejected.append(
                     {"candidate_id": candidate.candidate_id, "reason": str(exc)}
                 )
                 print(
-                    f"ASYMMETRIC_TOWEL_CANDIDATE_REJECTED "
+                    f"TOWEL_FOLD_CANDIDATE_REJECTED "
                     f"id={candidate.candidate_id} reason={exc}",
                     flush=True,
                 )
@@ -1280,7 +1281,7 @@ def main() -> int:
             node.destroy_node()
             rclpy.shutdown()
     if selected is None:
-        raise RuntimeError("no asymmetric task-pose candidate passed MoveIt")
+        raise RuntimeError("no canonical towel task-pose candidate passed MoveIt")
 
     selected_index = next(
         index
@@ -1301,7 +1302,7 @@ def main() -> int:
         sources[name] = {"path": str(path.resolve()), "sha256": sha256_file(path)}
     document = {
         "schema_version": 1,
-        "record_kind": "asymmetric_towel_task_pose_plan_only",
+        "record_kind": "towel_bimanual_then_single_task_pose_plan_only",
         "status": STATUS,
         "generated_at_unix_s": time.time(),
         "motion_authorized": False,
@@ -1314,7 +1315,7 @@ def main() -> int:
             "arbitrary_exact_6d_pose_claimed": False,
             "required_constraints": [
                 "tcp_xyz",
-                "downward_approach_cone",
+                "phase_semantic_approach_cone",
                 "jaw_opening_line_yaw",
                 "full_6d_fk_recorded",
             ],
@@ -1384,4 +1385,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except (RuntimeError, TowelPlanningError) as exc:
+        print(f"[FAIL] {exc}", file=sys.stderr)
+        raise SystemExit(1) from None

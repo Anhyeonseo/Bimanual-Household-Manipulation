@@ -1,6 +1,6 @@
 # 현재 상태
 
-기준일: 2026-08-26
+기준일: 2026-08-27
 
 최신 별도 파일로 추적되는 자동검증 결과는
 [2026-08-20 수건 software foundation 검증](test-results/2026-08-20-towel-software-foundation.md)이다.
@@ -12,9 +12,11 @@
 최종 목표 수건은 nominal 300×300 mm로 확정됐다. 실제 네 변, 근사 두께,
 면 100%·건조·미세탁 조건과 좌우 1/4겹 정적 retention을 등록했다. 질량,
 작업대 마찰, 자동 contact와 동적 slip·장력 한계는 아직 측정되지 않았다.
-R0 물리·카메라·작업셀과 비대칭 접기 task-pose plan-only gate는 완료됐다. 다음
-단계는 R1 실제 관측·가림·topology 구현이다. 실제 수건 motion은 승인되지 않았고
-`motion_authorized=false`다.
+R0 물리·카메라·작업셀 기반과 canonical 접기 task-pose 후보를 통합했다. 접기
+순서는 1차 양팔 x 음→양, 2차 가까운 한 팔 y축 edge-midpoint다. software와
+full-FK IK 검증은 통과했지만 strict MoveIt 최종 승격에는 로컬에 없는 등록 완료
+URDF·workcell shadow·right tabletop artifact가 필요하다. 실제 수건 motion은
+승인되지 않았고 `motion_authorized=false`다.
 
 ## 재사용 가능한 기반
 
@@ -39,7 +41,7 @@ R0 물리·카메라·작업셀과 비대칭 접기 task-pose plan-only gate는 
 | corner/topology | 순수 기하와 confidence gate | 가림·말림·다층 ambiguity 검증 |
 | temporal state | 3-frame 동일 상태 gate | timestamp, spread, settle, hysteresis |
 | observation lifecycle | Top metric 영역·실기 clear 왕복과 무가림 재관측 PASS | camera phase와 runtime 상태기계 구현 |
-| fold plan-only | PASS: 오른팔 단팔 1차·±30 mm 보정 envelope·양팔 2차의 task-pose MoveIt | R1 실제 관측 입력 연결; cloth dynamics는 R2 |
+| fold plan-only | 후보: 양팔 1차·오른팔 edge-midpoint 2차 full-FK IK PASS; strict MoveIt은 등록 artifact 부재로 BLOCKED | 등록 완료 URDF/shadow/tabletop evidence 복원 뒤 dense collision 재실행 |
 | Isaac/학습 | 표시 전용 workcell과 legacy 단일팔 rigid scripted grasp; Isaac Lab towel env·policy는 없음 | S0/S1 physics와 vectorized smoke test, heuristic baseline부터 구축 |
 | 조작 primitive | 미구현 | 개별 plan-only→supervised 제한 반복 |
 | 펼쳐진 수건 2회 접기 | 미구현 | R4 standalone fold gate 통과 |
@@ -140,35 +142,28 @@ config로 승격했다. Pi 재빌드 뒤 Top `1280x960@30`, 두 wrist `640x480@3
 동시에 `STREAMING`했고 reconnect와 capture/decode error는 없었다.
 `motion_authorized=false`는 유지한다.
 
-R0-G의 초기 position-only 탐색과 1차 양팔 moving-edge 전략은 실제 구조에서
-파지 방향과 팔 간섭을 설명하지 못해 폐기했다. 최종 gate는 300 mm 수건을 검증된
-작업대 중앙에 두고, 화면 오른쪽 corner를 오른팔 하나로 왼쪽에 넘긴 뒤 clear
-재관측과 bounded correction을 거쳐, 짧아진 edge를 양팔로 두 번째 접는 비대칭
-sequence로 수행했다.
+R0-G canonical 후보는 300 mm 수건을 검증된 작업대 중앙에 두고 x 음의 방향
+moving edge 양 끝을 양팔로 잡아 x 양의 방향으로 먼저 접는다. clear 재관측과
+bounded correction 뒤에는 짧아진 두 겹 edge의 중앙을 가까운 오른팔이 y 음→양
+방향으로 접는다. 왼팔과 반대 방향은 bounded fallback 후보로만 유지한다.
 
-SO-101 한 팔은 5-DOF이므로 임의 exact 6D pose를 주장하지 않는다. 각 grasp는
-TCP xyz, jaw opening-line yaw와 아래 방향 70 deg cone을 강제하고 full 6D FK를
-기록했다. 선택된 후보는 1차 `right`, 화면 오른쪽→왼쪽, 2차 `+x→-x`,
-`left_to_high_y` endpoint 배정과 release endpoint x 간격 `40 mm`다. 기본 경로와
-high/low-x 양쪽의 `micro_drag`·`lift_pull_place` ±30 mm correction probe가 모두
-통과했다.
+SO-101 한 팔은 5-DOF이므로 임의 exact 6D pose를 주장하지 않는다. 각 phase는
+TCP xyz와 jaw opening-line yaw를 검사하고 full 6D FK를 기록한다. contact와
+pregrasp에는 70 deg downward cone을 적용하고, attached transfer·laydown에는
+최대 90 deg를 명시한다. 2차 contact는 bundle 높이에서 시작하되 laydown은
+기존 dense Cartesian 검증과 실제 도달 한계를 반영한 TCP 40 mm release다.
 
-최종 strict 재검사는 217개 planning segment와 17,921개 12축 상태를 검사했다.
-최소 joint-limit margin은 `0.043430 rad`, 비승인 접촉은 0건, 승인된 얕은
-동일-arm mesh 접촉의 정규화 후 최대 깊이는 `3.987 mm`(한계 `4 mm`), 의도된
-jaw-table 접촉은 최대 `0.0274 mm`(한계 `0.1 mm`)였다. inactive arm 상태에 따라
-FCL 대표 triangle 깊이가 달라진 35건은 동일 active-arm geometry로 정규화했고,
-원 raw 최대 `17.632 mm`도 artifact에 보존했다. 결과는
-`ASYMMETRIC_TOWEL_TASK_POSE_PLAN_ONLY_PASS`, `motion_commands=0`이며 로컬 artifact
-`artifacts/bimanual/planning/towel_asymmetric_sequence_r0.json`의 SHA-256은
-`0732bb73595e2ff17b117f865530330aade9115b2389dd13eb206e629d980b87`다. 입력
-contract SHA-256은 `1e8df521ca76a38b58fedeecfe0d3b79c389c7593748e26c074085c89c762957`로
-현재 저장소와 일치한다.
+software regression 79개와 canonical 후보의 전체 full-FK IK는 통과했다.
+하지만 strict MoveIt 진단은 저장소의 data-fit candidate URDF에서 초기 clear
+자세의 카메라 마운트와 팔 메시가 최대 약 16.2 mm 겹쳐 fail-closed됐다. 최종
+runner가 요구하는 등록 완료 URDF manifest, workcell shadow, right tabletop
+validation artifact는 Git과 로컬에 없으므로 PASS artifact를 만들지 않았다.
+실제 controller·resident motion API는 사용하지 않았고 `motion_commands=0`이다.
 
 입력 파일명과 내부 status인 `towel_task_contract.candidate.yaml`/
-`R0_STATIC_CONTACT_CANDIDATE`는 의도적으로 유지한다. 이는 자동·동적 contact가
-아직 승인되지 않은 motion-lock 상태를 뜻하며 R0 로드맵의 미완료 표기가 아니다.
-R0 완료 판정은 위 plan-only PASS와 `motion_authorized=false`를 함께 요구한다.
+`R0_STATIC_CONTACT_CANDIDATE`는 의도적으로 유지한다. 자동·동적 contact가 아직
+승인되지 않은 motion-lock 상태이며, R0 최종 완료에는 strict plan-only PASS와
+`motion_authorized=false`가 함께 필요하다.
 
 ## R0 종료 시 남은 비승인 항목
 

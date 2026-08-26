@@ -43,7 +43,7 @@ Top 영상에서 팔이나 gripper에 가려진 영역은 추정으로 채우지
 | State estimator | 구김·부분 펼침·평탄·접힘 상태와 관측 이력 | stale 관측 승인 |
 | Learning proposer | 펼치기·복구 primitive와 bounded grasp/placement 후보, confidence·abstain | 관절/토크 명령, planner·gate 우회 |
 | Task manager | heuristic/learned 후보 선택, 시도 횟수, 실패·복구 전이 | serial 직접 접근 |
-| Planner/MoveIt | 5-DOF task-constrained IK(TCP xyz+jaw yaw+downward cone), fold·보정 primitive, full 6D FK 기록, joint/collision 검사 | 안전 gate 우회, 임의 exact 6D pose 주장 |
+| Planner/MoveIt | 5-DOF task-constrained IK(TCP xyz+jaw yaw+phase별 approach cone), fold·보정 primitive, full 6D FK 기록, joint/collision 검사 | 안전 gate 우회, 임의 exact 6D pose 주장 |
 | Towel executor | SHA 고정 plan, 단계 동기화, terminal 검증 | 무한 자동 재시도 |
 | Resident adapter | 12축 owner/epoch, finite stream, feedback | 복수 serial owner |
 | STM32 | 동기 출력, tracking, heartbeat, stop/latch | 수건 상태 판단 |
@@ -52,16 +52,16 @@ Top 영상에서 팔이나 gripper에 가려진 영역은 추정으로 채우지
 
 ```text
 reviewed metric worktable와 300 mm task contract
-  → 비대칭 단팔 coarse fold·bounded correction·2차 양팔 후보
-  → TCP xyz+jaw yaw+downward cone task-pose IK
+  → 1차 양팔 edge-pair·bounded correction·2차 단팔 midpoint 후보
+  → TCP xyz+jaw yaw+phase별 approach cone task-pose IK
   → MoveIt segment planning과 dense full-state collision 재검사
   → JSON artifact (motion_authorized=false, motion_commands=0)
 ```
 
 이 경로는 executor, ROS action client, serial과 motor API를 생성하지 않는다.
-R0에서는 선택된 비대칭 sequence의 정적 도달성과 robot/table/camera-mount
-collision envelope만 승인한다. cloth attachment·변형, 자동 contact, 장력과 실제
-fold 성공은 증명하지 않는다.
+R0에서는 canonical sequence의 정적 도달성과 robot/table/camera-mount collision
+envelope만 검사한다. 등록 완료 collision artifact가 없으면 fail-closed하며,
+cloth attachment·변형, 자동 contact, 장력과 실제 fold 성공은 증명하지 않는다.
 
 ## 변형체 상태 모델
 
@@ -92,8 +92,8 @@ CRUMPLED
 - `lift_pull_place`
 - `lay_flat`
 - `align_square`
-- `single_arm_coarse_fold`
-- `fold_edge_pair`
+- `bimanual_edge_pair`
+- `single_arm_edge_midpoint_fold`
 - `release_and_smooth`
 
 각 primitive는 사전 조건, 최대 시간·거리·속도·시도 횟수, terminal measured

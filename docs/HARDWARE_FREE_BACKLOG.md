@@ -17,7 +17,7 @@
 - synthetic aligned observation과 회귀 시험
 - annotation validator와 deterministic split-safe dataset manifest
 - observation sequence offline replay와 유한 terminal artifact
-- 비대칭 단팔 1차·bounded correction·양팔 2차의 task-pose MoveIt plan-only gate
+- 양팔 1차·bounded correction·단팔 2차의 canonical task-pose/full-FK IK gate
 
 ## P0 — 데이터·관측 계약
 
@@ -140,14 +140,15 @@ reachability/collision 미검증을 명시한다.
 - 모든 후보 거부, 한 축만 가능, 팔 배정 swap scenario
 
 reachable/collision fixture 주입과 전 후보 거부 회귀시험은 유지한다. 실제
-MoveIt task-pose planner는 R0-G에서 별도 연결해 비대칭 후보 하나와 correction
-probe를 통과했으며, 이 절의 fake backend는 hardware-free 정책 회귀용이다.
+MoveIt task-pose planner는 R0-G에서 별도 연결한다. 현재 canonical 후보의
+full-FK IK는 통과했고 strict collision은 등록 artifact 복원 뒤 재실행한다.
+이 절의 fake backend는 hardware-free 정책 회귀용이다.
 
 ### P2.3 Isaac Lab cloth와 학습 환경
 
 - 300×300 mm rigid proxy는 FOV, 5-DOF task-constrained 접근과 collision만
   검증하고 fold 성공 근거로 사용하지 않음
-- 1차 단팔 coarse fold·bounded correction과 2차 양팔 fold를 서로 다른
+- 1차 양팔 fold·bounded correction과 2차 단팔 midpoint fold를 서로 다른
   primitive로 모델링
 - 304×296 mm 삼각 surface deformable과 명시적 vertex-patch attachment를 후속
   layer로 분리

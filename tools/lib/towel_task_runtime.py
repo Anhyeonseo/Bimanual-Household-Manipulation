@@ -651,23 +651,27 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
         else None
     )
     if not isinstance(fold_policy, Mapping) or (
-        fold_policy.get("strategy") != "asymmetric_single_arm_then_bimanual"
-        or fold_policy.get("first_axis") != "workcell_y"
+        fold_policy.get("strategy") != "bimanual_first_then_single_arm_second"
+        or fold_policy.get("first_axis") != "workcell_x"
         or fold_policy.get("first_direction") != "negative_to_positive"
-        or fold_policy.get("first_active_arm_preference") != "right_then_left"
-        or fold_policy.get("first_primitive") != "single_arm_coarse_fold"
+        or fold_policy.get("first_arm_assignment")
+        != "left_to_high_y_right_to_low_y"
+        or fold_policy.get("first_primitive") != "bimanual_edge_pair"
         or tuple(fold_policy.get("first_correction_primitives", ()))
         != ("micro_drag", "lift_pull_place")
         or fold_policy.get("maximum_first_fold_corrections") != 2
         or fold_policy.get("correction_envelope_mm") != 30.0
         or fold_policy.get("require_clear_reobservation_after_each_attempt")
         is not True
-        or fold_policy.get("second_axis") != "workcell_x"
+        or fold_policy.get("second_axis") != "workcell_y"
         or tuple(fold_policy.get("second_direction_candidates", ()))
         != ("positive_to_negative", "negative_to_positive")
-        or fold_policy.get("second_primitive") != "fold_edge_pair"
-        or tuple(fold_policy.get("second_endpoint_assignment_candidates", ()))
-        != ("left_to_high_y", "left_to_low_y")
+        or fold_policy.get("second_primitive")
+        != "single_arm_moving_edge_midpoint_multilayer"
+        or tuple(fold_policy.get("second_active_arm_candidates", ()))
+        != ("right", "left")
+        or fold_policy.get("second_inactive_arm_policy")
+        != "remain_at_observe_clear"
         or fold_policy.get("target_area_ratio_after_first_fold") != 0.5
         or fold_policy.get("target_area_ratio_after_second_fold") != 0.25
         or not isinstance(kinematic_contract, Mapping)
@@ -677,12 +681,13 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
         != (
             "tcp_xyz",
             "jaw_opening_line_yaw",
-            "downward_approach_cone",
+            "phase_semantic_approach_cone",
             "full_6d_fk_recorded",
         )
     ):
         raise TowelTaskContractError(
-            "fold policy must preserve the approved asymmetric task-pose contract"
+            "fold policy must preserve the canonical bimanual-then-single "
+            "task-pose contract"
         )
     hardware = contract.get("hardware_limits")
     if not isinstance(hardware, Mapping):

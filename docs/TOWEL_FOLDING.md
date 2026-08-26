@@ -179,25 +179,22 @@ gripper tracking residual과 추정 장력을 제한한다.
 말리거나 겹친 모서리 하나를 작업대 위에서 외곽 방향으로 당긴다. 수건 밖
 영역을 긁거나 다른 모서리를 다시 접지 않도록 매 동작 뒤 재관측한다.
 
-### `single_arm_coarse_fold`, `micro_drag`, `lift_pull_place`
+### `bimanual_edge_pair`, `single_arm_edge_midpoint_fold`
 
-`single_arm_coarse_fold`는 반대 팔을 clear pose에 둔 채 한 corner patch를 집어
-첫 중심선 반대편으로 넘긴다. `micro_drag`는 clear 관측에서 측정한 평행이동
-오차만 짧게 줄이고, `lift_pull_place`는 틀어진 corner를 낮게 들어 장력을 준
-뒤 다시 놓는다. 세 primitive 모두 한 번의 실행 뒤 팔을 치우고 새 Top 관측을
-요구하며, 같은 session에서 보이지 않는 cloth 상태를 연속 추측하지 않는다.
+`bimanual_edge_pair`는 펼쳐진 300 mm moving edge의 양 끝을 각각 잡아 첫
+중심선을 넘긴다. 넓은 한 겹 edge를 한 점만으로 끌지 않으므로 회전과 비틀림을
+줄일 수 있다. `single_arm_edge_midpoint_fold`는 첫 fold 뒤 짧아진 두 겹 moving
+edge의 중앙만 가까운 팔로 잡고, 다른 팔은 `OBSERVE_CLEAR`에 둔다. 두 primitive
+모두 release 뒤 팔을 치우고 새 Top 관측을 요구한다.
+
+`micro_drag`와 `lift_pull_place`는 clear 관측에서 측정된 첫 fold 오차만 제한된
+범위에서 보정한다. 같은 session에서 보이지 않는 cloth 상태를 연속 추측하지
+않는다.
 
 ### `lay_flat`과 `align_square`
 
 장력을 유지하며 내려놓고 네 모서리, 변, 대각선과 작업대 축을 기준으로 최종
 평탄·정렬 상태를 만든다.
-
-### `fold_edge_pair`
-
-한쪽 변의 두 모서리를 동시에 잡아 중심선을 지나는 fold arc로 반대쪽에
-정렬한다. 현재 기본 전략에서는 1차 단팔 coarse fold가 검증된 뒤 짧아진
-multi-layer edge의 2차 접기에만 사용한다. 각 팔은 자기 쪽 endpoint에 접근하며
-jaw 방향과 bundle contact를 별도 contract로 검증한다.
 
 ## 7. 거친 펼치기 전략
 
@@ -244,24 +241,18 @@ slip, 시도 횟수와 실패 원인을 저장해 simulator randomization과 pol
 
 ## 9. 첫 번째 반 접기
 
-1. 반대 팔은 `OBSERVE_CLEAR`에 두고 작업 팔이 접근성과 가시성이 가장 좋은
-   moving-side corner 하나에 task-constrained pregrasp를 배치한다.
-2. single-layer contact를 확인하고 낮게 들어 올려 중심선 반대편의 대응 corner
-   근처로 `single_arm_coarse_fold`를 실행한다.
-3. cloth가 작업대에 닿은 뒤 필요하면 잡은 상태에서 짧은 tension pull을 하고
-   release한다.
+1. 양팔을 순차적으로 moving edge의 양 끝 pregrasp에 배치한다. 왼팔은 high-y,
+   오른팔은 low-y endpoint를 담당하며 팔 교차를 금지한다.
+2. 양쪽 single-layer contact를 모두 확인한 뒤에만 두 grasp를 attachment로
+   취급한다.
+3. x 음의 방향(로봇 가까운 쪽)에서 x 양의 방향으로 두 TCP가 같은 17-point
+   반원 arc를 따라 이동하고, laydown gate 뒤 함께 release한다.
 4. 양팔을 clear pose로 물린 뒤 현재 mask, 두 대응 corner, edge와 fold-line을
    새로 관측한다.
 5. 평행이동이면 `micro_drag`, 회전·느슨함이면 `lift_pull_place`를 한 번 실행하고
    다시 clear 관측한다. 첫 fold의 correction budget은 최대 2회다.
-6. stationary half가 함께 미끄러지는 현상이 반복될 때만 반대 팔의 멀리 떨어진
-   low-force passive pin을 별도 검증해 사용한다.
-
-한 gripper는 오른쪽 변 전체가 아니라 작은 corner patch만 제어한다. 따라서
-coarse fold 한 번으로 300×150 mm 직사각형이 완성된다고 가정하지 않으며, 실제
-전후 관측이 없는 open-loop 보정은 금지한다. corner/fold-line 기준을 통과하지
-못하거나 두 번의 보정이 개선을 만들지 못하면 두 번째 fold를 실행하지 않고
-`RETRY` 또는 `FAILED`로 끝낸다.
+6. corner/fold-line 기준을 통과하지 못하거나 두 번의 보정이 개선을 만들지
+   못하면 두 번째 fold를 실행하지 않고 `RETRY` 또는 `FAILED`로 끝낸다.
 
 초기 correction 판정은 metric calibration floor보다 충분히 큰 실제 허용값으로
 시작한다. corner 최대 오차 `12 mm` 이하는 진행 후보, `12–30 mm`는 bounded
@@ -270,11 +261,13 @@ correction 후보, `30 mm` 초과·대각 겹침·corner 소실은 재시도 후
 
 ## 10. 두 번째 반 접기
 
-1차 fold 뒤에는 수건이 여러 겹이므로 새 외곽선을 다시 추정한다. 한쪽 짧은
-변의 두 endpoint를 각 팔이 자기 쪽에서 잡을 수 있을 때만 양팔 동기 fold를
-사용한다. 두 layer grasp point의 jaw 방향과 bundle contact를 확인하고 첫
-접힘선과 직교하는 중심선으로 접는다. 첫 fold를 펴지 않도록 접근 높이와 fold
-arc를 별도로 검증한다.
+1차 fold 뒤에는 수건이 여러 겹이므로 새 외곽선을 다시 추정한다. 가까운 팔
+하나가 짧아진 moving edge의 중앙을 잡고 다른 팔은 clear pose에 둔다. 기본
+후보는 오른팔의 y 음→양 방향이며, 왼팔과 반대 방향은 bounded fallback이다.
+접촉점은 실제 bundle 높이를 사용하지만 반대쪽 laydown은 5-DOF 도달 한계와
+기존 dense Cartesian 결과를 반영해 테이블 위 TCP 40 mm에서 release한다.
+contact/pregrasp에는 70° downward cone을, 이미 cloth가 붙은 transfer·laydown에는
+최대 90° cone을 적용한다.
 
 release 뒤 필요하면 제한된 `release_and_smooth`를 실행하고 다음을 확인한다.
 
@@ -411,14 +404,15 @@ tools/
   lib/towel_task_planning.py
   lib/towel_task_replay.py
   lib/towel_fake_reachability.py
-  lib/towel_asymmetric_planning.py
+  lib/towel_task_pose_planning.py
+  lib/towel_bimanual_then_single_planning.py
   run/validate_towel_contract.py
   run/validate_towel_schemas.py
   run/validate_towel_dataset.py
   run/plan_towel_task_once.py
   run/replay_towel_task.py
   run/select_towel_fake_reachability.py
-  run/plan_towel_asymmetric_sequence_once.py
+  run/plan_towel_fold_sequence_once.py
 tests/
   test_towel_geometry.py
   test_towel_fold_path.py

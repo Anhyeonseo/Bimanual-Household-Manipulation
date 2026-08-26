@@ -10,7 +10,7 @@
 | T5 | 실제 mask, component, frame border와 robot occlusion | 오프라인+실기 | annotation backend만 구현 |
 | T6 | corner, 말린 edge, layer ambiguity, height/flatness | 오프라인+실기 | 순수 기하만 구현 |
 | T7 | jaw gap, 단일/다층 grasp, slip, 장력·속도 계약 | 실기 | 좌우 1/4겹 정적 retention PASS; 자동 contact·동적 slip/장력은 미구현 |
-| T8a | 1차 단팔·보정/2차 양팔 sequence의 task-pose MoveIt plan-only | 자동+MoveIt | PASS: right 단팔 1차, ±30 mm 보정 envelope, 양팔 2차; 217 segment·17,921 strict state·비승인 접촉 0·motion command 0 |
+| T8a | 1차 양팔·보정/2차 단팔 sequence의 task-pose MoveIt plan-only | 자동+MoveIt | 후보 full-FK IK PASS; strict collision은 등록 완료 URDF/shadow/tabletop artifact 부재로 BLOCKED, motion command 0 |
 | T8b | Isaac Lab S0–S3, heuristic baseline과 visual residual/unfolding policy | 자동+Isaac+오프라인 | R2 범위; 미구현 |
 | T9 | 독립 primitive dry-run, supervised-once와 제한 반복 | 실기 | 미구현 |
 | T10 | 평탄 수건의 1차 fold와 300×150 mm 검증 | 실기 | 미구현 |
@@ -24,7 +24,7 @@
 | 단계 | 최소 승인 기준 |
 |---|---|
 | 작업셀 | 300×300 mm 수건과 승인된 외곽 여유가 검증된 Top metric 영역 안에 있음 |
-| 30 cm reachability | 1차 단팔 coarse fold·보정과 2차 약 150 mm 양팔 edge에서 TCP xyz+jaw yaw+downward cone의 5-DOF task-pose IK, full 6D FK 기록, robot/table/camera/cable gate 통과 |
+| 30 cm reachability | 1차 양팔 edge-pair·보정과 2차 단팔 midpoint에서 TCP xyz+jaw yaw+phase별 approach cone의 5-DOF task-pose IK, full 6D FK 기록, robot/table/camera/cable gate 통과 |
 | Isaac S0/S1 | S0는 FOV·접근·충돌만 주장하고, S1 surface cloth의 drop/settle·vertex-patch attachment·lift/place/release·termination이 seed별로 재생됨 |
 | 학습 환경 | observation/action/reward/termination version과 seed/material/solver SHA 고정, oracle metric으로 reward exploit 회귀시험 통과 |
 | learned 펼치기 | 완전 미사용 초기 상태에서 heuristic과 같은 action budget으로 비교해 성공률을 우선 개선하고 collision·drop·workspace 이탈 0회; 동률이면 시도 횟수·시간 개선 |
