@@ -1,19 +1,20 @@
 # 현재 상태
 
-기준일: 2026-08-25
+기준일: 2026-08-26
 
-최신 기록된 자동검증 결과는
+최신 별도 파일로 추적되는 자동검증 결과는
 [2026-08-20 수건 software foundation 검증](test-results/2026-08-20-towel-software-foundation.md)이다.
-이후 nominal 수건 크기와 실행 로드맵을 300 mm 기준으로 갱신했으며 현재
-회귀시험 결과는 repository test로 확인한다.
+이후 R0 실기 결과와 최종 plan-only gate는 이 문서에 통합했고 새 결과 문서는
+추가하지 않았다. 현재 회귀시험 결과는 repository test로 확인한다.
 
 ## 프로젝트 상태
 
 최종 목표 수건은 nominal 300×300 mm로 확정됐다. 실제 네 변, 근사 두께,
 면 100%·건조·미세탁 조건과 좌우 1/4겹 정적 retention을 등록했다. 질량,
 작업대 마찰, 자동 contact와 동적 slip·장력 한계는 아직 측정되지 않았다.
-프로젝트는 R0 물리/contact candidate 단계이며 실제 수건 motion은 승인되지
-않았고 `motion_authorized=false`다.
+R0 물리·카메라·작업셀과 비대칭 접기 task-pose plan-only gate는 완료됐다. 다음
+단계는 R1 실제 관측·가림·topology 구현이다. 실제 수건 motion은 승인되지 않았고
+`motion_authorized=false`다.
 
 ## 재사용 가능한 기반
 
@@ -38,7 +39,7 @@
 | corner/topology | 순수 기하와 confidence gate | 가림·말림·다층 ambiguity 검증 |
 | temporal state | 3-frame 동일 상태 gate | timestamp, spread, settle, hysteresis |
 | observation lifecycle | Top metric 영역·실기 clear 왕복과 무가림 재관측 PASS | camera phase와 runtime 상태기계 구현 |
-| fold plan-only | 300 mm 직교 기하·arc와 fake selector | 실제 MoveIt IK/collision adapter |
+| fold plan-only | PASS: 오른팔 단팔 1차·±30 mm 보정 envelope·양팔 2차의 task-pose MoveIt | R1 실제 관측 입력 연결; cloth dynamics는 R2 |
 | Isaac/학습 | 표시 전용 workcell과 legacy 단일팔 rigid scripted grasp; Isaac Lab towel env·policy는 없음 | S0/S1 physics와 vectorized smoke test, heuristic baseline부터 구축 |
 | 조작 primitive | 미구현 | 개별 plan-only→supervised 제한 반복 |
 | 펼쳐진 수건 2회 접기 | 미구현 | R4 standalone fold gate 통과 |
@@ -108,6 +109,26 @@ RMS/max는 `5.473/5.625 mm`, 회전 max는 `0.898 deg`로
 `0.018617155/0.007963772/3.122102339 rad`로 dual URDF에 반영했다. right capture
 조립기와 solver는 이제 torque-off source를 fail-closed로 거절한다.
 
+R0-F에서는 동일 보드를 움직이지 않은 채 팔이 비운 Top stage와 controlled
+resident hold의 wrist stage를 시간 순서대로 결합해, 구조적인 Top 가림 없이
+tabletop 좌표를 검증했다. 동시촬영 controlled 01/02만 translation correction
+학습에 사용하고 staged validation 01/02는 완전히 제외했다. 회전을 고정한
+그리퍼 기준 평행이동 보정은 `[5.993, 16.265, 2.143] mm`였고 크기는
+`17.466 mm`였다. 독립 validation의 XY RMS/max는 `10.327/12.309 mm`, Z max는
+`12.313 mm`, yaw max는 `1.232 deg`였으며, 둘 모두 wrist 영상 경계 여유
+`≥30.5 px`에서 측정됐다. 따라서 right wrist optical xyz를 mount-center 기준
+`[-0.005240079, -0.001776520, -0.000017289] m`로 갱신했고 회전은 그대로
+유지했다. 이 결과는 rigid-proxy plan-only 좌표만 승인하며 실제 motion은
+승인하지 않는다.
+
+left wrist는 기록이 없는 상태가 아니다. `640x480` intrinsic은 44장 중 43장을
+사용해 RMS `0.5666 px`로 통과했고, 과거 W3의 10 training/2 validation
+eye-in-hand 결과는 validation 위치/회전 RMS `8.18 mm/1.63 deg`로 URDF에
+반영돼 있다. 다만 현재 저장소에는 당시 원본 candidate/session artifact가 없고
+이번 right처럼 독립 staged tabletop 교차검증을 새로 수행하지 않았다. R0의
+metric 경로가 Top+right wrist이므로 재수집은 연기하되, left wrist를 metric
+target fusion이나 motion correction에 쓰기 전 같은 staged gate를 통과시킨다.
+
 같은 고정 조건의 worktable 보정은 `calibration_01..06,07b,08`만 plane fit에
 사용하고 `validation_01..02`는 해에 넣지 않았다. 영상 경계가 `4.25 px`였던
 초기 `calibration_07`은 기록만 보존하고 제외했다. 10 mm coverage-hull inset
@@ -119,27 +140,57 @@ config로 승격했다. Pi 재빌드 뒤 Top `1280x960@30`, 두 wrist `640x480@3
 동시에 `STREAMING`했고 reconnect와 capture/decode error는 없었다.
 `motion_authorized=false`는 유지한다.
 
-## 현재 blocker
+R0-G의 초기 position-only 탐색과 1차 양팔 moving-edge 전략은 실제 구조에서
+파지 방향과 팔 간섭을 설명하지 못해 폐기했다. 최종 gate는 300 mm 수건을 검증된
+작업대 중앙에 두고, 화면 오른쪽 corner를 오른팔 하나로 왼쪽에 넘긴 뒤 clear
+재관측과 bounded correction을 거쳐, 짧아진 edge를 양팔로 두 번째 접는 비대칭
+sequence로 수행했다.
 
-1. Top left/right metric registration, workcell shadow와 `OBSERVE_CLEAR` 실기
-   왕복 및 right wrist intrinsic·eye-in-hand·URDF optical frame는 통과했다.
-   다만 left wrist는 gripper가 영상 일부를 영구 가리며 양쪽 wrist robot mask와
-   confidence 계약은 R1에서 연결해야 한다. 오른팔 FK의 tabletop 물체 motion
-   target 사용도 별도 독립 검증 전에는 금지한다.
-2. 1차 fold의 약 300 mm moving-edge separation과 두 fold의 약 150 mm arc
-   높이를 양팔이 동시에 추종할 수 있는지 실제 MoveIt으로 검증되지 않았다.
-3. 좌우 단일/4겹 정적 retention은 통과했다. 자동 jaw open/close-to-contact,
-   동적 slip·장력과 테이블 마찰은 미측정이며 해당 동작은 비활성 상태다.
+SO-101 한 팔은 5-DOF이므로 임의 exact 6D pose를 주장하지 않는다. 각 grasp는
+TCP xyz, jaw opening-line yaw와 아래 방향 70 deg cone을 강제하고 full 6D FK를
+기록했다. 선택된 후보는 1차 `right`, 화면 오른쪽→왼쪽, 2차 `+x→-x`,
+`left_to_high_y` endpoint 배정과 release endpoint x 간격 `40 mm`다. 기본 경로와
+high/low-x 양쪽의 `micro_drag`·`lift_pull_place` ±30 mm correction probe가 모두
+통과했다.
 
-## 바로 다음 작업
+최종 strict 재검사는 217개 planning segment와 17,921개 12축 상태를 검사했다.
+최소 joint-limit margin은 `0.043430 rad`, 비승인 접촉은 0건, 승인된 얕은
+동일-arm mesh 접촉의 정규화 후 최대 깊이는 `3.987 mm`(한계 `4 mm`), 의도된
+jaw-table 접촉은 최대 `0.0274 mm`(한계 `0.1 mm`)였다. inactive arm 상태에 따라
+FCL 대표 triangle 깊이가 달라진 35건은 동일 active-arm geometry로 정규화했고,
+원 raw 최대 `17.632 mm`도 artifact에 보존했다. 결과는
+`ASYMMETRIC_TOWEL_TASK_POSE_PLAN_ONLY_PASS`, `motion_commands=0`이며 로컬 artifact
+`artifacts/bimanual/planning/towel_asymmetric_sequence_r0.json`의 SHA-256은
+`0732bb73595e2ff17b117f865530330aade9115b2389dd13eb206e629d980b87`다. 입력
+contract SHA-256은 `1e8df521ca76a38b58fedeecfe0d3b79c389c7593748e26c074085c89c762957`로
+현재 저장소와 일치한다.
 
-1. 오른팔 FK의 tabletop 물체 좌표를 독립 target으로 검증한다.
-2. 300 mm rigid proxy로 x/y축·양 방향·팔 배정의 MoveIt plan-only go/no-go를
-   수행한다.
-3. 위 두 gate가 통과하면 R0를 닫고, left wrist의 고정 gripper 가림과 양쪽
-   wrist robot mask를 R1 관측 계약에 연결한다.
-4. 통과한 작업대 배치에서 실제 수건 데이터 수집과 mask backend를
-   시작한다.
-5. R1 episode에 primitive 전후 state·outcome을 함께 기록하고, R2에서 Isaac Lab
-   S0/S1 재현성과 heuristic unfolding baseline을 만든다. 임의 구김용 learned
-   policy는 이 공통 action/observation 계약 위에서 R5 전에 학습·비교한다.
+입력 파일명과 내부 status인 `towel_task_contract.candidate.yaml`/
+`R0_STATIC_CONTACT_CANDIDATE`는 의도적으로 유지한다. 이는 자동·동적 contact가
+아직 승인되지 않은 motion-lock 상태를 뜻하며 R0 로드맵의 미완료 표기가 아니다.
+R0 완료 판정은 위 plan-only PASS와 `motion_authorized=false`를 함께 요구한다.
+
+## R0 종료 시 남은 비승인 항목
+
+다음 항목은 누락이 아니라 소비 단계까지 명시적으로 연기한 gate다.
+
+1. left wrist의 새 staged metric 검증과 양쪽 wrist robot mask/confidence는 R1에서
+   실제 multi-view metric fusion 또는 motion correction에 쓰기 전에 연결한다.
+2. 자동 jaw open/close-to-contact, 동적 slip·장력과 테이블 마찰은 R3 primitive
+   전에 측정·commission한다. 현재 정적 retention만 승인됐다.
+3. rigid proxy는 cloth attachment·변형을 증명하지 않는다. surface cloth와
+   vertex-patch attachment, 물성 randomization은 R2에서 검증한다.
+4. 케이블은 명시적 mesh가 아니라 operator-reviewed joint envelope로 검사했다.
+   실제 primitive dry-run 전에 케이블·접촉 gate를 다시 확인한다.
+
+## 바로 다음 작업 — R1
+
+1. `OBSERVE_CLEAR→primitive→RETREAT_AND_SETTLE→REOBSERVE_CLEAR` phase와 freshness
+   계약을 구현한다.
+2. 통과한 작업대 배치에서 실제 수건 episode를 수집하고 mask/component/border,
+   robot occlusion과 topology backend를 검증한다.
+3. left wrist 고정 gripper 가림과 양쪽 wrist mask를 confidence에 반영하고,
+   가려짐·들림·다층 ambiguity를 `UNKNOWN`으로 유지한다.
+4. primitive 전후 state·outcome을 기록해 R2 Isaac Lab S0/S1과 heuristic
+   correction baseline, 이후 goal-conditioned residual policy가 같은 계약을
+   소비하게 한다.

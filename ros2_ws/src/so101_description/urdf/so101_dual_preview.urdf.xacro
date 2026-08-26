@@ -21,16 +21,17 @@
   <xacro:arg name="left_wrist_camera_xyz" default="0.01437087 -0.00675864 0.01616744"/>
   <xacro:arg name="left_wrist_camera_optical_rpy" default="-0.02242196 0.03092788 3.02135163"/>
   <!--
-    Right eye-in-hand calibration, 2026-08-25. Six stationary resident
-    torque-hold training poses plus two independent held-out poses, using the
-    measured 95x120 mm GridBoard and the 640x480 wrist_b intrinsic candidate:
-    EYE_IN_HAND_VALIDATED_MOTION_STILL_NOT_AUTHORIZED. Training RMS/max
-    8.46/13.52 mm; held-out RMS/max 5.47/5.63 mm and max 0.90 deg.
-    Derived from candidate SHA-256
-    4ecfbe0774dec6ba656d1a972bea2dc7dcea4ca5357ecbac8e70b5444d98f275.
+    Right eye-in-hand rotation from the 2026-08-25 resident torque-hold
+    calibration. Its absolute translation was cross-registered on 2026-08-26
+    using two controlled tabletop training poses and two independent staged
+    Top/wrist validation poses. Only the three gripper-frame translation
+    components changed (17.466 mm correction); rotation stayed fixed.
+    Held-out tabletop XY RMS/max 10.327/12.309 mm, Z max 12.313 mm and yaw max
+    1.232 deg. The fail-closed artifact is
+    right_tabletop_target_staged_20260826_r0/candidate.yaml.
     Recalibrate if the camera, lens, or printed mount moves.
   -->
-  <xacro:arg name="right_wrist_camera_xyz" default="0.000752553355 0.012058633035 -0.008833814916"/>
+  <xacro:arg name="right_wrist_camera_xyz" default="-0.005240079432 -0.001776520493 -0.000017288627"/>
   <xacro:arg name="right_wrist_camera_optical_rpy" default="0.018617155252 0.007963771556 3.122102338518"/>
 
   <!-- Operator-verified full task envelope (2026-08-14); firmware limits remain authoritative. -->

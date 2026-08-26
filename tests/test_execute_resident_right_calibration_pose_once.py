@@ -78,6 +78,34 @@ class ExecuteResidentRightCalibrationPoseOnceTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "wrist target capture"):
                 MODULE.load_capture_target(path)
 
+    def test_loads_explicit_unarmed_wrist_visibility_route_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "capture.yaml"
+            document = {
+                "record_kind": "right_wrist_visibility_route_target",
+                "status": "WRIST_ROUTE_TARGET_STATIONARY_CAPTURE_PASS",
+                "motion_authorized": False,
+                "robot_target_available": True,
+                "purpose": "visibility_route_target_only",
+                "arm": "right",
+                "capture": {
+                    "id": "right_tabletop_staged_route_01",
+                    "arm": "right",
+                    "measured_arm_rad": [0.2] * 5,
+                    "detected_marker_ids": list(range(10, 30)),
+                    "joint_state_source": "timestamp_synchronized_joint_state",
+                },
+            }
+            path.write_text(yaml.safe_dump(document))
+            capture_id, target = MODULE.load_capture_target(path)
+            self.assertEqual(capture_id, "right_tabletop_staged_route_01")
+            self.assertEqual(target, (0.2,) * 5)
+
+            document["purpose"] = "eye_in_hand_calibration"
+            path.write_text(yaml.safe_dump(document))
+            with self.assertRaisesRegex(ValueError, "route target provenance"):
+                MODULE.load_capture_target(path)
+
     def test_composition_holds_left_arm_and_both_grippers(self):
         anchor = tuple(float(index) for index in range(12))
         right = (-1.0, -2.0, -3.0, -4.0, -5.0)

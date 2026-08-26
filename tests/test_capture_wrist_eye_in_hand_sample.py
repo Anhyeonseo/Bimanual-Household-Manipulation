@@ -76,6 +76,14 @@ class CaptureWristEyeInHandSampleTest(unittest.TestCase):
         self.assertIn("--resident-required-epoch", source)
         self.assertIn("resident_terminal_measured_anchor", source)
 
+    def test_unarmed_right_waypoint_is_explicitly_not_calibration(self):
+        source = (
+            TOOLS / "capture_wrist_eye_in_hand_sample.py"
+        ).read_text()
+        self.assertIn('"--route-target-only"', source)
+        self.assertIn("WRIST_ROUTE_TARGET_STATIONARY_CAPTURE_PASS", source)
+        self.assertIn("visibility_route_target_only", source)
+
     def test_generated_gridboard_is_recognized_only_when_complete(self):
         generator_spec = importlib.util.spec_from_file_location(
             "generate_planar_aruco_gridboard_for_capture_test",

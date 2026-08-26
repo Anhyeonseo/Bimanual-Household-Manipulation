@@ -33,6 +33,9 @@ python tools/run/replay_towel_task.py config/towel_replay.example.json --output 
 `docs/VERIFICATION_MATRIX.md`를 따른다.
 
 수건의 motion-locked contract validator, annotation→metric observation,
-유한 replay와 동기 반원 fold arc를 포함한 기하 plan-only 도구는 구현됐다.
+유한 replay와 기하 plan-only 도구를 유지한다. R0의
+`plan_towel_asymmetric_sequence_once.py`는 검증된 로컬 calibration artifact와
+등록 URDF를 fail-closed로 확인한 뒤 5-DOF task-pose IK, MoveIt segment와 dense
+collision을 검사하며 publisher·controller·resident motion client를 만들지 않는다.
 perception backend와 executor는 `docs/ROADMAP.md`의 해당 gate가 시작될 때
 추가한다. 남은 순서는 `docs/HARDWARE_FREE_BACKLOG.md`를 따른다.

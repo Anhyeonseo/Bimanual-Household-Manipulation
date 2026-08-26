@@ -313,18 +313,30 @@ class WristEyeInHandSampleCapture(Node):
                 raise RuntimeError(f"failed to write {image_path}")
             image_files.append(image_path.name)
         median_positions = np.median(positions, axis=0)
+        if self._args.resident_torque_hold_anchor:
+            status = "WRIST_EYE_IN_HAND_RESIDENT_TORQUE_HOLD_CAPTURE_PASS"
+        elif self._args.route_target_only:
+            status = "WRIST_ROUTE_TARGET_STATIONARY_CAPTURE_PASS"
+        else:
+            status = "WRIST_EYE_IN_HAND_STATIONARY_CAPTURE_PASS"
         document = {
             "schema_version": 1,
-            "status": (
-                "WRIST_EYE_IN_HAND_RESIDENT_TORQUE_HOLD_CAPTURE_PASS"
-                if self._args.resident_torque_hold_anchor
-                else "WRIST_EYE_IN_HAND_STATIONARY_CAPTURE_PASS"
+            "record_kind": (
+                "right_wrist_visibility_route_target"
+                if self._args.route_target_only
+                else "wrist_eye_in_hand_capture"
             ),
+            "status": status,
             "motion_authorized": self._args.resident_torque_hold_anchor,
             "source_motion_authorized": (
                 self._args.resident_torque_hold_anchor
             ),
-            "robot_target_available": False,
+            "robot_target_available": self._args.route_target_only,
+            "purpose": (
+                "visibility_route_target_only"
+                if self._args.route_target_only
+                else "eye_in_hand_calibration"
+            ),
             "arm": self._args.arm,
             "capture": {
                 "id": self._args.capture_id,
@@ -399,6 +411,14 @@ def parse_args() -> argparse.Namespace:
             "measured anchor"
         ),
     )
+    parser.add_argument(
+        "--route-target-only",
+        action="store_true",
+        help=(
+            "Record a motionless unarmed right-arm visibility waypoint; "
+            "the images are not eligible for eye-in-hand calibration"
+        ),
+    )
     parser.add_argument("--resident-required-owner", default="")
     parser.add_argument("--resident-required-epoch", type=int, default=0)
     parser.add_argument("--frames", type=int, default=20)
@@ -417,17 +437,30 @@ def parse_args() -> argparse.Namespace:
         parser.error("--max-joint-span must be positive")
     if args.timeout <= 0.0:
         parser.error("--timeout must be positive")
-    if args.arm == "right" and not args.resident_torque_hold_anchor:
+    if (
+        args.arm == "right"
+        and not args.resident_torque_hold_anchor
+        and not args.route_target_only
+    ):
         parser.error(
             "right wrist calibration requires "
-            "--resident-torque-hold-anchor"
+            "--resident-torque-hold-anchor; use --route-target-only only "
+            "for an unarmed visibility waypoint"
         )
-    if args.arm == "right" and not args.resident_required_owner:
+    if (
+        args.arm == "right"
+        and args.resident_torque_hold_anchor
+        and not args.resident_required_owner
+    ):
         parser.error(
             "right wrist calibration requires an explicit "
             "--resident-required-owner"
         )
-    if args.arm == "right" and args.resident_required_epoch <= 0:
+    if (
+        args.arm == "right"
+        and args.resident_torque_hold_anchor
+        and args.resident_required_epoch <= 0
+    ):
         parser.error(
             "right wrist calibration requires a positive "
             "--resident-required-epoch"
@@ -442,6 +475,12 @@ def parse_args() -> argparse.Namespace:
         )
     if args.resident_required_epoch < 0:
         parser.error("--resident-required-epoch must be non-negative")
+    if args.route_target_only and (
+        args.arm != "right" or args.resident_torque_hold_anchor
+    ):
+        parser.error(
+            "--route-target-only is only for an unarmed right-arm waypoint"
+        )
     if (
         (args.resident_required_owner or args.resident_required_epoch)
         and not args.resident_torque_hold_anchor

@@ -91,7 +91,12 @@ class GraspYawKinematics:
         self.arm_joints = arm_joint_names(prefix)
         self._wrist_roll_joint = wrist_roll_joint(prefix)
         jaw_name = f"{prefix}gripper_joint"
-        self._robot = URDF.from_xml_file(str(urdf_path))
+        # ``urdf_parser_py`` forwards unicode strings to lxml.  lxml rejects a
+        # unicode document that still contains an XML encoding declaration,
+        # which is exactly what the registered preview generator emits.  Feed
+        # bytes instead so both xacro-generated temporary URDFs and persisted
+        # registered previews follow the XML declaration correctly.
+        self._robot = URDF.from_xml_string(urdf_path.read_bytes())
         self._by_child = {joint.child: joint for joint in self._robot.joints}
         self._chain = self._build_chain(
             f"{prefix}base_link", f"{prefix}gripper_link"
@@ -164,6 +169,58 @@ class GraspYawKinematics:
         _, translation = self._compose(self._tcp_chain, positions)
         return translation
 
+    def _root_from_base(
+        self, root_link: str = "workcell_base_link"
+    ) -> tuple[np.ndarray, np.ndarray]:
+        chain = self._build_chain(root_link, f"{self.prefix}base_link")
+        return self._compose(chain, {})
+
+    def tcp_pose_in_root(
+        self,
+        positions: dict[str, float],
+        root_link: str = "workcell_base_link",
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return ``(root_R_tcp, root_xyz_tcp)`` from the registered URDF.
+
+        Fold planning must evaluate both arms in one workcell frame.  Returning
+        the complete transform also prevents a position-only IK result from
+        being mislabeled as a grasp-pose solution.
+        """
+        root_from_base_rotation, root_from_base_translation = (
+            self._root_from_base(root_link)
+        )
+        base_from_tcp_rotation, base_from_tcp_translation = self._compose(
+            self._tcp_chain, positions
+        )
+        return (
+            root_from_base_rotation @ base_from_tcp_rotation,
+            root_from_base_translation
+            + root_from_base_rotation @ base_from_tcp_translation,
+        )
+
+    def approach_axis_in_root(
+        self,
+        positions: dict[str, float],
+        root_link: str = "workcell_base_link",
+    ) -> np.ndarray:
+        """Return the physical tip approach axis in the root frame.
+
+        ``gripper_frame_joint`` contains ``Ry(pi)``: TCP ``+Z`` therefore
+        equals gripper-link ``-Z`` and points from the wrist toward the jaws.
+        Using TCP ``-Z`` here would silently reverse the contact approach.
+        """
+        rotation, _ = self.tcp_pose_in_root(positions, root_link)
+        return rotation @ np.array([0.0, 0.0, 1.0])
+
+    def finger_axis_in_root(
+        self,
+        positions: dict[str, float],
+        root_link: str = "workcell_base_link",
+    ) -> np.ndarray:
+        """Return the jaw-opening line in the shared root frame."""
+        root_from_base_rotation, _ = self._root_from_base(root_link)
+        return root_from_base_rotation @ self.finger_axis(positions)
+
     def point_in_base_frame(
         self,
         point_in_root: np.ndarray,
@@ -173,9 +230,8 @@ class GraspYawKinematics:
         point = np.asarray(point_in_root, dtype=float)
         if point.shape != (3,) or not np.all(np.isfinite(point)):
             raise ValueError("point_in_root must be one finite XYZ vector")
-        chain = self._build_chain(root_link, f"{self.prefix}base_link")
-        root_from_base_rotation, root_from_base_translation = self._compose(
-            chain, {}
+        root_from_base_rotation, root_from_base_translation = (
+            self._root_from_base(root_link)
         )
         return root_from_base_rotation.T @ (
             point - root_from_base_translation

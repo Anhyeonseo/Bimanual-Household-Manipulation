@@ -84,6 +84,30 @@ def test_candidate_contract_records_measured_towel_and_stays_motion_locked():
     )
 
 
+def test_candidate_contract_records_approved_asymmetric_plan_policy():
+    document = contract()
+    policy = document["fold_policy"]
+    assert policy["strategy"] == "asymmetric_single_arm_then_bimanual"
+    assert policy["first_axis"] == "workcell_y"
+    assert policy["first_direction"] == "negative_to_positive"
+    assert policy["first_active_arm_preference"] == "right_then_left"
+    assert policy["first_correction_primitives"] == [
+        "micro_drag",
+        "lift_pull_place",
+    ]
+    assert policy["maximum_first_fold_corrections"] == 2
+    assert policy["correction_envelope_mm"] == pytest.approx(30.0)
+    assert policy["require_clear_reobservation_after_each_attempt"] is True
+    assert policy["second_axis"] == "workcell_x"
+    assert policy["kinematic_contract"]["arm_dof"] == 5
+    assert policy["kinematic_contract"][
+        "arbitrary_exact_6d_pose_claimed"
+    ] is False
+    assert document["recovery_limits"][
+        "fold_placement_correction_per_fold"
+    ] == 2
+
+
 def test_static_contact_candidate_has_four_scoped_hold_artifacts():
     contact = contract()["cloth_contact_candidate"]
     assert contact["commanded_motion_delta_rad"] == pytest.approx(0.0)
