@@ -89,7 +89,8 @@ def test_candidate_contract_records_canonical_fold_policy():
     policy = document["fold_policy"]
     assert policy["strategy"] == "bimanual_first_then_single_arm_second"
     assert policy["first_axis"] == "workcell_x"
-    assert policy["first_direction"] == "negative_to_positive"
+    assert policy["first_direction"] == "robot_near_to_far"
+    assert policy["first_coordinate_direction"] == "x_negative_to_positive"
     assert policy["first_arm_assignment"] == "left_to_high_y_right_to_low_y"
     assert policy["first_correction_primitives"] == [
         "micro_drag",
@@ -99,6 +100,10 @@ def test_candidate_contract_records_canonical_fold_policy():
     assert policy["correction_envelope_mm"] == pytest.approx(30.0)
     assert policy["require_clear_reobservation_after_each_attempt"] is True
     assert policy["second_axis"] == "workcell_y"
+    assert policy["second_direction_candidates"] == [
+        "right_to_left",
+        "left_to_right",
+    ]
     assert policy["second_active_arm_candidates"] == ["right", "left"]
     assert policy["second_inactive_arm_policy"] == "remain_at_observe_clear"
     assert policy["kinematic_contract"]["arm_dof"] == 5

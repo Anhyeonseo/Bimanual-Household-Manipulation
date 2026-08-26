@@ -653,7 +653,9 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
     if not isinstance(fold_policy, Mapping) or (
         fold_policy.get("strategy") != "bimanual_first_then_single_arm_second"
         or fold_policy.get("first_axis") != "workcell_x"
-        or fold_policy.get("first_direction") != "negative_to_positive"
+        or fold_policy.get("first_direction") != "robot_near_to_far"
+        or fold_policy.get("first_coordinate_direction")
+        != "x_negative_to_positive"
         or fold_policy.get("first_arm_assignment")
         != "left_to_high_y_right_to_low_y"
         or fold_policy.get("first_primitive") != "bimanual_edge_pair"
@@ -665,7 +667,12 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
         is not True
         or fold_policy.get("second_axis") != "workcell_y"
         or tuple(fold_policy.get("second_direction_candidates", ()))
-        != ("positive_to_negative", "negative_to_positive")
+        != ("right_to_left", "left_to_right")
+        or fold_policy.get("second_coordinate_direction_by_candidate")
+        != {
+            "right_to_left": "y_negative_to_positive",
+            "left_to_right": "y_positive_to_negative",
+        }
         or fold_policy.get("second_primitive")
         != "single_arm_moving_edge_midpoint_multilayer"
         or tuple(fold_policy.get("second_active_arm_candidates", ()))

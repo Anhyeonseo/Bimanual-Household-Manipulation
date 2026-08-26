@@ -107,7 +107,8 @@ workcell_observation_candidate:
 fold_policy:
   strategy: bimanual_first_then_single_arm_second
   first_axis: workcell_x
-  first_direction: negative_to_positive
+  first_direction: robot_near_to_far
+  first_coordinate_direction: x_negative_to_positive
   first_arm_assignment: left_to_high_y_right_to_low_y
   first_primitive: bimanual_edge_pair
   first_correction_primitives:
@@ -118,8 +119,11 @@ fold_policy:
   require_clear_reobservation_after_each_attempt: true
   second_axis: workcell_y
   second_direction_candidates:
-    - positive_to_negative
-    - negative_to_positive
+    - right_to_left
+    - left_to_right
+  second_coordinate_direction_by_candidate:
+    right_to_left: y_negative_to_positive
+    left_to_right: y_positive_to_negative
   second_primitive: single_arm_moving_edge_midpoint_multilayer
   second_active_arm_candidates:
     - right

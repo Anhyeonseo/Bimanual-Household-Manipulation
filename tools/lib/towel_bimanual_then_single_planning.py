@@ -205,11 +205,11 @@ def build_single_arm_second_fold(
     )
     center_y = 0.5 * (bottom + top)
     grasp_x = 0.5 * (left + right)
-    if direction == "negative_to_positive":
+    if direction == "right_to_left":
         start_y = bottom + SECOND_FOLD_NORMAL_INSET_M
         target_y = top - SECOND_FOLD_NORMAL_INSET_M
         final = (left, right, center_y, top)
-    elif direction == "positive_to_negative":
+    elif direction == "left_to_right":
         start_y = top - SECOND_FOLD_NORMAL_INSET_M
         target_y = bottom + SECOND_FOLD_NORMAL_INSET_M
         final = (left, right, bottom, center_y)
@@ -328,8 +328,8 @@ def build_bimanual_then_single_candidates(
     # Nearest-arm alternatives are ordered first; MoveIt still decides by
     # passing the complete pose, collision, and path gates.
     for direction, arms in (
-        ("negative_to_positive", ("right", "left")),
-        ("positive_to_negative", ("left", "right")),
+        ("right_to_left", ("right", "left")),
+        ("left_to_right", ("left", "right")),
     ):
         for active_arm in arms:
             second_phases, final = build_single_arm_second_fold(
@@ -341,12 +341,12 @@ def build_bimanual_then_single_candidates(
             candidates.append(
                 CandidateSpec(
                     candidate_id=(
-                        "first_bimanual_x_negative_to_positive__second_"
-                        f"{active_arm}_y_{direction}_edge_midpoint"
+                        "first_bimanual_robot_near_to_far__second_"
+                        f"{active_arm}_{direction}_edge_midpoint"
                     ),
                     first_arm_assignment="left_high_y_right_low_y",
                     first_axis="x",
-                    first_direction="negative_to_positive",
+                    first_direction="robot_near_to_far",
                     second_axis="y",
                     second_direction=direction,
                     second_active_arm=active_arm,

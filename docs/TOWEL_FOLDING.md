@@ -245,8 +245,9 @@ slip, 시도 횟수와 실패 원인을 저장해 simulator randomization과 pol
    오른팔은 low-y endpoint를 담당하며 팔 교차를 금지한다.
 2. 양쪽 single-layer contact를 모두 확인한 뒤에만 두 grasp를 attachment로
    취급한다.
-3. x 음의 방향(로봇 가까운 쪽)에서 x 양의 방향으로 두 TCP가 같은 17-point
-   반원 arc를 따라 이동하고, laydown gate 뒤 함께 release한다.
+3. 로봇 가까운 아래쪽 변에서 먼 위쪽 변으로 두 TCP가 같은 17-point 반원 arc를
+   따라 이동하고, laydown gate 뒤 함께 release한다. 내부 계산에서는 이 방향을
+   `x_negative_to_positive`로 기록한다.
 4. 양팔을 clear pose로 물린 뒤 현재 mask, 두 대응 corner, edge와 fold-line을
    새로 관측한다.
 5. 평행이동이면 `micro_drag`, 회전·느슨함이면 `lift_pull_place`를 한 번 실행하고
@@ -263,7 +264,9 @@ correction 후보, `30 mm` 초과·대각 겹침·corner 소실은 재시도 후
 
 1차 fold 뒤에는 수건이 여러 겹이므로 새 외곽선을 다시 추정한다. 가까운 팔
 하나가 짧아진 moving edge의 중앙을 잡고 다른 팔은 clear pose에 둔다. 기본
-후보는 오른팔의 y 음→양 방향이며, 왼팔과 반대 방향은 bounded fallback이다.
+후보는 오른팔의 오른쪽→왼쪽 방향이며, 왼팔과 왼쪽→오른쪽 방향은 bounded
+fallback이다. 내부 좌표 기록은 각각 `y_negative_to_positive`와
+`y_positive_to_negative`를 사용한다.
 접촉점은 실제 bundle 높이를 사용하지만 반대쪽 laydown은 5-DOF 도달 한계와
 기존 dense Cartesian 결과를 반영해 테이블 위 TCP 40 mm에서 release한다.
 contact/pregrasp에는 70° downward cone을, 이미 cloth가 붙은 transfer·laydown에는

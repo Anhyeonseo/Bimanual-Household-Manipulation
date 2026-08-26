@@ -13,7 +13,7 @@
 면 100%·건조·미세탁 조건과 좌우 1/4겹 정적 retention을 등록했다. 질량,
 작업대 마찰, 자동 contact와 동적 slip·장력 한계는 아직 측정되지 않았다.
 R0 물리·카메라·작업셀 기반과 canonical 접기 task-pose 후보를 통합했다. 접기
-순서는 1차 양팔 x 음→양, 2차 가까운 한 팔 y축 edge-midpoint다. software와
+순서는 1차 양팔 아래→위, 2차 가까운 한 팔 오른쪽→왼쪽 edge-midpoint다. software와
 full-FK IK 검증은 통과했지만 strict MoveIt 최종 승격에는 로컬에 없는 등록 완료
 URDF·workcell shadow·right tabletop artifact가 필요하다. 실제 수건 motion은
 승인되지 않았고 `motion_authorized=false`다.
@@ -142,10 +142,11 @@ config로 승격했다. Pi 재빌드 뒤 Top `1280x960@30`, 두 wrist `640x480@3
 동시에 `STREAMING`했고 reconnect와 capture/decode error는 없었다.
 `motion_authorized=false`는 유지한다.
 
-R0-G canonical 후보는 300 mm 수건을 검증된 작업대 중앙에 두고 x 음의 방향
-moving edge 양 끝을 양팔로 잡아 x 양의 방향으로 먼저 접는다. clear 재관측과
-bounded correction 뒤에는 짧아진 두 겹 edge의 중앙을 가까운 오른팔이 y 음→양
-방향으로 접는다. 왼팔과 반대 방향은 bounded fallback 후보로만 유지한다.
+R0-G canonical 후보는 300 mm 수건을 검증된 작업대 중앙에 두고 로봇 가까운
+아래쪽 moving edge 양 끝을 양팔로 잡아 먼 위쪽으로 먼저 접는다. clear 재관측과
+bounded correction 뒤에는 짧아진 두 겹 edge의 중앙을 가까운 오른팔이
+오른쪽→왼쪽으로 접는다. 왼팔과 왼쪽→오른쪽 방향은 bounded fallback 후보로만
+유지한다. X/Y 부호는 artifact의 좌표 재현용 metadata에만 남긴다.
 
 SO-101 한 팔은 5-DOF이므로 임의 exact 6D pose를 주장하지 않는다. 각 phase는
 TCP xyz와 jaw opening-line yaw를 검사하고 full 6D FK를 기록한다. contact와

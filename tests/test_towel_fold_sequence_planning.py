@@ -56,11 +56,11 @@ def test_candidate_family_uses_bimanual_first_and_orthogonal_single_second():
         "left_high_y_right_low_y"
     }
     assert {item.first_axis for item in candidates} == {"x"}
-    assert {item.first_direction for item in candidates} == {"negative_to_positive"}
+    assert {item.first_direction for item in candidates} == {"robot_near_to_far"}
     assert {item.second_axis for item in candidates} == {"y"}
     assert {item.second_direction for item in candidates} == {
-        "positive_to_negative",
-        "negative_to_positive",
+        "right_to_left",
+        "left_to_right",
     }
     assert {item.second_active_arm for item in candidates} == {"right", "left"}
     for item in candidates:
