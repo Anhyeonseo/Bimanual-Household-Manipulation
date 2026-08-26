@@ -51,7 +51,11 @@ Thumbs.db
 *.db3
 *.mcap
 *.onnx
-datasets/
+# Keep the reviewed 2026-08-26 Top-camera towel source capture in Git;
+# all other dataset outputs remain local by default.
+datasets/*
+!datasets/towel_yolo_source/
+!datasets/towel_yolo_source/**
 artifacts/
 tmp/
 output/
