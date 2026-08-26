@@ -4,6 +4,7 @@ import math
 from pathlib import Path
 
 import pytest
+import yaml
 
 from tools.lib.grasp_yaw_kinematics import GraspYawKinematics
 from tools.lib.towel_task_pose_planning import (
@@ -28,6 +29,15 @@ REGISTERED_URDF_WITH_XML_DECLARATION = (
     / "ros2_ws/src/so101_description/urdf/so101_dual_right_data_fit_candidate.urdf"
 )
 PLAN_ONLY_TOOL = ROOT / "tools/run/plan_towel_fold_sequence_once.py"
+KINEMATIC_DIAGNOSTIC_TOOL = (
+    ROOT / "tools/run/diagnose_towel_fold_kinematics.py"
+)
+PLAN_ONLY_LAUNCH = (
+    ROOT / "ros2_ws/src/so101_bringup/launch/towel_fold_plan_only.launch.py"
+)
+MOVEIT_RVIZ_CONFIG = (
+    ROOT / "ros2_ws/src/so101_moveit_config/config/moveit.rviz"
+)
 
 
 def test_towel_is_centered_inside_validated_table_with_margin():
@@ -209,3 +219,33 @@ def test_plan_only_tool_has_no_execution_or_resident_motion_client():
     assert '"attached_lift"' in source
     assert '"released_retreat"' in source
     assert 'if "minimum_joint_limit_margin_rad" in evaluation' in source
+    assert '"maximum_dense_tcp_path_deviation_m_by_arm"' in source
+    assert "MAXIMUM_DENSE_TCP_PATH_DEVIATION_M = 0.004" in source
+
+
+def test_full_fk_diagnostic_is_explicitly_not_a_moveit_or_collision_pass():
+    source = KINEMATIC_DIAGNOSTIC_TOOL.read_text(encoding="utf-8")
+    assert "create_publisher" not in source
+    assert "BimanualStreamCommand" not in source
+    assert '"motion_commands": 0' in source
+    assert '"moveit_segment_planning_checked": False' in source
+    assert '"transition_collision_checked": False' in source
+    assert '"physical_fold_success_checked": False' in source
+
+
+def test_towel_launch_disables_every_moveit_execution_path():
+    source = PLAN_ONLY_LAUNCH.read_text(encoding="utf-8")
+    assert '"allow_trajectory_execution": "false"' in source
+    assert "MoveGroupExecuteTrajectoryAction" in source
+    assert "MoveGroupMoveAction" in source
+
+
+def test_moveit_rviz_enables_canonical_towel_marker_topic():
+    document = yaml.safe_load(MOVEIT_RVIZ_CONFIG.read_text(encoding="utf-8"))
+    displays = document["Visualization Manager"]["Displays"]
+    marker = next(
+        item for item in displays
+        if item.get("Class") == "rviz_default_plugins/MarkerArray"
+    )
+    assert marker["Marker Topic"]["Value"] == "/towel_fold_markers"
+    assert marker["Value"] is True

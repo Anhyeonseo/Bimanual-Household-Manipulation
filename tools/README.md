@@ -37,5 +37,10 @@ python tools/run/replay_towel_task.py config/towel_replay.example.json --output 
 `plan_towel_fold_sequence_once.py`는 검증된 로컬 calibration artifact와
 등록 URDF를 fail-closed로 확인한 뒤 5-DOF task-pose IK, MoveIt segment와 dense
 collision을 검사하며 publisher·controller·resident motion client를 만들지 않는다.
+`diagnose_towel_fold_kinematics.py`는 입력 evidence가 아직 없을 때 canonical
+1·2차 fold의 full-FK pose 해만 별도 JSON으로 기록한다. 이 결과는 MoveIt 경로와
+충돌을 승인하지 않는다. `visualize_towel_fold_sequence.py`는 두 결과 형식을 모두
+RViz marker로 표시하며, full-FK-only 관절 animation은 명시적 opt-in일 때만
+publish한다.
 perception backend와 executor는 `docs/ROADMAP.md`의 해당 gate가 시작될 때
 추가한다. 남은 순서는 `docs/HARDWARE_FREE_BACKLOG.md`를 따른다.

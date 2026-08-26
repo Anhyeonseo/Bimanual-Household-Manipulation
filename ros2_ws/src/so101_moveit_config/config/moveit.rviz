@@ -13,8 +13,16 @@ Visualization Manager:
     - Class: rviz_default_plugins/Grid
       Name: Grid
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Marker Topic:
+        Value: /towel_fold_markers
+      Name: Canonical Towel Fold
+      Value: true
     - Class: moveit_rviz_plugin/MotionPlanning
       Name: MotionPlanning
+      Planning Request:
+        Query Goal State: false
+        Query Start State: false
       Planned Path:
         Loop Animation: true
         State Display Time: 0.05 s

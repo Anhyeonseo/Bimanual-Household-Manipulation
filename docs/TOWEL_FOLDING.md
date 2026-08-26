@@ -272,6 +272,10 @@ fallback이다. 내부 좌표 기록은 각각 `y_negative_to_positive`와
 contact/pregrasp에는 70° downward cone을, 이미 cloth가 붙은 transfer·laydown에는
 최대 90° cone을 적용한다.
 
+MoveIt이 두 waypoint 사이에서 만든 관절 경로는 0.02 rad 이하 간격으로 다시
+샘플링한다. 각 샘플의 full-FK TCP가 인접 task chord에서 `4 mm`보다 멀리
+벗어나면, endpoint와 collision이 통과해도 수건 arc 경로로 승인하지 않는다.
+
 release 뒤 필요하면 제한된 `release_and_smooth`를 실행하고 다음을 확인한다.
 
 - 최종 대응 모서리 평균 오차 25 mm 이하
@@ -283,6 +287,42 @@ nominal 목표는 150×150 mm다. 이 단계는 여러 겹을 함께 잡아야 �
 fold의 single-layer grasp와 별도 접촉 기준을 사용한다. 첫 접힘이 끌려 펴지거나
 release 뒤 반발하는 경우에는 다음 task로 진행하지 않고 허용된 1회 placement
 correction 또는 `FAILED`로 끝낸다.
+
+### RViz에서 두 fold 확인
+
+현재 등록 evidence가 없어도 full-FK pose와 marker는 아래처럼 확인할 수 있다.
+이 경로는 MoveIt segment와 충돌을 승인하지 않는다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+mkdir -p tmp
+python3 tools/run/diagnose_towel_fold_kinematics.py \
+  --skip-corrections \
+  --output tmp/canonical_towel_full_fk.json
+```
+
+첫 번째 터미널에서 execution-disabled MoveIt과 RViz를 시작한다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+ros2 launch so101_bringup towel_fold_plan_only.launch.py
+```
+
+두 번째 터미널에서는 원하는 stage의 marker를 publish한다.
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source ros2_ws/install/setup.bash
+python3 tools/run/visualize_towel_fold_sequence.py \
+  tmp/canonical_towel_full_fk.json --stage both
+```
+
+`--stage first`, `--stage second`, `--stage both`를 지원한다. full-FK-only artifact는
+marker만 기본 publish한다. 충돌 미검사 관절 pose를 참고용으로 움직여 보고 싶을
+때만 `--publish-ik-animation`을 명시한다. strict MoveIt artifact가 생기면 같은
+visualizer가 collision-checked trajectory를 별도 옵션 없이 재생한다.
 
 ## 11. 제한 복구
 
@@ -416,6 +456,8 @@ tools/
   run/replay_towel_task.py
   run/select_towel_fake_reachability.py
   run/plan_towel_fold_sequence_once.py
+  run/diagnose_towel_fold_kinematics.py
+  run/visualize_towel_fold_sequence.py
 tests/
   test_towel_geometry.py
   test_towel_fold_path.py

@@ -154,12 +154,29 @@ pregrasp에는 70 deg downward cone을 적용하고, attached transfer·laydown�
 최대 90 deg를 명시한다. 2차 contact는 bundle 높이에서 시작하되 laydown은
 기존 dense Cartesian 검증과 실제 도달 한계를 반영한 TCP 40 mm release다.
 
-software regression 79개와 canonical 후보의 전체 full-FK IK는 통과했다.
+software regression과 canonical 후보의 전체 full-FK IK는 통과했다.
 하지만 strict MoveIt 진단은 저장소의 data-fit candidate URDF에서 초기 clear
 자세의 카메라 마운트와 팔 메시가 최대 약 16.2 mm 겹쳐 fail-closed됐다. 최종
 runner가 요구하는 등록 완료 URDF manifest, workcell shadow, right tabletop
 validation artifact는 Git과 로컬에 없으므로 PASS artifact를 만들지 않았다.
 실제 controller·resident motion API는 사용하지 않았고 `motion_commands=0`이다.
+
+full-FK 결과는 1차·2차를 한 artifact에 기록하고 RViz에서 `first`, `second`,
+`both`로 나누어 볼 수 있다. RViz marker는 항상 사용할 수 있지만 strict MoveIt
+artifact가 아닌 full-FK-only 관절 pose animation은 충돌 미검사 경고와 명시적
+옵션 없이 publish하지 않는다.
+
+strict MoveIt 경로의 dense 검사는 각 관절 상태의 충돌뿐 아니라 각 active TCP가
+인접 task waypoint chord에서 벗어난 거리도 검사한다. 최대 허용 편차는 기존
+dense Cartesian 검증과 같은 `4 mm`이며, phase endpoint만 맞고 중간 TCP가 크게
+휘는 OMPL 경로는 거부한다.
+
+기존 로컬의 1차·2차 독립 candidate sweep runner는 canonical geometry와 중복되어
+복사하지 않았다. 그 결과에서 채택한 inset, sample 수, arm/direction, release
+높이와 dense TCP audit만 공통 planner에 통합했다. 로컬의 정밀 camera-mount mesh
+URDF도 clear pose에서 큰 self-collision을 만들기 때문에 등록 모델로 승격하지
+않았다. RViz MarkerArray 설정, stage별 시각화와 execution-disabled launch는 새
+canonical 형식으로 이식했다.
 
 입력 파일명과 내부 status인 `towel_task_contract.candidate.yaml`/
 `R0_STATIC_CONTACT_CANDIDATE`는 의도적으로 유지한다. 자동·동적 contact가 아직

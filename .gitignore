@@ -55,4 +55,5 @@ datasets/
 artifacts/
 tmp/
 output/
+.verification/
 benchmark/results/raw/

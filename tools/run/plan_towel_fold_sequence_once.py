@@ -42,6 +42,7 @@ from tools.lib.towel_task_pose_planning import (  # noqa: E402
     CandidateSpec,
     CorrectionProbe,
     PhaseSpec,
+    TaskPose,
     build_correction_probes,
     phase_to_dict,
     solve_task_pose_branches,
@@ -67,6 +68,7 @@ from tools.run.plan_observe_clear_once import (  # noqa: E402
 
 STATUS = "TOWEL_BIMANUAL_THEN_SINGLE_TASK_POSE_PLAN_ONLY_PASS"
 PATH_VALIDATION_STEP_RAD = 0.020
+MAXIMUM_DENSE_TCP_PATH_DEVIATION_M = 0.004
 MAXIMUM_GOAL_RESIDUAL_RAD = 0.001
 PLANNING_ATTEMPTS_PER_IK_BRANCH = 8
 MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M = 0.0001
@@ -310,6 +312,49 @@ def wait_future(node: Node, future, timeout_s: float):
     return planning.wait_future(node, future, timeout_s)
 
 
+def point_segment_distance_m(
+    point: Iterable[float],
+    start: Iterable[float],
+    target: Iterable[float],
+) -> float:
+    point_values = tuple(float(value) for value in point)
+    start_values = tuple(float(value) for value in start)
+    target_values = tuple(float(value) for value in target)
+    if not all(len(values) == 3 for values in (point_values, start_values, target_values)):
+        raise RuntimeError("TCP path audit requires three finite XYZ vectors")
+    if not all(
+        math.isfinite(value)
+        for values in (point_values, start_values, target_values)
+        for value in values
+    ):
+        raise RuntimeError("TCP path audit vectors must be finite")
+    delta = tuple(
+        end - beginning
+        for beginning, end in zip(start_values, target_values, strict=True)
+    )
+    length_squared = sum(value * value for value in delta)
+    if length_squared <= 1.0e-18:
+        closest = start_values
+    else:
+        fraction = sum(
+            (value - beginning) * direction
+            for value, beginning, direction in zip(
+                point_values, start_values, delta, strict=True
+            )
+        ) / length_squared
+        fraction = min(1.0, max(0.0, fraction))
+        closest = tuple(
+            beginning + fraction * direction
+            for beginning, direction in zip(start_values, delta, strict=True)
+        )
+    return math.sqrt(
+        sum(
+            (value - expected) ** 2
+            for value, expected in zip(point_values, closest, strict=True)
+        )
+    )
+
+
 class MoveItPlanOnlyGate:
     def __init__(
         self,
@@ -317,10 +362,12 @@ class MoveItPlanOnlyGate:
         timeout_s: float,
         grippers: dict[str, tuple[float, float]],
         collision_reference: tuple[float, ...],
+        kinematics: dict[str, GraspYawKinematics],
     ):
         self.node = node
         self.timeout_s = timeout_s
         self.grippers = grippers
+        self.kinematics = kinematics
         self.collision_reference = tuple(float(value) for value in collision_reference)
         if len(self.collision_reference) != len(CANONICAL_JOINTS):
             raise RuntimeError("collision reference must be the canonical 12-axis state")
@@ -613,6 +660,7 @@ class MoveItPlanOnlyGate:
         segment: dict[str, object],
         applicable_grippers: dict[str, tuple[float, float]],
         intended_table_contact: bool,
+        task_targets: tuple[TaskPose, ...],
     ) -> dict[str, object]:
         trajectory = segment["_trajectory"]
         names = tuple(trajectory.joint_names)
@@ -634,9 +682,31 @@ class MoveItPlanOnlyGate:
         intended_table_contacts = 0
         maximum_table_contact_depth = 0.0
         base_by_name = dict(zip(CANONICAL_JOINTS, start, strict=True))
+        target_by_arm = {target.arm: target for target in task_targets}
+        start_tcp_by_arm = {
+            arm: self.kinematics[arm].tcp_pose_in_root(base_by_name)[1]
+            for arm in target_by_arm
+        }
+        maximum_tcp_path_deviation_by_arm = {
+            arm: 0.0 for arm in target_by_arm
+        }
         for arm_sample in samples:
             by_name = dict(base_by_name)
             by_name.update(zip(names, arm_sample, strict=True))
+            for arm, target in target_by_arm.items():
+                actual_tcp = self.kinematics[arm].tcp_pose_in_root(by_name)[1]
+                deviation = point_segment_distance_m(
+                    actual_tcp, start_tcp_by_arm[arm], target.xyz_m
+                )
+                maximum_tcp_path_deviation_by_arm[arm] = max(
+                    maximum_tcp_path_deviation_by_arm[arm], deviation
+                )
+                if deviation > MAXIMUM_DENSE_TCP_PATH_DEVIATION_M:
+                    raise RuntimeError(
+                        f"{segment['name']}: {arm} TCP path deviation "
+                        f"{deviation:.6f} m exceeds "
+                        f"{MAXIMUM_DENSE_TCP_PATH_DEVIATION_M:.6f} m"
+                    )
             for mode_name, pair in applicable_grippers.items():
                 by_name["left_gripper_joint"] = pair[0]
                 by_name["right_gripper_joint"] = pair[1]
@@ -741,6 +811,13 @@ class MoveItPlanOnlyGate:
             "maximum_intended_jaw_table_contact_depth_m": maximum_table_contact_depth,
             "maximum_intended_jaw_table_contact_depth_limit_m": (
                 MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M
+            ),
+            "dense_tcp_path_audit_target": "nearest_point_on_adjacent_task_chord",
+            "maximum_dense_tcp_path_deviation_m_by_arm": (
+                maximum_tcp_path_deviation_by_arm
+            ),
+            "maximum_dense_tcp_path_deviation_limit_m": (
+                MAXIMUM_DENSE_TCP_PATH_DEVIATION_M
             ),
         }
 
@@ -847,6 +924,7 @@ def solve_and_plan_phases(
                         segment,
                         phase_gripper_modes(phase, gate.grippers),
                         False,
+                        phase.targets,
                     )
                 finally:
                     if not gate.exceptions_enabled:
@@ -893,6 +971,7 @@ def solve_and_plan_phases(
                         candidate_segment,
                         phase_gripper_modes(phase, gate.grippers),
                         False,
+                        phase.targets,
                     )
                 except RuntimeError as exc:
                     failures.append(f"attempt={attempt}: {exc}")
@@ -996,6 +1075,7 @@ def solve_and_plan_phases(
                             }
                             for target in phase.targets
                         ),
+                        phase.targets,
                     )
                 except RuntimeError as exc:
                     failures.append(f"attempt={attempt}: {exc}")
@@ -1042,6 +1122,7 @@ def summarize_strict_records(
     maximum_raw_nondeterministic_depth = 0.0
     intended_table_contacts = 0
     maximum_table_depth = 0.0
+    maximum_tcp_path_deviation = 0.0
     for records in groups:
         for phase in records:
             moveit = phase["moveit"]
@@ -1067,6 +1148,14 @@ def summarize_strict_records(
                 maximum_table_depth,
                 float(validation["maximum_intended_jaw_table_contact_depth_m"]),
             )
+            deviations = validation.get(
+                "maximum_dense_tcp_path_deviation_m_by_arm", {}
+            )
+            if isinstance(deviations, dict) and deviations:
+                maximum_tcp_path_deviation = max(
+                    maximum_tcp_path_deviation,
+                    *(float(value) for value in deviations.values()),
+                )
     return {
         "planning_segment_count": total_segments,
         "strict_state_sample_count": total_states,
@@ -1082,6 +1171,10 @@ def summarize_strict_records(
         "maximum_intended_jaw_table_contact_depth_m": maximum_table_depth,
         "maximum_intended_jaw_table_contact_depth_limit_m": (
             MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M
+        ),
+        "maximum_dense_tcp_path_deviation_m": maximum_tcp_path_deviation,
+        "maximum_dense_tcp_path_deviation_limit_m": (
+            MAXIMUM_DENSE_TCP_PATH_DEVIATION_M
         ),
     }
 
@@ -1248,7 +1341,9 @@ def main() -> int:
 
     rclpy.init()
     node = Node("towel_fold_sequence_plan_only")
-    gate = MoveItPlanOnlyGate(node, args.timeout_s, grippers, clear)
+    gate = MoveItPlanOnlyGate(
+        node, args.timeout_s, grippers, clear, kinematics
+    )
     selected = None
     rejected = []
     try:
@@ -1347,6 +1442,12 @@ def main() -> int:
             ],
             "temporary_exceptions_restored_before_dense_validation": True,
             "strict_path_sample_step_rad": PATH_VALIDATION_STEP_RAD,
+            "dense_tcp_path_deviation_limit_m": (
+                MAXIMUM_DENSE_TCP_PATH_DEVIATION_M
+            ),
+            "dense_tcp_path_reference": (
+                "nearest point on each adjacent task-waypoint chord"
+            ),
             "cable_safety_basis": (
                 "all joints remain inside operator-reviewed manually swept "
                 "cable-safe desired envelope; no cable mesh claim"

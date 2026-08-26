@@ -255,5 +255,8 @@ software_artifacts:
   canonical_fold_geometry_module: tools/lib/towel_bimanual_then_single_planning.py
   planner: tools/run/plan_towel_task_once.py
   canonical_moveit_planner: tools/run/plan_towel_fold_sequence_once.py
+  full_fk_diagnostic: tools/run/diagnose_towel_fold_kinematics.py
+  rviz_visualizer: tools/run/visualize_towel_fold_sequence.py
+  plan_only_launch: ros2_ws/src/so101_bringup/launch/towel_fold_plan_only.launch.py
   contract_validator: tools/run/validate_towel_contract.py
   task_design: docs/TOWEL_FOLDING.md
