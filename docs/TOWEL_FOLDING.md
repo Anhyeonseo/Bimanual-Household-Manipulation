@@ -463,6 +463,7 @@ tools/
   lib/towel_task_pose_planning.py
   lib/towel_bimanual_then_single_planning.py
   lib/towel_observation_lifecycle.py
+  lib/towel_yolo_segmentation.py
   run/validate_towel_contract.py
   run/validate_towel_schemas.py
   run/validate_towel_dataset.py
@@ -475,6 +476,8 @@ tools/
   run/bootstrap_towel_segmentation_pilot.py
   run/capture_towel_yolo_interactive.py
   run/validate_towel_observation_burst.py
+  run/export_towel_yolo_segmentation.py
+  run/evaluate_towel_yolo_segmentation.py
 tests/
   test_towel_geometry.py
   test_towel_fold_path.py
@@ -488,6 +491,8 @@ tests/
   test_towel_observation_lifecycle.py
   test_towel_segmentation_bootstrap.py
   test_capture_towel_yolo_interactive.py
+  test_towel_yolo_segmentation.py
+  test_evaluate_towel_yolo_segmentation.py
 ```
 
 위 목록은 현재 구현된 motion-free 기반이다. 실제 Top image mask/outline,
@@ -500,3 +505,9 @@ R1 데이터는 개발 원본 595장, 사람 검수 train annotation 103장, 물
 held-out 38장 중 검수 35장과 robot-occluded OOD 3장, 실제 상태 5개×3프레임
 burst로 구성된다. source image, review manifest, capture ID와 SHA를 함께 보존해
 R2의 학습 split과 이후 primitive 전후 관측이 같은 기준을 재사용하게 한다.
+검수 polygon의 YOLO-seg export는 기존 split을 그대로 보존하고 empty negative를
+빈 label로 포함하며, 미검수·robot-occluded label을 학습 입력으로 승격하지 않는다.
+YOLO26n-seg baseline은 검수 train 103장으로 100 epoch 학습했고 validation 35장에서
+고정 `conf=0.25` 수건 30/30 검출, empty 5/5 거절, non-empty mask IoU 평균
+`0.979250`, 최저 `0.942682`를 기록했다. 이는 학습 중 사용한 validation 결과이므로
+새 독립 test session 전에는 최종 일반화 성능이나 runtime backend 승격 근거가 아니다.

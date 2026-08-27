@@ -51,6 +51,7 @@ Thumbs.db
 *.db3
 *.mcap
 *.onnx
+*.pt
 # Keep only the reviewed R1 Top-camera datasets in Git. Future captures stay
 # local until they receive the same split, manifest, and review audit.
 datasets/*

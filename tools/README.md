@@ -34,6 +34,11 @@ python tools/run/bootstrap_towel_segmentation_pilot.py \
   datasets/towel_yolo_source/20260826_top_01 --per-category 5
 python tools/run/validate_towel_observation_burst.py \
   datasets/towel_yolo_source/20260827_top_lifecycle_validation_01
+python tools/run/export_towel_yolo_segmentation.py \
+  --output tmp/towel_yolo_segmentation
+.venv-yolo/bin/python tools/run/evaluate_towel_yolo_segmentation.py \
+  tmp/towel_yolo_runs/yolo26n_seg_r0/weights/best.pt \
+  --output tmp/towel_yolo_segmentation_evaluation.json
 ```
 
 실제 모터를 움직일 수 있는 도구는 파일의 confirmation·전원 조건을 우회하지
@@ -66,6 +71,18 @@ hidden layer나 fold count를 승인하지 않는다.
 presence, clear-view와 feature spread를 재검사한다. fold count는 검증된 action
 context에서만 주입하고, 비그립 봉제 고리는 segmentation에 유지한 채 20 mm 이하
 폭만 metric fold-body outline에서 제외한다.
+`export_towel_yolo_segmentation.py`는 승인된 review manifest 세 개만 읽어 사람
+검수 train 103장과 독립 validation 35장을 YOLO segmentation 형식으로 내보낸다.
+기존 split을 그대로 보존하고 source SHA/capture 누수, 미검수 label, robot-occluded
+training label과 review digest 불일치를 거절한다. empty frame은 빈 label 파일로
+남기며 모든 polygon은 export 뒤 raster round-trip IoU `0.999` 이상을 요구한다.
+출력의 `dataset.yaml`은 학습 입력이고 `export_manifest.json`은 원본 review·image·
+label SHA를 기록한다. exporter 통과는 dataset 준비 완료일 뿐 학습 model이나
+held-out inference 성능을 승인하지 않는다.
+`evaluate_towel_yolo_segmentation.py`는 학습 weight SHA와 export manifest identity를
+함께 기록하고 validation의 수건 검출, empty rejection과 fixed-threshold pixel mask
+IoU를 계산한다. Ultralytics mAP만으로 runtime 승격하지 않으며 새 test session 없이
+validation 결과를 최종 일반화 성능으로 해석하지 않는다.
 `diagnose_towel_fold_kinematics.py`는 입력 evidence가 아직 없을 때 canonical
 1·2차 fold의 full-FK pose 해만 별도 JSON으로 기록한다. 이 결과는 MoveIt 경로와
 충돌을 승인하지 않는다. `visualize_towel_fold_sequence.py`는 두 결과 형식을 모두
