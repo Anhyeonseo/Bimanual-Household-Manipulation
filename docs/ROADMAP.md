@@ -64,28 +64,23 @@ XY RMS/max `10.327/12.309 mm`, Z max `12.313 mm`, yaw max `1.232 deg`였다.
 결과는 tabletop 물체 좌표와 300 mm rigid-proxy plan-only 사용만 승인하며 실제
 motion은 계속 승인하지 않는다.
 
-R0-G의 초기 탐색은 300×300×13 mm 정적 rigid proxy 주변에서 두 TCP 위치만
-접기 arc에 맞췄다. 이 탐색과 1차 양팔 moving-edge 전략은 jaw 방향과 팔 간섭을
-설명하지 못해 접기 해로 승격하지 않았다. 최종 gate는 아래 비대칭 전략으로
-다시 수행해 통과했다.
+R0-G의 canonical 후보는 펼쳐진 300 mm edge를 양팔로 먼저 접고, 300×150 mm
+결과의 짧은 moving edge 중앙을 가까운 한 팔로 접는다. 첫 fold가 어긋나면
+두 번째 fold를 금지하고 clear 재관측 뒤 `micro_drag` 또는 `lift_pull_place`를
+최대 2회만 허용한다.
 
-- 1차: 한 팔의 `single_arm_coarse_fold` 뒤 clear 재관측과 최대 2회의
-  `micro_drag` 또는 `lift_pull_place` 보정
-- 1차가 어긋난 경우 2차 금지; 필요하면 반대 팔의 멀리 떨어진 passive pin을
-  별도 후보로 검증
-- 2차: 300×150 mm 결과의 짧은 moving edge를 양팔이 자기 쪽 endpoint에서
-  잡는 동기 접기
-- 모든 grasp에서 TCP xyz, jaw opening-line yaw, downward approach cone,
-  손목·카메라 거치대와 케이블 keep-out을 검사
+SO-101 한 팔의 5-DOF를 반영해 임의 exact 6D pose를 요구하지 않는다. 모든
+phase는 TCP xyz와 jaw opening-line yaw를 검사하고 full 6D FK를 기록한다.
+새 grasp의 contact/pregrasp에는 70° downward approach cone을 적용하며, 이미
+cloth가 붙은 transfer·laydown은 물리적 의미와 기존 dense Cartesian 검증에
+맞춰 최대 90°를 허용한다. 2차 laydown TCP는 도달 불가능한 16 mm를 주장하지
+않고 검증된 40 mm release 높이를 사용한다.
 
-SO-101 한 팔의 5-DOF를 반영해 임의 exact 6D pose를 요구하지 않고, 위 세
-task constraint를 만족하는 IK와 full 6D FK를 기록했다. 선택된 해는 오른팔의
-화면 오른쪽→왼쪽 1차 접기, high/low-x 양쪽 ±30 mm correction envelope,
-`+x→-x` 양팔 2차 접기와 `left_to_high_y` endpoint 배정이다. 217개 segment,
-17,921개 dense full-state sample에서 비승인 접촉 0건, 최소 joint-limit margin
-`0.043430 rad`를 확인했다. 의도된 jaw-table 접촉 최대 깊이는 `0.0274 mm`
-(한계 `0.1 mm`)였고 실제 motion 명령은 0개였다. 이 승인은 정적 task-pose
-envelope에 한정되며 cloth attachment·변형·fold 성공을 주장하지 않는다.
+현재 후보의 전체 full-FK IK와 software regression은 통과했다. 최종 strict
+MoveIt 승격은 등록 완료 URDF manifest, workcell shadow, right tabletop validation
+artifact가 로컬에 존재할 때만 실행한다. 저장소의 data-fit candidate URDF로는
+OBSERVE_CLEAR에서 카메라 마운트와 팔 메시가 최대 약 16.2 mm 겹쳐 fail-closed
+되므로, 이 충돌을 임시 예외로 숨겨 PASS로 기록하지 않는다.
 
 현재까지 고정된 R0 계약은 다음과 같다.
 
@@ -99,51 +94,79 @@ envelope에 한정되며 cloth attachment·변형·fold 성공을 주장하지 �
 - 완료: 300 mm 수건 전체와 승인된 외곽 여유가 Top의 검증된 metric 영역 안에 있음
 - 연기: 질량과 수건-작업대 마찰은 이를 소비하는 동적 gate 전에 측정
 - 완료: 오른팔 FK+wrist tabletop 물체 좌표의 독립 target 검증
-- 완료: 1차 단팔·폐루프 보정과 2차 양팔 접기의 task-pose MoveIt plan-only envelope
+- 완료: 1차 양팔·폐루프 보정과 2차 단팔 접기의 task-pose MoveIt plan-only envelope
 - 미완료: 자동 contact/slip, 허용 TCP separation과 양팔 속도 차이는 이를
   소비하는 primitive 전에 commission
 
-300 mm rigid proxy와 실제 MoveIt으로 아래 R0 최소 envelope를 검증했다.
+300 mm rigid proxy와 MoveIt으로 아래 R0 최소 envelope를 검증한다.
 
 - 펼침 footprint 300×300 mm
-- 1차 단팔 corner grasp, lift-over-place와 테이블 마찰 또는 승인된 passive pin
+- 1차 양팔 moving-edge endpoint grasp와 동기 fold arc
 - clear 재관측에서 현재/목표 mask·corner·fold-line 오차를 계산하는 bounded 보정
-- 2차 fold moving-edge separation 최대 약 150 mm의 양팔 endpoint grasp
+- 2차 fold의 짧아진 moving-edge midpoint 단팔 grasp
 - 모든 pregrasp, lift, lay-down, release와 retreat에서 robot·작업대·카메라
   거치대·케이블 keep-out 위반 없음
 - 정적 proxy 도달성은 cloth가 실제로 따라오거나 집힌다는 증거로 사용하지 않음
 
-완료 판정: 물리·좌표계, clear observation과 비대칭 task-pose MoveIt plan-only
-후보 하나가 통과해 R0를 종료한다. 후보 탐색은 고정된 우선순위에서 첫 승인 해가
-나오면 멈추며, 그 전에 평가한 거부 해만 이유를 기록한다. 이번에는 첫 후보가
-통과해 나머지 7개는 `not_evaluated_after_selection`으로 명시됐다. 실제 수건
-fold는 여전히 승인하지 않으며 R1 이후 gate에서도 `motion_authorized=false`를
-기본값으로 유지한다.
+완료 판정: 물리·좌표계, clear observation과 canonical task-pose MoveIt plan-only
+후보 하나가 등록 완료 URDF와 strict collision gate를 통과해야 한다. 후보 탐색은
+고정된 우선순위에서 첫 승인 해가 나오면 멈추고 앞선 거부 이유를 기록한다. 현재
+full-FK IK는 통과했으나 등록 artifact 부재로 strict MoveIt 승격은 미완료다.
+실제 fold는 승인하지 않으며 `motion_authorized=false`를 유지한다.
 
 ## R1 — 실제 관측·가림·topology
 
 - `OBSERVE_CLEAR → primitive → RETREAT_AND_SETTLE → REOBSERVE_CLEAR` phase 구현
 - 실제 image segmentation, component와 frame-border 검사
-- URDF 기반 robot occlusion mask와 가림 비율
+- 승인된 양팔 clear pose joint tolerance와 보수적 clear-view validity 검사
+- robot-occluded frame을 clear-view 거절/OOD 세트로 유지; 정밀 pixel mask는 실패 근거가 있을 때만 추가
 - visual corner, held TCP constraint와 unknown의 증거 출처 분리
 - contour, 말린 edge, 내부 주름, layer ambiguity와 flatness 추정
 - 들린 수건에 평면 homography를 사용하지 않는 3D/조건부 관측 경계
 - timestamp, calibration/model identity, spread와 hysteresis가 포함된 stabilizer
 - 구김·부분 펼침·정렬·1차/2차 fold 실제 데이터의 episode 단위 split
 
-초기 구현은 RGB와 양 손목 다중 시점으로 시작하되 held-out 데이터에서 hidden
-layer를 안전하게 거부하지 못하면 RGB-D 또는 고정 사선 카메라를 추가한다.
+R1의 작업대 평면 상태 판정은 검증된 `OBSERVE_CLEAR`와 고정 Top RGB만으로
+완료했다. 이 구조에서는 정밀 robot pixel mask와 wrist fusion을 추가해도 승인
+정보가 늘지 않으므로 보류한다. 이후 들린 수건이나 hidden layer를 실제로 판정할
+때 Top RGB만으로 안전하게 거부하지 못하면 wrist 다중 시점, RGB-D 또는 고정
+사선 카메라를 근거 순서대로 추가한다.
 
-완료 조건: 실제 held-out episode에서 mask, corner, flatness, occlusion과 상태
+완료 결과: 1280×960 RGB 개발 원본 595장(empty 16, 평탄 100, 가벼운 구김 120,
+심한 구김 107, 말림·겹침 73, 1차 fold 81, 2차 fold 50, robot 가림 48)을
+통합했고 전수 decode·크기 검사를 통과했다. 두 차례 LabelMe 검수로 non-empty
+90장과 empty 13장, 총 103개 segmentation annotation을 계약 import했고 잘못된
+empty 2장은 거절했다. 자동 제안은 두 batch 모두 평균 IoU 0.9 이상이지만 각 1장씩
+완전 실패가 있어 무검수 승격하지 않는다. 독립 held-out session 38장은 매 frame
+물리 재배치와 capture ID/SHA를 기록했고, 그중 35장(empty 5, non-empty 30)을
+사람 검수 segmentation으로 승인했으며 robot-occluded 3장은 rejection/OOD다.
+reviewed mask는 empty 13개, 단일 connected component 90개, 다중 component 0개이며
+22개가 image border에 닿는다. border 접촉 mask는 보이는 영역의 유효 training
+label로 남기되 runtime에서는 `clear_view_valid=false`로 거절한다.
+held-out mask 후보는 towel 30/30·empty 5/5, non-empty IoU 평균 0.980284·최저
+0.965564이고 border 잘림 4/4, false negative 0, 보수적 false reject 1이다.
+원본 pixel은 K/D/P 왜곡 보정 후 table homography로 투영하고 visible area는 실측
+`0.304×0.296 m` 면적과 metric으로 비교한다. mask outline backend는 hidden layer와
+fold count를 추측하지 않아 non-flat/fold held-out을 `ALIGNED`로 승인하지 않는다.
+motion-free lifecycle은 freshness, settle, clear pose, clear-view validity,
+연속 3-frame과 calibration/model/URDF identity를 fail-closed로 검사하고 primitive
+전후 episode evidence를 만든다. 실제 `20260827_top_lifecycle_validation_01`의
+5개 물리 배치에서 각 3장씩 15장을 검증했고 presence·clear view와 상태가 모든
+window에서 일치했다. fold count는 RGB에서 추측하지 않고 검증된 fold action
+context에서만 주입한다. 20 mm 이하 비그립 봉제 고리는 segmentation에는 보존하되
+metric fold-body outline에서 제외했으며, 1차 fold IoU 최저 `0.903769`, 2차 fold
+최저 `0.859693`으로 기존 `0.82/0.85` 기준을 통과했다. 따라서 R1은 완료다.
+
+완료 조건: 실제 held-out episode에서 mask, corner, flatness, clear-view rejection과 상태
 분류가 검증 임계값을 통과하고, 가려짐·들림·다층 ambiguity를 `ALIGNED`로
 승인하지 않는다.
 
 ## R2 — Isaac Lab cloth와 학습 기반
 
-- R0의 비대칭 task-pose sequence와 실제 R1 observation을 공통 baseline으로 사용
+- R0의 canonical task-pose sequence와 실제 R1 observation을 공통 baseline으로 사용
 - `S0`에서 R0 plan artifact 재생, vectorized reset과 FOV·접근·충돌 재현성을 검사
-- `S1` 삼각 surface deformable과 명시적 vertex-patch attachment로 단팔 fold,
-  bounded correction과 양팔 fold의 grasp/release 순서 검증
+- `S1` 삼각 surface deformable과 명시적 vertex-patch attachment로 양팔 1차 fold,
+  bounded correction과 단팔 2차 fold의 grasp/release 순서 검증
 - `S2` 실측 범위 material randomization으로 실패 사례와 영상 생성
 - Isaac Lab 환경을 `reset/observation/action/reward/termination` 계약으로 구현
 - 행동 공간은 승인된 단팔/양팔 primitive, pick/place·높이·장력과
@@ -158,7 +181,7 @@ Isaac 성공은 실제 cloth dynamics나 grasp의 승인 근거로 사용하지 
 못하면 simulator를 더 복잡하게 맞추기보다 real self-supervised/offline 학습으로
 전환한다.
 
-완료 조건: R0의 300 mm 비대칭 plan artifact가 Isaac Lab S0 vectorized smoke
+완료 조건: R0의 300 mm canonical plan artifact가 Isaac Lab S0 vectorized smoke
 test에서 결정적으로 재생되고, S1의
 `drop→settle→attach→lift→place→release` 및 correction trajectory가 결정적으로
 재생되며, 학습 전에 실제와 비교할 상태·행동·결과 metric이 확정돼 있다.
@@ -172,8 +195,8 @@ test에서 결정적으로 재생되고, S1의
 3. `lift_and_observe`, `lay_flat`
 4. `tension_spread`
 5. `drag_corner`, `align_square`
-6. `single_arm_coarse_fold`, `micro_drag`, `lift_pull_place`
-7. `fold_edge_pair`, `release_and_smooth`
+6. `bimanual_edge_pair`, `micro_drag`, `lift_pull_place`
+7. `single_arm_edge_midpoint_fold`, `release_and_smooth`
 8. `controlled_shake`는 앞의 저속 primitive가 부족하다는 증거가 있을 때만 추가
 
 각 primitive는 pre/postcondition, timeout, 최대 이동·속도, 장력 proxy, slip과
@@ -189,10 +212,12 @@ fault는 같은 session의 양팔 정지로 이어진다.
 전체 구김 문제와 분리해 사람이 평탄·정렬한 300×300 mm 수건에서 먼저 fold
 executor를 완성한다.
 
-- 1차 single-layer 단팔 corner grasp와 nominal 300×150 mm coarse 결과 검증
+- 1차 아래쪽 moving edge 양 끝의 single-layer 양팔 grasp와 아래→위 fold,
+  nominal 300×150 mm coarse 결과 검증
 - clear 재관측 뒤 평행이동·회전·느슨함을 최대 2회의 bounded correction으로 보정
 - stationary-half가 함께 미끄러지면 pull 축소 또는 승인된 passive pin 사용
-- 2차 multi-layer 양팔 endpoint grasp와 첫 접힘 보존
+- 2차 오른쪽 moving edge midpoint의 multi-layer 오른팔 단독 grasp와
+  오른쪽→왼쪽 fold; 왼팔 반대 방향은 bounded fallback으로만 유지
 - nominal 150×150 mm 결과, rebound와 stack 돌출 검사
 - 실패한 1차 fold에서 2차 fold 금지
 

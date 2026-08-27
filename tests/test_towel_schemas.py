@@ -39,3 +39,15 @@ def test_runtime_schema_rejects_motion_and_unknown_fields():
     value["motion_authorized"] = True
     with pytest.raises(TowelSchemaError, match="motion_authorized"):
         validate_instance(schema, value, label="unsafe observation")
+
+
+def test_annotation_schema_accepts_explicit_empty_negative():
+    schema = load_schema(ROOT / "config/towel_annotation.schema.json")
+    value = deepcopy(load_json(ROOT / "config/towel_annotation.example.json"))
+    value.update(
+        observation_id="empty-negative-example",
+        state_label="EMPTY",
+        segmentation_polygon_px=[],
+        corners=[],
+    )
+    validate_instance(schema, value, label="empty negative annotation")

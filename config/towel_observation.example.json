@@ -4,6 +4,13 @@
   "observation_id": "synthetic-aligned-example",
   "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "calibration_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "capture_stamp_ns": 1000000000,
+  "lifecycle_phase": "OBSERVE_CLEAR",
+  "model_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "robot_model_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "settled": true,
+  "clear_pose_verified": true,
+  "clear_view_valid": true,
   "visible_area_ratio": 0.96,
   "topology_confidence": 0.95,
   "flatness_score": 0.93,
@@ -11,10 +18,10 @@
   "outline_iou": null,
   "stale": false,
   "corners": [
-    {"point_xy_m": [0.2, 0.15], "confidence": 0.96, "visible": true, "graspable": true},
-    {"point_xy_m": [0.5, 0.15], "confidence": 0.97, "visible": true, "graspable": true},
-    {"point_xy_m": [0.5, -0.15], "confidence": 0.95, "visible": true, "graspable": true},
-    {"point_xy_m": [0.2, -0.15], "confidence": 0.96, "visible": true, "graspable": true}
+    {"point_xy_m": [0.18, 0.03], "confidence": 0.96, "visible": true, "graspable": true},
+    {"point_xy_m": [0.48, 0.03], "confidence": 0.97, "visible": true, "graspable": true},
+    {"point_xy_m": [0.48, -0.27], "confidence": 0.95, "visible": true, "graspable": true},
+    {"point_xy_m": [0.18, -0.27], "confidence": 0.96, "visible": true, "graspable": true}
   ],
   "fold_axis_costs": {"x": 1.0, "y": 1.2},
   "fold_direction_costs": {

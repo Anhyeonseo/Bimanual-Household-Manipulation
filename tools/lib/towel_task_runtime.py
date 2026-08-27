@@ -132,6 +132,13 @@ class TowelObservation:
     outline_iou: float | None
     corners: tuple[CornerCandidate, ...]
     stale: bool = False
+    capture_stamp_ns: int | None = None
+    lifecycle_phase: str | None = None
+    model_sha256: str | None = None
+    robot_model_sha256: str | None = None
+    settled: bool | None = None
+    clear_pose_verified: bool | None = None
+    clear_view_valid: bool | None = None
 
     @classmethod
     def from_dict(cls, document: Mapping[str, Any]) -> "TowelObservation":
@@ -150,6 +157,13 @@ class TowelObservation:
         if not isinstance(fold_count, int) or isinstance(fold_count, bool):
             raise TowelTaskContractError("fold_count must be an integer")
         outline_value = document.get("outline_iou")
+        capture_stamp_value = document.get("capture_stamp_ns")
+        lifecycle_phase_value = document.get("lifecycle_phase")
+        model_digest = document.get("model_sha256")
+        robot_model_digest = document.get("robot_model_sha256")
+        settled_value = document.get("settled")
+        clear_pose_verified_value = document.get("clear_pose_verified")
+        clear_view_valid_value = document.get("clear_view_valid")
         observation_id = document.get("observation_id")
         if not isinstance(observation_id, str) or not observation_id:
             raise TowelTaskContractError("observation_id is required")
@@ -180,6 +194,33 @@ class TowelObservation:
             ),
             corners=tuple(CornerCandidate.from_dict(value) for value in corners_value),
             stale=_boolean(document.get("stale"), "stale", default=False),
+            capture_stamp_ns=(
+                None if capture_stamp_value is None else capture_stamp_value
+            ),
+            lifecycle_phase=(
+                None if lifecycle_phase_value is None else lifecycle_phase_value
+            ),
+            model_sha256=(None if model_digest is None else model_digest),
+            robot_model_sha256=(
+                None if robot_model_digest is None else robot_model_digest
+            ),
+            settled=(
+                None
+                if settled_value is None
+                else _boolean(settled_value, "settled")
+            ),
+            clear_pose_verified=(
+                None
+                if clear_pose_verified_value is None
+                else _boolean(
+                    clear_pose_verified_value, "clear_pose_verified"
+                )
+            ),
+            clear_view_valid=(
+                None
+                if clear_view_valid_value is None
+                else _boolean(clear_view_valid_value, "clear_view_valid")
+            ),
         )
         observation.validate()
         return observation
@@ -207,6 +248,36 @@ class TowelObservation:
             or not 0.0 <= self.outline_iou <= 1.0
         ):
             raise TowelTaskContractError("outline_iou must be within 0..1")
+        if self.capture_stamp_ns is not None and (
+            isinstance(self.capture_stamp_ns, bool)
+            or not isinstance(self.capture_stamp_ns, int)
+            or self.capture_stamp_ns < 0
+        ):
+            raise TowelTaskContractError(
+                "capture_stamp_ns must be a nonnegative integer"
+            )
+        if self.lifecycle_phase is not None and (
+            not isinstance(self.lifecycle_phase, str)
+            or not self.lifecycle_phase
+        ):
+            raise TowelTaskContractError(
+                "lifecycle_phase must be a nonempty string"
+            )
+        for label, digest in (
+            ("model_sha256", self.model_sha256),
+            ("robot_model_sha256", self.robot_model_sha256),
+        ):
+            if digest is not None and (
+                not isinstance(digest, str)
+                or len(digest) != 64
+                or any(
+                    character not in "0123456789abcdef"
+                    for character in digest
+                )
+            ):
+                raise TowelTaskContractError(
+                    f"{label} must be lowercase SHA-256"
+                )
 
     @property
     def usable_corners(self) -> tuple[CornerCandidate, ...]:
@@ -534,9 +605,9 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
         raise TowelTaskContractError("contract schema_version must be 1")
     if contract.get("record_kind") != "towel_task_contract":
         raise TowelTaskContractError("record_kind must be towel_task_contract")
-    if contract.get("status") != "R0_STATIC_CONTACT_CANDIDATE":
+    if contract.get("status") != "R1_OBSERVATION_CANDIDATE":
         raise TowelTaskContractError(
-            "candidate status must be R0_STATIC_CONTACT_CANDIDATE"
+            "candidate status must be R1_OBSERVATION_CANDIDATE"
         )
     if contract.get("motion_authorized") is not False:
         raise TowelTaskContractError(
@@ -651,23 +722,34 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
         else None
     )
     if not isinstance(fold_policy, Mapping) or (
-        fold_policy.get("strategy") != "asymmetric_single_arm_then_bimanual"
-        or fold_policy.get("first_axis") != "workcell_y"
-        or fold_policy.get("first_direction") != "negative_to_positive"
-        or fold_policy.get("first_active_arm_preference") != "right_then_left"
-        or fold_policy.get("first_primitive") != "single_arm_coarse_fold"
+        fold_policy.get("strategy") != "bimanual_first_then_single_arm_second"
+        or fold_policy.get("first_axis") != "workcell_x"
+        or fold_policy.get("first_direction") != "robot_near_to_far"
+        or fold_policy.get("first_coordinate_direction")
+        != "x_negative_to_positive"
+        or fold_policy.get("first_arm_assignment")
+        != "left_to_high_y_right_to_low_y"
+        or fold_policy.get("first_primitive") != "bimanual_edge_pair"
         or tuple(fold_policy.get("first_correction_primitives", ()))
         != ("micro_drag", "lift_pull_place")
         or fold_policy.get("maximum_first_fold_corrections") != 2
         or fold_policy.get("correction_envelope_mm") != 30.0
         or fold_policy.get("require_clear_reobservation_after_each_attempt")
         is not True
-        or fold_policy.get("second_axis") != "workcell_x"
+        or fold_policy.get("second_axis") != "workcell_y"
         or tuple(fold_policy.get("second_direction_candidates", ()))
-        != ("positive_to_negative", "negative_to_positive")
-        or fold_policy.get("second_primitive") != "fold_edge_pair"
-        or tuple(fold_policy.get("second_endpoint_assignment_candidates", ()))
-        != ("left_to_high_y", "left_to_low_y")
+        != ("right_to_left", "left_to_right")
+        or fold_policy.get("second_coordinate_direction_by_candidate")
+        != {
+            "right_to_left": "y_negative_to_positive",
+            "left_to_right": "y_positive_to_negative",
+        }
+        or fold_policy.get("second_primitive")
+        != "single_arm_moving_edge_midpoint_multilayer"
+        or tuple(fold_policy.get("second_active_arm_candidates", ()))
+        != ("right", "left")
+        or fold_policy.get("second_inactive_arm_policy")
+        != "remain_at_observe_clear"
         or fold_policy.get("target_area_ratio_after_first_fold") != 0.5
         or fold_policy.get("target_area_ratio_after_second_fold") != 0.25
         or not isinstance(kinematic_contract, Mapping)
@@ -677,12 +759,13 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
         != (
             "tcp_xyz",
             "jaw_opening_line_yaw",
-            "downward_approach_cone",
+            "phase_semantic_approach_cone",
             "full_6d_fk_recorded",
         )
     ):
         raise TowelTaskContractError(
-            "fold policy must preserve the approved asymmetric task-pose contract"
+            "fold policy must preserve the canonical bimanual-then-single "
+            "task-pose contract"
         )
     hardware = contract.get("hardware_limits")
     if not isinstance(hardware, Mapping):
@@ -790,6 +873,136 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
     if not 0.0 <= limits.maximum_axis_alignment_error_deg <= 45.0:
         raise TowelTaskContractError(
             "maximum_axis_alignment_error_deg must be within 0..45"
+        )
+    segmentation = contract.get("image_segmentation_candidate")
+    if (
+        not isinstance(segmentation, Mapping)
+        or segmentation.get("status")
+        != "R1_INDEPENDENT_HELD_OUT_MASK_PASS"
+        or segmentation.get("motion_authorized") is not False
+        or segmentation.get("scope")
+        != "exact_blue_towel_and_fixed_top_camera_only"
+        or segmentation.get("input_domain")
+        != "raw_distorted_1280x960_bgr"
+        or segmentation.get("metric_projection")
+        != "undistort_K_D_P_then_table_homography"
+        or segmentation.get("development_reviewed_count") != 103
+        or segmentation.get("held_out_session")
+        != "20260827_top_validation_01"
+        or segmentation.get("held_out_reviewed_count") != 35
+        or segmentation.get("held_out_towel_presence_pass") != 30
+        or segmentation.get("held_out_empty_rejection_pass") != 5
+        or segmentation.get("held_out_border_true_positive") != 4
+        or segmentation.get("held_out_border_false_negative") != 0
+        or segmentation.get("held_out_border_false_positive") != 1
+        or segmentation.get("state_labels_authorized") is not False
+        or segmentation.get("robot_pixel_mask_required") is not False
+        or segmentation.get("robot_occlusion_gate")
+        != "require_verified_observe_clear_pose"
+    ):
+        raise TowelTaskContractError(
+            "R1 image segmentation must preserve its held-out, motion-locked scope"
+        )
+    expected_area = segmentation.get("expected_full_towel_area_m2")
+    minimum_blue_area = segmentation.get("minimum_blue_component_area_ratio")
+    border_margin = segmentation.get("clear_view_border_margin_px")
+    mean_iou = segmentation.get("held_out_nonempty_mask_iou_mean")
+    minimum_iou = segmentation.get("held_out_nonempty_mask_iou_min")
+    if (
+        not isinstance(expected_area, (int, float))
+        or isinstance(expected_area, bool)
+        or not math.isclose(float(expected_area), 0.304 * 0.296)
+        or not isinstance(minimum_blue_area, (int, float))
+        or isinstance(minimum_blue_area, bool)
+        or not math.isclose(float(minimum_blue_area), 0.05)
+        or border_margin != 3
+        or not isinstance(mean_iou, (int, float))
+        or not isinstance(minimum_iou, (int, float))
+        or float(mean_iou) < 0.98
+        or float(minimum_iou) < 0.96
+    ):
+        raise TowelTaskContractError(
+            "R1 image segmentation numeric evidence is inconsistent"
+        )
+    fold_postcondition = contract.get("fold_postcondition_candidate")
+    if (
+        not isinstance(fold_postcondition, Mapping)
+        or fold_postcondition.get("status")
+        != "R1_ACTION_CONTEXT_METRIC_OUTLINE_PASS"
+        or fold_postcondition.get("motion_authorized") is not False
+        or fold_postcondition.get("scope")
+        != "verified_fold_action_context_only"
+        or fold_postcondition.get("fold_count_inferred_from_rgb") is not False
+        or fold_postcondition.get("metric")
+        != "translation_rotation_normalized_metric_outline_iou"
+        or fold_postcondition.get("unfolded_towel_size_m") != [0.304, 0.296]
+        or fold_postcondition.get("ignored_non_graspable_accessory_width_m")
+        != 0.02
+        or fold_postcondition.get("held_out_session")
+        != "20260827_top_lifecycle_validation_01"
+        or fold_postcondition.get("frames_per_episode") != 3
+        or fold_postcondition.get("first_fold_state") != "FOLD_1_COMPLETE"
+        or fold_postcondition.get("second_fold_state") != "FOLD_2_COMPLETE"
+        or fold_postcondition.get("state_labels_authorized_scope")
+        != "verified_fold_action_context_only"
+    ):
+        raise TowelTaskContractError(
+            "R1 fold postcondition must preserve verified action context"
+        )
+    for field_name, minimum in (
+        ("first_fold_outline_iou_min", limits.minimum_intermediate_outline_iou),
+        ("second_fold_outline_iou_min", limits.minimum_final_outline_iou),
+    ):
+        value = fold_postcondition.get(field_name)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            or float(value) < minimum
+        ):
+            raise TowelTaskContractError(
+                f"R1 fold postcondition evidence failed: {field_name}"
+            )
+    lifecycle = contract.get("observation_lifecycle")
+    if (
+        not isinstance(lifecycle, Mapping)
+        or lifecycle.get("status") != "R1_REAL_BURST_VALIDATED"
+        or lifecycle.get("motion_authorized") is not False
+        or lifecycle.get("require_settled") is not True
+        or lifecycle.get("require_clear_pose_verified") is not True
+        or lifecycle.get("require_clear_view_valid") is not True
+        or lifecycle.get("provenance")
+        != "independent_real_three_frame_episode_burst_2026_08_27"
+    ):
+        raise TowelTaskContractError(
+            "R1 observation lifecycle must remain motion-locked and fail-closed"
+        )
+    for field_name in (
+        "maximum_frame_age_ms",
+        "minimum_retreat_and_settle_ms",
+        "maximum_visible_area_ratio_span",
+        "maximum_flatness_score_span",
+        "maximum_topology_confidence_span",
+        "maximum_fold_outline_iou_span",
+    ):
+        field_value = lifecycle.get(field_name)
+        if (
+            isinstance(field_value, bool)
+            or not isinstance(field_value, (int, float))
+            or not math.isfinite(float(field_value))
+            or float(field_value) <= 0.0
+        ):
+            raise TowelTaskContractError(
+                f"{field_name} must be finite and positive"
+            )
+    consecutive = lifecycle.get("minimum_consecutive_observations")
+    if (
+        isinstance(consecutive, bool)
+        or not isinstance(consecutive, int)
+        or consecutive < 2
+    ):
+        raise TowelTaskContractError(
+            "minimum_consecutive_observations must be an integer >= 2"
         )
     RecoveryLedger.from_contract(contract)
     TowelTaskStateMachine.from_contract(contract)

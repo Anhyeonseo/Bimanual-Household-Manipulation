@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260826_top_01-empty_0010",
+  "split": "train",
+  "state_label": "EMPTY",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": null,
+  "source": {
+    "image_path": "00_empty_table/empty_0010.jpg",
+    "sha256": "7f203dfc6c513780c6001e7164149a663b93669cf73efa7ea9ad02c023cb937e",
+    "capture_id": null
+  }
+}

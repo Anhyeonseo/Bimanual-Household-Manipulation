@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260827_top_validation_01-empty_0001",
+  "split": "validation",
+  "state_label": "EMPTY",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": null,
+  "source": {
+    "image_path": "00_empty_table/empty_0001.jpg",
+    "sha256": "cbddc706b6a02b2c2bb571a6613517bff8e035ad417acce4b8c8061e6abe75c9",
+    "capture_id": "20260827_top_validation_01-empty-0001"
+  }
+}

@@ -1,6 +1,6 @@
 schema_version: 1
 record_kind: towel_task_contract
-status: R0_STATIC_CONTACT_CANDIDATE
+status: R1_OBSERVATION_CANDIDATE
 motion_authorized: false
 scope: crumpled_square_towel_unfold_then_two_orthogonal_half_folds
 
@@ -105,32 +105,37 @@ workcell_observation_candidate:
       - fa5788a7e2f172f837681bff97aacbea86e2cd223f37ce1242e6962a0d2f1ff3
 
 fold_policy:
-  strategy: asymmetric_single_arm_then_bimanual
-  first_axis: workcell_y
-  first_direction: negative_to_positive
-  first_active_arm_preference: right_then_left
-  first_primitive: single_arm_coarse_fold
+  strategy: bimanual_first_then_single_arm_second
+  first_axis: workcell_x
+  first_direction: robot_near_to_far
+  first_coordinate_direction: x_negative_to_positive
+  first_arm_assignment: left_to_high_y_right_to_low_y
+  first_primitive: bimanual_edge_pair
   first_correction_primitives:
     - micro_drag
     - lift_pull_place
   maximum_first_fold_corrections: 2
   correction_envelope_mm: 30.0
   require_clear_reobservation_after_each_attempt: true
-  second_axis: workcell_x
+  second_axis: workcell_y
   second_direction_candidates:
-    - positive_to_negative
-    - negative_to_positive
-  second_primitive: fold_edge_pair
-  second_endpoint_assignment_candidates:
-    - left_to_high_y
-    - left_to_low_y
+    - right_to_left
+    - left_to_right
+  second_coordinate_direction_by_candidate:
+    right_to_left: y_negative_to_positive
+    left_to_right: y_positive_to_negative
+  second_primitive: single_arm_moving_edge_midpoint_multilayer
+  second_active_arm_candidates:
+    - right
+    - left
+  second_inactive_arm_policy: remain_at_observe_clear
   kinematic_contract:
     arm_dof: 5
     arbitrary_exact_6d_pose_claimed: false
     required_constraints:
       - tcp_xyz
       - jaw_opening_line_yaw
-      - downward_approach_cone
+      - phase_semantic_approach_cone
       - full_6d_fk_recorded
   target_area_ratio_after_first_fold: 0.5
   target_area_ratio_after_second_fold: 0.25
@@ -147,6 +152,60 @@ perception_candidate_limits:
   maximum_axis_alignment_error_deg: 5.0
   minimum_intermediate_outline_iou: 0.82
   minimum_final_outline_iou: 0.85
+
+image_segmentation_candidate:
+  status: R1_INDEPENDENT_HELD_OUT_MASK_PASS
+  motion_authorized: false
+  scope: exact_blue_towel_and_fixed_top_camera_only
+  input_domain: raw_distorted_1280x960_bgr
+  metric_projection: undistort_K_D_P_then_table_homography
+  expected_full_towel_area_m2: 0.089984
+  minimum_blue_component_area_ratio: 0.05
+  clear_view_border_margin_px: 3
+  development_reviewed_count: 103
+  held_out_session: 20260827_top_validation_01
+  held_out_reviewed_count: 35
+  held_out_towel_presence_pass: 30
+  held_out_empty_rejection_pass: 5
+  held_out_nonempty_mask_iou_mean: 0.9802844030465999
+  held_out_nonempty_mask_iou_min: 0.9655635587510378
+  held_out_border_true_positive: 4
+  held_out_border_false_negative: 0
+  held_out_border_false_positive: 1
+  state_labels_authorized: false
+  robot_pixel_mask_required: false
+  robot_occlusion_gate: require_verified_observe_clear_pose
+
+fold_postcondition_candidate:
+  status: R1_ACTION_CONTEXT_METRIC_OUTLINE_PASS
+  motion_authorized: false
+  scope: verified_fold_action_context_only
+  fold_count_inferred_from_rgb: false
+  metric: translation_rotation_normalized_metric_outline_iou
+  unfolded_towel_size_m: [0.304, 0.296]
+  ignored_non_graspable_accessory_width_m: 0.02
+  held_out_session: 20260827_top_lifecycle_validation_01
+  frames_per_episode: 3
+  first_fold_state: FOLD_1_COMPLETE
+  first_fold_outline_iou_min: 0.9037687430814129
+  second_fold_state: FOLD_2_COMPLETE
+  second_fold_outline_iou_min: 0.859693317684329
+  state_labels_authorized_scope: verified_fold_action_context_only
+
+observation_lifecycle:
+  status: R1_REAL_BURST_VALIDATED
+  motion_authorized: false
+  maximum_frame_age_ms: 500.0
+  minimum_retreat_and_settle_ms: 750.0
+  minimum_consecutive_observations: 3
+  require_settled: true
+  require_clear_pose_verified: true
+  require_clear_view_valid: true
+  maximum_visible_area_ratio_span: 0.03
+  maximum_flatness_score_span: 0.04
+  maximum_topology_confidence_span: 0.04
+  maximum_fold_outline_iou_span: 0.04
+  provenance: independent_real_three_frame_episode_burst_2026_08_27
 
 recovery_limits:
   maximum_task_decisions: 32
@@ -246,8 +305,14 @@ software_artifacts:
   runtime_module: tools/lib/towel_task_runtime.py
   replay_module: tools/lib/towel_task_replay.py
   fake_reachability_module: tools/lib/towel_fake_reachability.py
-  asymmetric_task_pose_module: tools/lib/towel_asymmetric_planning.py
+  task_pose_module: tools/lib/towel_task_pose_planning.py
+  canonical_fold_geometry_module: tools/lib/towel_bimanual_then_single_planning.py
   planner: tools/run/plan_towel_task_once.py
-  asymmetric_moveit_planner: tools/run/plan_towel_asymmetric_sequence_once.py
+  canonical_moveit_planner: tools/run/plan_towel_fold_sequence_once.py
+  observation_lifecycle_module: tools/lib/towel_observation_lifecycle.py
+  observation_burst_validator: tools/run/validate_towel_observation_burst.py
+  full_fk_diagnostic: tools/run/diagnose_towel_fold_kinematics.py
+  rviz_visualizer: tools/run/visualize_towel_fold_sequence.py
+  plan_only_launch: ros2_ws/src/so101_bringup/launch/towel_fold_plan_only.launch.py
   contract_validator: tools/run/validate_towel_contract.py
   task_design: docs/TOWEL_FOLDING.md

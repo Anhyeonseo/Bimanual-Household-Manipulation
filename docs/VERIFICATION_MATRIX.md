@@ -6,11 +6,11 @@
 | T1 | 양팔 URDF, operational limits, 300 mm proxy FK와 collision | 자동+MoveIt | PASS: 등록 URDF·limits·카메라 mount·작업대와 strict full-state collision 검사 |
 | T2 | 실제 Top/left/right wrist 장치 identity, intrinsic, timestamp | 실기+오프라인 | PASS: Top 1280, right intrinsic·torque-hold eye-in-hand·tabletop translation; left W3는 URDF 기록 보존, 새 staged 검증은 metric 사용 전 필요 |
 | T3 | Top-to-base, 작업대 metric 영역, clear observation pose | 실기+오프라인 | PASS: left/right 등록·작업대 영역·right shadow·clear 왕복/무가림·right tabletop 독립 staged target |
-| T4 | 300 mm task contract, 물성 증빙과 episode 단위 데이터 분리 | 리뷰+자동 | 네 변·근사 두께·면/건조 상태 등록; 질량은 동적 gate 전까지 연기 |
-| T5 | 실제 mask, component, frame border와 robot occlusion | 오프라인+실기 | annotation backend만 구현 |
-| T6 | corner, 말린 edge, layer ambiguity, height/flatness | 오프라인+실기 | 순수 기하만 구현 |
+| T4 | 300 mm task contract, 물성 증빙과 episode 단위 데이터 분리 | 리뷰+자동 | 개발 595/검수 103 + 물리 재배치 held-out 38/검수 35·robot OOD 3, split leakage 0; 질량은 동적 단계 전까지 연기 |
+| T5 | 실제 mask, component, frame border와 clear-view rejection | 오프라인+실기 | HELD-OUT MASK PASS: towel 30/30·empty 5/5, IoU mean 0.980284/min 0.965564, border FN 0/FP 1; motion 비승인 |
+| T6 | corner, 말린 edge, layer ambiguity, height/flatness | 오프라인+실기 | PASS: 5×3 real burst 상태 일치, non-flat/fold `ALIGNED` 0; action-context fold IoU min 1차 0.903769/2차 0.859693 |
 | T7 | jaw gap, 단일/다층 grasp, slip, 장력·속도 계약 | 실기 | 좌우 1/4겹 정적 retention PASS; 자동 contact·동적 slip/장력은 미구현 |
-| T8a | 1차 단팔·보정/2차 양팔 sequence의 task-pose MoveIt plan-only | 자동+MoveIt | PASS: right 단팔 1차, ±30 mm 보정 envelope, 양팔 2차; 217 segment·17,921 strict state·비승인 접촉 0·motion command 0 |
+| T8a | 1차 양팔·보정/2차 단팔 sequence의 task-pose MoveIt plan-only | 자동+MoveIt | 후보 full-FK IK PASS; strict collision은 등록 완료 URDF/shadow/tabletop artifact 부재로 BLOCKED, motion command 0 |
 | T8b | Isaac Lab S0–S3, heuristic baseline과 visual residual/unfolding policy | 자동+Isaac+오프라인 | R2 범위; 미구현 |
 | T9 | 독립 primitive dry-run, supervised-once와 제한 반복 | 실기 | 미구현 |
 | T10 | 평탄 수건의 1차 fold와 300×150 mm 검증 | 실기 | 미구현 |
@@ -24,15 +24,15 @@
 | 단계 | 최소 승인 기준 |
 |---|---|
 | 작업셀 | 300×300 mm 수건과 승인된 외곽 여유가 검증된 Top metric 영역 안에 있음 |
-| 30 cm reachability | 1차 단팔 coarse fold·보정과 2차 약 150 mm 양팔 edge에서 TCP xyz+jaw yaw+downward cone의 5-DOF task-pose IK, full 6D FK 기록, robot/table/camera/cable gate 통과 |
+| 30 cm reachability | 1차 양팔 edge-pair·보정과 2차 단팔 midpoint에서 TCP xyz+jaw yaw+phase별 approach cone의 5-DOF task-pose IK, full 6D FK 기록, robot/table/camera/cable gate 통과 |
 | Isaac S0/S1 | S0는 FOV·접근·충돌만 주장하고, S1 surface cloth의 drop/settle·vertex-patch attachment·lift/place/release·termination이 seed별로 재생됨 |
 | 학습 환경 | observation/action/reward/termination version과 seed/material/solver SHA 고정, oracle metric으로 reward exploit 회귀시험 통과 |
 | learned 펼치기 | 완전 미사용 초기 상태에서 heuristic과 같은 action budget으로 비교해 성공률을 우선 개선하고 collision·drop·workspace 이탈 0회; 동률이면 시도 횟수·시간 개선 |
-| 승인 관측 | 양팔 clear pose, robot occlusion 분리, settle·freshness·calibration identity 통과 |
+| 승인 관측 | 양팔 clear pose, clear-view validity, settle·freshness·calibration identity 통과 |
 | 평탄화 | 네 모서리, 변·대각선 편차 ≤ 8%, 면적 ≥ 90%, hidden-layer false positive 0회 |
 | primitive 승격 | 무수건 dry-run과 supervised-once 후 10회 중 사후 조건 ≥ 9회, 안전 사고 0회 |
-| 1차 fold | 단팔 coarse fold와 최대 2회 clear-observation correction으로 standalone 20회 중 ≥ 19회, nominal 300×150 mm와 corner/fold-line/twist 기준 통과 |
-| 2차 fold | standalone 20회 중 ≥ 19회, nominal 150×150 mm와 첫 fold 보존 기준 통과 |
+| 1차 fold | 양팔 moving-edge endpoint coarse fold와 최대 2회 clear-observation correction으로 standalone 20회 중 ≥ 19회, nominal 300×150 mm와 corner/fold-line/twist 기준 통과 |
+| 2차 fold | 오른팔 moving-edge midpoint fold로 standalone 20회 중 ≥ 19회, nominal 150×150 mm와 첫 fold 보존 기준 통과; 왼팔 반대 방향은 fallback |
 | 최종 형상 | 모서리 평균 오차 ≤ 25 mm, 외곽선 IoU ≥ 0.85, 접힘선 평균 오차 ≤ 20 mm |
 | 전체 실행 | 서로 다른 초기 구김 30회 중 ≥ 27회 성공, 충돌·낙하·workspace 이탈 0회 |
 

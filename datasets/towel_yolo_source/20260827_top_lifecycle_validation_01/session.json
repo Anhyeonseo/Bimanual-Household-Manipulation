@@ -1,0 +1,10 @@
+{
+  "capture_protocol": "independent_physical_reposition_episode_burst_v1",
+  "frames_per_episode": 3,
+  "image_height_px": 960,
+  "image_width_px": 1280,
+  "record_kind": "towel_capture_session",
+  "schema_version": 1,
+  "session_id": "20260827_top_lifecycle_validation_01",
+  "split": "validation"
+}

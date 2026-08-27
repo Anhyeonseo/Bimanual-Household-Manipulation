@@ -17,7 +17,9 @@
 - synthetic aligned observation과 회귀 시험
 - annotation validator와 deterministic split-safe dataset manifest
 - observation sequence offline replay와 유한 terminal artifact
-- 비대칭 단팔 1차·bounded correction·양팔 2차의 task-pose MoveIt plan-only gate
+- 양팔 1차·bounded correction·단팔 2차의 canonical task-pose/full-FK IK gate
+- 실제 Top 원본 595장, 사람 검수 train 103장과 독립 validation 35장
+- fixed-camera blue-towel mask, metric outline과 실제 5×3 observation burst gate
 
 ## P0 — 데이터·관측 계약
 
@@ -30,15 +32,15 @@
 완료 조건: 잘못된 fixture를 각각 한 가지 이유로 거부하고 정상 dataset index를
 결정적으로 검증한다.
 
-### P0.2 Dataset manifest와 split (software pipeline 완료)
+### P0.2 Dataset manifest와 split (R1 실제 데이터 완료)
 
 - train, validation, test source SHA 분리
 - 구김 강도, 회전, 가림, 조명과 fold state 분포 기록
-- 실제 데이터 전 synthetic fixture로 manifest pipeline 검증
+- 실제 train/validation source SHA와 물리 재배치 episode manifest 검증
 
 완료 조건: 데이터 추가 순서와 관계없이 동일한 manifest SHA를 생성한다.
 
-### P0.3 Observation artifact versioning
+### P0.3 Observation artifact versioning (완료)
 
 - pixel annotation과 metric workcell observation을 명시적으로 분리
 - camera/calibration/model/dataset SHA와 timestamp 필수화
@@ -49,7 +51,7 @@ planning 전에 거부된다.
 
 ## P1 — Offline perception
 
-### P1.1 Segmentation interface (annotation backend 구현)
+### P1.1 Segmentation interface (R1 범위 완료)
 
 - image 입력을 mask, confidence, inference metadata로 바꾸는 backend 경계
 - 실제 model이 없어도 prerecorded mask backend로 전체 pipeline 시험
@@ -57,11 +59,13 @@ planning 전에 거부된다.
 
 완료 조건: backend를 바꿔도 동일한 TowelObservation 계약을 출력한다.
 
-현재 reviewed polygon annotation을 homography로 투영하는 offline backend와
-낮은 topology confidence의 `ALIGNED` 승격 차단은 구현됐다. mask inference와
-component/frame-border 검사는 남아 있다.
+사람 검수 polygon backend와 fixed-camera blue-towel image backend가 같은
+`TowelObservation` 계약을 사용한다. 독립 validation에서 towel 존재 30/30,
+empty 거절 5/5, mask IoU 평균/최저 `0.980284/0.965564`를 확인했고 component와
+frame-border 검사를 fail-closed로 연결했다. 색상·조명·수건이 바뀌는 일반화는
+이 결과의 승인 범위가 아니다.
 
-### P1.2 Contour와 corner 후보
+### P1.2 Contour와 corner 후보 (R1 범위 완료)
 
 - mask contour 단순화와 convexity/concavity feature
 - 네 corner 후보, visibility와 graspability 분리
@@ -69,7 +73,7 @@ component/frame-border 검사는 남아 있다.
 
 완료 조건: 회전·반사·점 순서·작은 contour noise에 metric이 불변이다.
 
-### P1.3 Flatness와 topology confidence
+### P1.3 Flatness와 topology confidence (R1 범위 완료)
 
 - visible area, edge/diagonal, concavity, optional height feature 결합
 - depth가 없으면 height_available=false와 낮은 topology confidence
@@ -77,13 +81,18 @@ component/frame-border 검사는 남아 있다.
 
 완료 조건: confidence가 낮은 입력이 절대 ALIGNED로 승격되지 않는다.
 
-### P1.4 Temporal stabilizer
+### P1.4 Temporal stabilizer (완료)
 
 - 현재 3-frame 동일 상태 gate를 timestamp, spread와 hysteresis까지 확장
 - calibration/model identity가 다른 frame 혼합 금지
 - frame replay에서 결정론적 상태 전이 보장
 
 완료 조건: flicker, stale frame, out-of-order timestamp 회귀 시험 통과.
+
+실제 empty, flat, heavy-wrinkle, first-fold, second-fold 배치에서 3프레임씩
+15장을 검증했다. freshness, settle, clear pose와 calibration/model/URDF identity를
+고정하며 heavy wrinkle은 `AMBIGUOUS`로 유지한다. fold 완료 상태는 RGB만으로
+추측하지 않고 검증된 action context와 metric outline을 함께 요구한다.
 
 ## P1 — Planning과 상태기계
 
@@ -140,14 +149,15 @@ reachability/collision 미검증을 명시한다.
 - 모든 후보 거부, 한 축만 가능, 팔 배정 swap scenario
 
 reachable/collision fixture 주입과 전 후보 거부 회귀시험은 유지한다. 실제
-MoveIt task-pose planner는 R0-G에서 별도 연결해 비대칭 후보 하나와 correction
-probe를 통과했으며, 이 절의 fake backend는 hardware-free 정책 회귀용이다.
+MoveIt task-pose planner는 R0-G에서 별도 연결한다. 현재 canonical 후보의
+full-FK IK는 통과했고 strict collision은 등록 artifact 복원 뒤 재실행한다.
+이 절의 fake backend는 hardware-free 정책 회귀용이다.
 
 ### P2.3 Isaac Lab cloth와 학습 환경
 
 - 300×300 mm rigid proxy는 FOV, 5-DOF task-constrained 접근과 collision만
   검증하고 fold 성공 근거로 사용하지 않음
-- 1차 단팔 coarse fold·bounded correction과 2차 양팔 fold를 서로 다른
+- 1차 양팔 fold·bounded correction과 2차 단팔 midpoint fold를 서로 다른
   primitive로 모델링
 - 304×296 mm 삼각 surface deformable과 명시적 vertex-patch attachment를 후속
   layer로 분리
@@ -181,10 +191,11 @@ probe를 통과했으며, 이 절의 fake backend는 hardware-free 정책 회귀
 - 양팔 속도 차이
 - controlled shake 진폭·주파수·횟수
 - 수건-작업대 마찰
-- 실제 mask/topology perception acceptance threshold
+- 다른 수건·조명·카메라로 일반화할 때의 mask/topology acceptance threshold
 
 한 변 `304/296/304/296 mm`, 1/2/4겹 근사 두께 `3/7/13 mm`, 면 100%·건조·
 미세탁 조건, Top/right camera 오차와 좌우 1/4겹 정적 retention은 R0에서 이미
-고정했다. 위 동적 값은 이를 처음 소비하는 R2/R3 gate까지 candidate contract의
-null을 유지하며, 그 전 artifact는 `motion_authorized=false`,
+고정했다. fixed blue towel/Top camera의 R1 threshold는 contract에 고정했으며,
+위 동적·일반화 값은 이를 처음 소비하는 R2/R3 gate까지 candidate contract의
+null 또는 미승인 상태를 유지한다. 그 전 artifact는 `motion_authorized=false`,
 `motion_commands=0`이어야 한다.

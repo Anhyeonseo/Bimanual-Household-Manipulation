@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260827_top_validation_01-first_fold_0004",
+  "split": "validation",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      150.0,
+      234.0
+    ],
+    [
+      132.0,
+      391.0
+    ],
+    [
+      96.0,
+      530.0
+    ],
+    [
+      100.0,
+      561.0
+    ],
+    [
+      127.0,
+      565.0
+    ],
+    [
+      140.0,
+      579.0
+    ],
+    [
+      431.0,
+      571.0
+    ],
+    [
+      909.0,
+      597.0
+    ],
+    [
+      963.2142857142858,
+      587.7380952380953
+    ],
+    [
+      958.4523809523812,
+      569.8809523809524
+    ],
+    [
+      958.4523809523812,
+      555.5952380952381
+    ],
+    [
+      953.6904761904764,
+      532.9761904761905
+    ],
+    [
+      971.0,
+      528.0
+    ],
+    [
+      989.0,
+      516.0
+    ],
+    [
+      945.0,
+      230.0
+    ],
+    [
+      911.0,
+      222.0
+    ],
+    [
+      408.0,
+      220.0
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "05_first_fold/first_fold_0004.jpg",
+    "sha256": "b24bc8e00c0d13a17e4bdb30f82b5df49cbd2907890f88d7b469c50916f21f09",
+    "capture_id": "20260827_top_validation_01-first_fold-0004"
+  }
+}

@@ -13,6 +13,7 @@ from tools.lib.towel_geometry import TowelGeometryError, polygon_area
 
 VALID_SPLITS = {"train", "validation", "test"}
 VALID_STATES = {
+    "EMPTY",
     "CRUMPLED",
     "PARTIALLY_OPEN",
     "TWO_CORNERS_VISIBLE",
@@ -50,7 +51,14 @@ def _digest(value: Any, label: str) -> str:
     return digest
 
 
-def _point(value: Any, width: int, height: int, label: str) -> tuple[float, float]:
+def _point(
+    value: Any,
+    width: int,
+    height: int,
+    label: str,
+    *,
+    allow_image_edge: bool = False,
+) -> tuple[float, float]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != 2:
         raise TowelDatasetError(f"{label} must contain x and y")
     if any(
@@ -61,7 +69,9 @@ def _point(value: Any, width: int, height: int, label: str) -> tuple[float, floa
     point = float(value[0]), float(value[1])
     if not all(math.isfinite(coordinate) for coordinate in point):
         raise TowelDatasetError(f"{label} coordinates must be finite")
-    if not 0.0 <= point[0] < width or not 0.0 <= point[1] < height:
+    maximum_x_ok = point[0] <= width if allow_image_edge else point[0] < width
+    maximum_y_ok = point[1] <= height if allow_image_edge else point[1] < height
+    if not 0.0 <= point[0] or not maximum_x_ok or not 0.0 <= point[1] or not maximum_y_ok:
         raise TowelDatasetError(f"{label} is outside the image")
     return point
 
@@ -99,21 +109,38 @@ def validate_annotation(
     ):
         raise TowelDatasetError("image dimensions must be positive integers")
     polygon = document.get("segmentation_polygon_px")
-    if not isinstance(polygon, list) or len(polygon) < 3:
+    if not isinstance(polygon, list):
+        raise TowelDatasetError("segmentation_polygon_px must be a list")
+    if state == "EMPTY" and polygon:
         raise TowelDatasetError(
-            "segmentation_polygon_px requires at least three points"
+            "EMPTY annotations require an empty segmentation polygon"
+        )
+    if state != "EMPTY" and len(polygon) < 3:
+        raise TowelDatasetError(
+            "non-empty segmentation_polygon_px requires at least three points"
         )
     normalized_polygon = [
-        _point(value, width, height, f"segmentation_polygon_px[{index}]")
+        _point(
+            value,
+            width,
+            height,
+            f"segmentation_polygon_px[{index}]",
+            allow_image_edge=True,
+        )
         for index, value in enumerate(polygon)
     ]
     if len(set(normalized_polygon)) != len(normalized_polygon):
         raise TowelDatasetError("segmentation polygon points must be unique")
-    try:
-        if polygon_area(normalized_polygon) <= 1.0e-12:
-            raise TowelDatasetError("segmentation polygon area must be positive")
-    except TowelGeometryError as exc:
-        raise TowelDatasetError(f"invalid segmentation polygon: {exc}") from exc
+    if normalized_polygon:
+        try:
+            if polygon_area(normalized_polygon) <= 1.0e-12:
+                raise TowelDatasetError(
+                    "segmentation polygon area must be positive"
+                )
+        except TowelGeometryError as exc:
+            raise TowelDatasetError(
+                f"invalid segmentation polygon: {exc}"
+            ) from exc
     corners = document.get("corners")
     if not isinstance(corners, list) or len(corners) > 4:
         raise TowelDatasetError("corners must contain at most four entries")
@@ -186,6 +213,10 @@ def validate_annotation(
         raise TowelDatasetError("FOLD_1_COMPLETE requires one fold line")
     if state == "FOLD_2_COMPLETE" and len(fold_lines) != 2:
         raise TowelDatasetError("FOLD_2_COMPLETE requires two fold lines")
+    if state == "EMPTY" and (corners or fold_lines):
+        raise TowelDatasetError(
+            "EMPTY annotations cannot contain corners or fold lines"
+        )
     if state == "AMBIGUOUS" and not document.get("ambiguous_reason"):
         raise TowelDatasetError(
             "AMBIGUOUS annotations require ambiguous_reason"
@@ -211,6 +242,13 @@ def validate_annotation(
             "source.image_path must be a safe relative path"
         )
     source_digest = _digest(source.get("sha256"), "source.sha256")
+    capture_id = source.get("capture_id")
+    if capture_id is not None and (
+        not isinstance(capture_id, str) or not capture_id.strip()
+    ):
+        raise TowelDatasetError(
+            "source.capture_id must be a nonempty string or null"
+        )
     if dataset_root is not None:
         resolved_root = dataset_root.resolve()
         resolved_source = (resolved_root / image_path).resolve()
@@ -228,6 +266,7 @@ def validate_annotation(
         "state_label": state,
         "source_sha256": source_digest,
         "source_path": image_path.as_posix(),
+        "capture_id": capture_id,
         "polygon_point_count": len(normalized_polygon),
         "corner_count": len(normalized_corners),
     }
@@ -254,6 +293,21 @@ def build_dataset_manifest(
     if leaked:
         raise TowelDatasetError(
             f"source SHA appears in multiple splits: {leaked[0]}"
+        )
+    capture_splits: dict[str, set[str]] = {}
+    for item in normalized:
+        capture_id = item["capture_id"]
+        if capture_id is not None:
+            capture_splits.setdefault(capture_id, set()).add(item["split"])
+    leaked_captures = sorted(
+        capture_id
+        for capture_id, splits in capture_splits.items()
+        if len(splits) > 1
+    )
+    if leaked_captures:
+        raise TowelDatasetError(
+            "capture_id appears in multiple splits: "
+            f"{leaked_captures[0]}"
         )
     items = sorted(normalized, key=lambda item: item["observation_id"])
     split_counts = Counter(item["split"] for item in items)

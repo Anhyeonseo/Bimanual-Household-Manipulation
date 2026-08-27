@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260827_top_validation_01-curled_or_overlapped_0002",
+  "split": "validation",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      172.0,
+      256.0
+    ],
+    [
+      160.0,
+      281.0
+    ],
+    [
+      210.0,
+      495.0
+    ],
+    [
+      278.0,
+      703.0
+    ],
+    [
+      377.50000000000006,
+      959.0
+    ],
+    [
+      473.9285714285715,
+      959.0
+    ],
+    [
+      635.0,
+      873.0
+    ],
+    [
+      661.0,
+      831.0
+    ],
+    [
+      671.0,
+      789.0
+    ],
+    [
+      687.0,
+      544.0
+    ],
+    [
+      737.0,
+      515.0
+    ],
+    [
+      791.0,
+      440.0
+    ],
+    [
+      843.0,
+      403.0
+    ],
+    [
+      885.0,
+      283.0
+    ],
+    [
+      879.0,
+      252.0
+    ],
+    [
+      839.0,
+      232.0
+    ],
+    [
+      741.0,
+      210.0
+    ],
+    [
+      535.0,
+      180.0
+    ],
+    [
+      434.0,
+      178.0
+    ],
+    [
+      330.0,
+      196.0
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "04_curled_or_overlapped/curled_or_overlapped_0002.jpg",
+    "sha256": "d1b7e7dd3cc1afc47b7d07db8cddf5e3c8cf90329a769dadda3f03a701fcb40a",
+    "capture_id": "20260827_top_validation_01-heavy_wrinkle-0002"
+  }
+}

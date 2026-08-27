@@ -1,0 +1,366 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_segmentation_pilot_review",
+  "source_session": "20260826_top_01",
+  "source_pilot_manifest_sha256": "10834924cbf43c49af8ffa53d86694f0084a9df46cf8a647fb5ea1b8d073534d",
+  "review_confirmation": "TOWEL_LABELME_REVIEW_COMPLETE",
+  "reviewed_count": 70,
+  "accepted_annotation_count": 68,
+  "rejected_count": 2,
+  "segmentation_labels_authorized": true,
+  "state_labels_authorized": false,
+  "robot_occluded_training_labels_authorized": false,
+  "dataset_items_sha256": "8e365b2e1b2bf385f1aaa7e1dc34dfa6f60f3c5778f81624f9092335a44ba832",
+  "records": [
+    {
+      "image": "00_empty_table/empty_0002.jpg",
+      "annotation": "annotations/00_empty_table/empty_0002.json",
+      "source_sha256": "e27b39af8da1f641515c6f021c76f7d4bd08e5ba66a1462072c6d0887cab8d15"
+    },
+    {
+      "image": "00_empty_table/empty_0003.jpg",
+      "annotation": "annotations/00_empty_table/empty_0003.json",
+      "source_sha256": "284811274911023fdb2f2731fe5055b8195996e25ea6cec837520827b1a63eae"
+    },
+    {
+      "image": "00_empty_table/empty_0004.jpg",
+      "annotation": "annotations/00_empty_table/empty_0004.json",
+      "source_sha256": "1ddf5d1a228d583aaacdd3cc7c5aefcc62c74a54bc59792b0fa2085b482938f0"
+    },
+    {
+      "image": "00_empty_table/empty_0006.jpg",
+      "annotation": "annotations/00_empty_table/empty_0006.json",
+      "source_sha256": "5e2bc07c251dda8f7a9f3a206866e816776b7d63ba180d75535683b97746e8b0"
+    },
+    {
+      "image": "00_empty_table/empty_0007.jpg",
+      "annotation": "annotations/00_empty_table/empty_0007.json",
+      "source_sha256": "e4d7774acd7c74020a711559eb512eb9940d5aee5e28896ea03283c054d1aecc"
+    },
+    {
+      "image": "00_empty_table/empty_0010.jpg",
+      "annotation": "annotations/00_empty_table/empty_0010.json",
+      "source_sha256": "7f203dfc6c513780c6001e7164149a663b93669cf73efa7ea9ad02c023cb937e"
+    },
+    {
+      "image": "00_empty_table/empty_0011.jpg",
+      "annotation": "annotations/00_empty_table/empty_0011.json",
+      "source_sha256": "791dc0f94e163f26ba975d9e304cae7088866d4972941226b639c5daa431d362"
+    },
+    {
+      "image": "00_empty_table/empty_0013.jpg",
+      "annotation": "annotations/00_empty_table/empty_0013.json",
+      "source_sha256": "2c51d3a67e164e8ea87a7c694545e573bffde58d4112af8aab2a11ad5fea7a52"
+    },
+    {
+      "image": "01_flat/flat_0002.jpg",
+      "annotation": "annotations/01_flat/flat_0002.json",
+      "source_sha256": "32fb734d7134c385313b8187a4a8c55f1d327a912c51fa826fe933060e02d451"
+    },
+    {
+      "image": "01_flat/flat_0012.jpg",
+      "annotation": "annotations/01_flat/flat_0012.json",
+      "source_sha256": "bac2f5333bcc51fb2d0541fc7fc6dd919a59dde7e0ed5cea3796cecb43f38ced"
+    },
+    {
+      "image": "01_flat/flat_0023.jpg",
+      "annotation": "annotations/01_flat/flat_0023.json",
+      "source_sha256": "8d4dd019ef96e67356388b6371bbedf877d1d1f516d475d9ca7353edb8fffce2"
+    },
+    {
+      "image": "01_flat/flat_0034.jpg",
+      "annotation": "annotations/01_flat/flat_0034.json",
+      "source_sha256": "1f5c550e3dae5afa1617fc1e38b393df78cb4545040641d685470006967e79dd"
+    },
+    {
+      "image": "01_flat/flat_0045.jpg",
+      "annotation": "annotations/01_flat/flat_0045.json",
+      "source_sha256": "1bea6abe39d37db710be6168dfa8bcb3e0c535171c200cd42c2df956c8a7f977"
+    },
+    {
+      "image": "01_flat/flat_0056.jpg",
+      "annotation": "annotations/01_flat/flat_0056.json",
+      "source_sha256": "20d1856f7fbfe4ef5be32ee42fd1a5637a8b489e41770714384b0ed4b6f44305"
+    },
+    {
+      "image": "01_flat/flat_0067.jpg",
+      "annotation": "annotations/01_flat/flat_0067.json",
+      "source_sha256": "d67b0b5e00add328a3d3c16e9a51926c54fa9eb0d5c8994baf7e9a30daf79387"
+    },
+    {
+      "image": "01_flat/flat_0078.jpg",
+      "annotation": "annotations/01_flat/flat_0078.json",
+      "source_sha256": "926c4ecce5c9cd7042aaf4cf492ec8234ffa3c0414e212ba57f2e8b766961411"
+    },
+    {
+      "image": "01_flat/flat_0089.jpg",
+      "annotation": "annotations/01_flat/flat_0089.json",
+      "source_sha256": "395ccd47cae211d789b55d783bf624a890c37cd8c8dc1a0921f06187341fee61"
+    },
+    {
+      "image": "01_flat/flat_0099.jpg",
+      "annotation": "annotations/01_flat/flat_0099.json",
+      "source_sha256": "9ce547bce21d7cffc54aa7e27122f661fec35a854626aa572f5023205eddc75a"
+    },
+    {
+      "image": "02_light_wrinkle/light_wrinkle_0002.jpg",
+      "annotation": "annotations/02_light_wrinkle/light_wrinkle_0002.json",
+      "source_sha256": "7ebff6d8be8e2cbe3cb19de5247eea70e459a2cd68485297843fa21144e887a3"
+    },
+    {
+      "image": "02_light_wrinkle/light_wrinkle_0015.jpg",
+      "annotation": "annotations/02_light_wrinkle/light_wrinkle_0015.json",
+      "source_sha256": "1c70a40560f8ca50775a0dfd282a2b2615bd9bffcba2db01cd964cb93d4aa6ab"
+    },
+    {
+      "image": "02_light_wrinkle/light_wrinkle_0027.jpg",
+      "annotation": "annotations/02_light_wrinkle/light_wrinkle_0027.json",
+      "source_sha256": "75c1cc5f4a55380af64795fbc764603549d32dd6747212edbeef32c22001a27b"
+    },
+    {
+      "image": "02_light_wrinkle/light_wrinkle_0041.jpg",
+      "annotation": "annotations/02_light_wrinkle/light_wrinkle_0041.json",
+      "source_sha256": "a72224475ddf599c40d3ad6b231f708811488a63e8d758655b4b079b0a8d7653"
+    },
+    {
+      "image": "02_light_wrinkle/light_wrinkle_0054.jpg",
+      "annotation": "annotations/02_light_wrinkle/light_wrinkle_0054.json",
+      "source_sha256": "f1ca0b91bb786701b3fb83606581dbe48fdc5d6c961311741b17fa7710726594"
+    },
+    {
+      "image": "02_light_wrinkle/light_wrinkle_0067.jpg",
+      "annotation": "annotations/02_light_wrinkle/light_wrinkle_0067.json",
+      "source_sha256": "544d1ed9c99787b67fb389097a7ac57f81313bd3bd309137aa28b8658624dbb6"
+    },
+    {
+      "image": "02_light_wrinkle/light_wrinkle_0080.jpg",
+      "annotation": "annotations/02_light_wrinkle/light_wrinkle_0080.json",
+      "source_sha256": "fed83e7608c4099ee92720a3ebd3aec35b72cccee2ddbf54fd102e341f93777b"
+    },
+    {
+      "image": "02_light_wrinkle/light_wrinkle_0094.jpg",
+      "annotation": "annotations/02_light_wrinkle/light_wrinkle_0094.json",
+      "source_sha256": "82f7858a776655386a7bd2faad8458bcd453d02e961dcce73b10737b819e8253"
+    },
+    {
+      "image": "02_light_wrinkle/light_wrinkle_0106.jpg",
+      "annotation": "annotations/02_light_wrinkle/light_wrinkle_0106.json",
+      "source_sha256": "e646f87e2809a5b680e74d6af8691829b791a0a6032f40d226af39418cd44e65"
+    },
+    {
+      "image": "02_light_wrinkle/light_wrinkle_0119.jpg",
+      "annotation": "annotations/02_light_wrinkle/light_wrinkle_0119.json",
+      "source_sha256": "fe4875f32d506e856adead3c6ab2ba20f3ddfd6d80b06f6304aca3e601856235"
+    },
+    {
+      "image": "03_heavy_wrinkle/heavy_wrinkle_0002.jpg",
+      "annotation": "annotations/03_heavy_wrinkle/heavy_wrinkle_0002.json",
+      "source_sha256": "8d71b94aad44d3a682788926654fe1fad5c1fe4fd27e322b489135d1468c5cde"
+    },
+    {
+      "image": "03_heavy_wrinkle/heavy_wrinkle_0013.jpg",
+      "annotation": "annotations/03_heavy_wrinkle/heavy_wrinkle_0013.json",
+      "source_sha256": "3045d89fa806923867dff69bfecb347690978f0b8ec1a7478285ef24b9f4a120"
+    },
+    {
+      "image": "03_heavy_wrinkle/heavy_wrinkle_0024.jpg",
+      "annotation": "annotations/03_heavy_wrinkle/heavy_wrinkle_0024.json",
+      "source_sha256": "29376d9457cfe75e869759d022d3cf72cfaa118703b7ca0992acf76d2e2e5b29"
+    },
+    {
+      "image": "03_heavy_wrinkle/heavy_wrinkle_0037.jpg",
+      "annotation": "annotations/03_heavy_wrinkle/heavy_wrinkle_0037.json",
+      "source_sha256": "83a7bb94e04949e58dab612cc99ddedc9ad0b243aba6f9dd13e8f95e94e91a0f"
+    },
+    {
+      "image": "03_heavy_wrinkle/heavy_wrinkle_0048.jpg",
+      "annotation": "annotations/03_heavy_wrinkle/heavy_wrinkle_0048.json",
+      "source_sha256": "868be79064027ec66b5c6a0ad6bb2e2ff27ec406636d12d13050d82518560bbb"
+    },
+    {
+      "image": "03_heavy_wrinkle/heavy_wrinkle_0060.jpg",
+      "annotation": "annotations/03_heavy_wrinkle/heavy_wrinkle_0060.json",
+      "source_sha256": "f7158115894cf5590e375c6b78898081e154882bb082581b8b2bfcf5fba2e95f"
+    },
+    {
+      "image": "03_heavy_wrinkle/heavy_wrinkle_0071.jpg",
+      "annotation": "annotations/03_heavy_wrinkle/heavy_wrinkle_0071.json",
+      "source_sha256": "a831a3e46eed13c6af1ac4a7a172e1079aa98b23ce6349773376cd8755b24368"
+    },
+    {
+      "image": "03_heavy_wrinkle/heavy_wrinkle_0084.jpg",
+      "annotation": "annotations/03_heavy_wrinkle/heavy_wrinkle_0084.json",
+      "source_sha256": "2122b3401fedd11c7d9c975b385a0f91a964bf92e93c65a6601e007bacdda235"
+    },
+    {
+      "image": "03_heavy_wrinkle/heavy_wrinkle_0095.jpg",
+      "annotation": "annotations/03_heavy_wrinkle/heavy_wrinkle_0095.json",
+      "source_sha256": "224220c15c41abcd201440e9645eee1255b73b8520555ea67b2febfca4f6b7da"
+    },
+    {
+      "image": "03_heavy_wrinkle/heavy_wrinkle_0106.jpg",
+      "annotation": "annotations/03_heavy_wrinkle/heavy_wrinkle_0106.json",
+      "source_sha256": "5fed133de689074339568e8dfd1e01ba0a7df65c0340da5cbe3c50a53cacf88a"
+    },
+    {
+      "image": "04_curled_or_overlapped/curled_or_overlapped_0002.jpg",
+      "annotation": "annotations/04_curled_or_overlapped/curled_or_overlapped_0002.json",
+      "source_sha256": "c9bdaef4f22a4c5ba8740a69a33d406f1dac0160ca2259919f1e74719252bc61"
+    },
+    {
+      "image": "04_curled_or_overlapped/curled_or_overlapped_0009.jpg",
+      "annotation": "annotations/04_curled_or_overlapped/curled_or_overlapped_0009.json",
+      "source_sha256": "73662df48b1e98c0d263872c4655f8e5a971a12bd4404d77db4c8a1b8da6987d"
+    },
+    {
+      "image": "04_curled_or_overlapped/curled_or_overlapped_0017.jpg",
+      "annotation": "annotations/04_curled_or_overlapped/curled_or_overlapped_0017.json",
+      "source_sha256": "f34a6befdcf7b78870b1a22f26a72b4d42c1effe2baca062df7518d0fa6d2603"
+    },
+    {
+      "image": "04_curled_or_overlapped/curled_or_overlapped_0025.jpg",
+      "annotation": "annotations/04_curled_or_overlapped/curled_or_overlapped_0025.json",
+      "source_sha256": "7402f6220b5ffe2be41e4ad6c3751fd679c2c254c310895d6234f310404a4c39"
+    },
+    {
+      "image": "04_curled_or_overlapped/curled_or_overlapped_0033.jpg",
+      "annotation": "annotations/04_curled_or_overlapped/curled_or_overlapped_0033.json",
+      "source_sha256": "1190306b260c1483b67515beed34334e5429200a34deee4e542863db12de6f28"
+    },
+    {
+      "image": "04_curled_or_overlapped/curled_or_overlapped_0041.jpg",
+      "annotation": "annotations/04_curled_or_overlapped/curled_or_overlapped_0041.json",
+      "source_sha256": "20bc498c3e40b1cbd74f5e3caf31dbcf0f170295291d1ad86900a25e86d13b50"
+    },
+    {
+      "image": "04_curled_or_overlapped/curled_or_overlapped_0049.jpg",
+      "annotation": "annotations/04_curled_or_overlapped/curled_or_overlapped_0049.json",
+      "source_sha256": "67d0228b928074bb02b292ccb10d4732d19df414d6d648d719b783a2bd6ca86d"
+    },
+    {
+      "image": "04_curled_or_overlapped/curled_or_overlapped_0057.jpg",
+      "annotation": "annotations/04_curled_or_overlapped/curled_or_overlapped_0057.json",
+      "source_sha256": "160409172e801ac4e28524891c659d0678247d361b36e4a168cb071ba0b30b23"
+    },
+    {
+      "image": "04_curled_or_overlapped/curled_or_overlapped_0065.jpg",
+      "annotation": "annotations/04_curled_or_overlapped/curled_or_overlapped_0065.json",
+      "source_sha256": "6de7df037469f5170e73c88da9eaee670c3edf6de841574a1cda1892ebb7076f"
+    },
+    {
+      "image": "04_curled_or_overlapped/curled_or_overlapped_0072.jpg",
+      "annotation": "annotations/04_curled_or_overlapped/curled_or_overlapped_0072.json",
+      "source_sha256": "253fb43caf0adfc3a794b01c09b31fa76aa752c2a012c432cdc3fe64b507f70d"
+    },
+    {
+      "image": "05_first_fold/first_fold_0002.jpg",
+      "annotation": "annotations/05_first_fold/first_fold_0002.json",
+      "source_sha256": "f9768ec99a736750af5c4a7471425c00058d7e0fab71f8492f3f1463ef0d36d3"
+    },
+    {
+      "image": "05_first_fold/first_fold_0010.jpg",
+      "annotation": "annotations/05_first_fold/first_fold_0010.json",
+      "source_sha256": "867eb57a1fd416be17af7fae5531466d40b221259dfe1c542b4b987f79c96978"
+    },
+    {
+      "image": "05_first_fold/first_fold_0019.jpg",
+      "annotation": "annotations/05_first_fold/first_fold_0019.json",
+      "source_sha256": "257fa9987b9cfbaa3e363b21798758fe4abc49430fe1161125c6ddd5610ced0c"
+    },
+    {
+      "image": "05_first_fold/first_fold_0028.jpg",
+      "annotation": "annotations/05_first_fold/first_fold_0028.json",
+      "source_sha256": "fbec0982f1e397c1768739a3e330e496b54c3b995e274a2303b6adf4135bfefb"
+    },
+    {
+      "image": "05_first_fold/first_fold_0036.jpg",
+      "annotation": "annotations/05_first_fold/first_fold_0036.json",
+      "source_sha256": "713b13153ff9fbae8b63ccca4173e5cd0338555160f51926f4b72832bf7eeda7"
+    },
+    {
+      "image": "05_first_fold/first_fold_0046.jpg",
+      "annotation": "annotations/05_first_fold/first_fold_0046.json",
+      "source_sha256": "a39905d90037fa63051a13d99d408b21bca65a886a4983ac31db564b9eb4d1a8"
+    },
+    {
+      "image": "05_first_fold/first_fold_0054.jpg",
+      "annotation": "annotations/05_first_fold/first_fold_0054.json",
+      "source_sha256": "b02e34b16f939414fd7b6c90be5f83ae0b76c86ef64ccf715797a9a1ac9d28cd"
+    },
+    {
+      "image": "05_first_fold/first_fold_0063.jpg",
+      "annotation": "annotations/05_first_fold/first_fold_0063.json",
+      "source_sha256": "39c8188c7526909ad254a99e92c0ab49f895b887bc7a2ee0b25676bef76d7e06"
+    },
+    {
+      "image": "05_first_fold/first_fold_0072.jpg",
+      "annotation": "annotations/05_first_fold/first_fold_0072.json",
+      "source_sha256": "56459c7688a00e99fe9e6649076326cb6cca327727bb7c22c38d2a46353d8e66"
+    },
+    {
+      "image": "05_first_fold/first_fold_0080.jpg",
+      "annotation": "annotations/05_first_fold/first_fold_0080.json",
+      "source_sha256": "d35d85dc89b862691909c725e7fce84390225d1c127ec58c3c788976c0b53c2c"
+    },
+    {
+      "image": "06_second_fold/second_fold_0002.jpg",
+      "annotation": "annotations/06_second_fold/second_fold_0002.json",
+      "source_sha256": "a999a042b71024dcd90f163c96a430901c227aad580c4f9fbc1032b787c1c5c4"
+    },
+    {
+      "image": "06_second_fold/second_fold_0007.jpg",
+      "annotation": "annotations/06_second_fold/second_fold_0007.json",
+      "source_sha256": "a7645f4e9337ea7821fd175855f2f9562e667ef1e39971300f33122c3a750676"
+    },
+    {
+      "image": "06_second_fold/second_fold_0012.jpg",
+      "annotation": "annotations/06_second_fold/second_fold_0012.json",
+      "source_sha256": "e26d70e2d3eee3472ab284f2bc3954c0f65c5507e27c9546632e3b1a95724f09"
+    },
+    {
+      "image": "06_second_fold/second_fold_0018.jpg",
+      "annotation": "annotations/06_second_fold/second_fold_0018.json",
+      "source_sha256": "9d9a8bdaf455cc80ff2e58bce81b66d3709a4d794a02ba6831ae25a25a08b6fe"
+    },
+    {
+      "image": "06_second_fold/second_fold_0023.jpg",
+      "annotation": "annotations/06_second_fold/second_fold_0023.json",
+      "source_sha256": "534252449726ce5f7956452890f455dd75500b0e62537a6ae672c3eed1b0b01f"
+    },
+    {
+      "image": "06_second_fold/second_fold_0028.jpg",
+      "annotation": "annotations/06_second_fold/second_fold_0028.json",
+      "source_sha256": "9d49cdfe98d7ee41ff0cf4df20d78c83e2b0316124bf1ce7d8b590051af062fc"
+    },
+    {
+      "image": "06_second_fold/second_fold_0033.jpg",
+      "annotation": "annotations/06_second_fold/second_fold_0033.json",
+      "source_sha256": "df4e4e74e51eadae1e7da10318761aef0cef53d762bba42a9480214982ca8e60"
+    },
+    {
+      "image": "06_second_fold/second_fold_0039.jpg",
+      "annotation": "annotations/06_second_fold/second_fold_0039.json",
+      "source_sha256": "c4d9697a28ab23fc577c562f6421ef63443c22b4a759ca0fa8a47cb477969d4a"
+    },
+    {
+      "image": "06_second_fold/second_fold_0044.jpg",
+      "annotation": "annotations/06_second_fold/second_fold_0044.json",
+      "source_sha256": "dcd0c30c9f9540ad7d6c132af81422c1f4f342f3cdc3a4690c6920764a30ad4b"
+    },
+    {
+      "image": "06_second_fold/second_fold_0049.jpg",
+      "annotation": "annotations/06_second_fold/second_fold_0049.json",
+      "source_sha256": "6094112a484ebcad051cf9f829af522bf539057c125ba5f31278b770a9e0109a"
+    }
+  ],
+  "rejected_records": [
+    {
+      "image": "00_empty_table/empty_0014.jpg",
+      "reason": "human_review_rejected"
+    },
+    {
+      "image": "00_empty_table/empty_0015.jpg",
+      "reason": "human_review_rejected"
+    }
+  ]
+}

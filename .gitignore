@@ -51,8 +51,27 @@ Thumbs.db
 *.db3
 *.mcap
 *.onnx
-datasets/
+# Keep only the reviewed R1 Top-camera datasets in Git. Future captures stay
+# local until they receive the same split, manifest, and review audit.
+datasets/*
+!datasets/towel_yolo_source/
+datasets/towel_yolo_source/*
+!datasets/towel_yolo_source/20260826_top_01/
+!datasets/towel_yolo_source/20260826_top_01/**
+!datasets/towel_yolo_source/20260827_top_validation_01/
+!datasets/towel_yolo_source/20260827_top_validation_01/**
+!datasets/towel_yolo_source/20260827_top_lifecycle_validation_01/
+!datasets/towel_yolo_source/20260827_top_lifecycle_validation_01/**
+!datasets/towel_yolo_annotations/
+datasets/towel_yolo_annotations/*
+!datasets/towel_yolo_annotations/20260827_pilot_reviewed/
+!datasets/towel_yolo_annotations/20260827_pilot_reviewed/**
+!datasets/towel_yolo_annotations/20260827_review_batch2/
+!datasets/towel_yolo_annotations/20260827_review_batch2/**
+!datasets/towel_yolo_annotations/20260827_validation_reviewed/
+!datasets/towel_yolo_annotations/20260827_validation_reviewed/**
 artifacts/
 tmp/
 output/
+.verification/
 benchmark/results/raw/
