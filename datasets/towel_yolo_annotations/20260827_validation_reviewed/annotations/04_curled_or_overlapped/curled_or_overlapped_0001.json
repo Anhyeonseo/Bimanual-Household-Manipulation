@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260827_top_validation_01-curled_or_overlapped_0001",
+  "split": "validation",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      857.2619047619048,
+      190.11904761904762
+    ],
+    [
+      609.0,
+      104.0
+    ],
+    [
+      574.0,
+      106.0
+    ],
+    [
+      549.0,
+      128.0
+    ],
+    [
+      472.0,
+      152.0
+    ],
+    [
+      176.0,
+      294.0
+    ],
+    [
+      176.0,
+      315.0
+    ],
+    [
+      192.0,
+      337.0
+    ],
+    [
+      220.0,
+      357.0
+    ],
+    [
+      256.0,
+      364.0
+    ],
+    [
+      256.0,
+      399.0
+    ],
+    [
+      212.0,
+      426.0
+    ],
+    [
+      172.0,
+      469.0
+    ],
+    [
+      202.0,
+      517.0
+    ],
+    [
+      222.0,
+      520.0
+    ],
+    [
+      238.0,
+      591.0
+    ],
+    [
+      280.0,
+      655.0
+    ],
+    [
+      340.0,
+      711.0
+    ],
+    [
+      395.0,
+      691.0
+    ],
+    [
+      470.0,
+      629.0
+    ],
+    [
+      499.0,
+      629.0
+    ],
+    [
+      568.0,
+      661.0
+    ],
+    [
+      599.0,
+      661.0
+    ],
+    [
+      683.0,
+      452.0
+    ],
+    [
+      779.0,
+      341.0
+    ],
+    [
+      841.0,
+      224.0
+    ],
+    [
+      848.9285714285716,
+      211.54761904761904
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "04_curled_or_overlapped/curled_or_overlapped_0001.jpg",
+    "sha256": "f151111f53f34ff7358113fc827f511bbb0ffc52bc973034825ae7b78ab3daf4",
+    "capture_id": "20260827_top_validation_01-heavy_wrinkle-0001"
+  }
+}

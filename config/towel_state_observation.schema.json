@@ -21,6 +21,15 @@
     "fold_count": {"type": "integer", "minimum": 0, "maximum": 2},
     "outline_iou": {"oneOf": [{"$ref": "#/$defs/unit"}, {"type": "null"}]},
     "stale": {"type": "boolean"},
+    "capture_stamp_ns": {"type": "integer", "minimum": 0},
+    "lifecycle_phase": {
+      "enum": ["OBSERVE_CLEAR", "REOBSERVE_CLEAR"]
+    },
+    "model_sha256": {"$ref": "#/$defs/sha256"},
+    "robot_model_sha256": {"$ref": "#/$defs/sha256"},
+    "settled": {"type": "boolean"},
+    "clear_pose_verified": {"type": "boolean"},
+    "clear_view_valid": {"type": "boolean"},
     "corners": {
       "type": "array", "maxItems": 4,
       "items": {
@@ -54,6 +63,30 @@
     },
     "backend": {"type": "string", "minLength": 1},
     "height_available": {"type": "boolean"},
+    "visible_mask_area_m2": {"type": "number", "minimum": 0.0},
+    "mask_diagnostics": {"type": "object"},
+    "blue_evidence": {"type": "object"},
+    "shape_features": {"type": "object"},
+    "rejection_reason": {"type": ["string", "null"]},
+    "fold_postcondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected_fold_count", "normalized_metric_outline_iou",
+        "observed_long_side_m", "observed_short_side_m",
+        "target_long_side_m", "target_short_side_m",
+        "ignored_accessory_width_m"
+      ],
+      "properties": {
+        "expected_fold_count": {"enum": [1, 2]},
+        "normalized_metric_outline_iou": {"$ref": "#/$defs/unit"},
+        "observed_long_side_m": {"type": "number", "exclusiveMinimum": 0.0},
+        "observed_short_side_m": {"type": "number", "exclusiveMinimum": 0.0},
+        "target_long_side_m": {"type": "number", "exclusiveMinimum": 0.0},
+        "target_short_side_m": {"type": "number", "exclusiveMinimum": 0.0},
+        "ignored_accessory_width_m": {"type": "number", "minimum": 0.0}
+      }
+    },
     "fault": {"type": "boolean"},
     "workspace_exit": {"type": "boolean"}
   },

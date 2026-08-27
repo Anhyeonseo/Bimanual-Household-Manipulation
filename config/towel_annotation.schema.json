@@ -16,6 +16,7 @@
     "split": {"enum": ["train", "validation", "test"]},
     "state_label": {
       "enum": [
+        "EMPTY",
         "CRUMPLED", "PARTIALLY_OPEN", "TWO_CORNERS_VISIBLE",
         "FOUR_CORNERS_VISIBLE", "FLAT_BUT_ROTATED", "ALIGNED",
         "FOLD_1_COMPLETE", "FOLD_2_COMPLETE", "AMBIGUOUS"
@@ -24,7 +25,7 @@
     "image_width_px": {"type": "integer", "minimum": 1},
     "image_height_px": {"type": "integer", "minimum": 1},
     "segmentation_polygon_px": {
-      "type": "array", "minItems": 3, "uniqueItems": true,
+      "type": "array", "minItems": 0, "uniqueItems": true,
       "items": {"$ref": "#/$defs/point"}
     },
     "corners": {

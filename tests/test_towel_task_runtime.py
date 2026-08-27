@@ -63,7 +63,7 @@ def estimate(value):
 def test_candidate_contract_records_measured_towel_and_stays_motion_locked():
     document = contract()
     assert document["motion_authorized"] is False
-    assert document["status"] == "R0_STATIC_CONTACT_CANDIDATE"
+    assert document["status"] == "R1_OBSERVATION_CANDIDATE"
     assert document["towel"]["nominal_side_mm"] == pytest.approx(300.0)
     assert document["towel"]["measured_sides_mm"] == {
         "top": 304.0,

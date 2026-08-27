@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260827_top_validation_01-light_wrinkle_0005",
+  "split": "validation",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      820.3571428571429,
+      159.16666666666666
+    ],
+    [
+      571.0,
+      134.0
+    ],
+    [
+      118.0,
+      152.0
+    ],
+    [
+      80.0,
+      375.0
+    ],
+    [
+      16.785714285714334,
+      490.11904761904765
+    ],
+    [
+      48.0,
+      723.0
+    ],
+    [
+      79.0,
+      727.0
+    ],
+    [
+      453.0,
+      665.0
+    ],
+    [
+      476.0,
+      651.0
+    ],
+    [
+      719.0,
+      629.0
+    ],
+    [
+      893.0,
+      599.0
+    ],
+    [
+      899.0,
+      574.0
+    ],
+    [
+      863.0,
+      400.0
+    ],
+    [
+      839.0,
+      342.0
+    ],
+    [
+      809.0,
+      323.0
+    ],
+    [
+      821.0,
+      192.0
+    ],
+    [
+      820.3571428571429,
+      182.97619047619045
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "02_light_wrinkle/light_wrinkle_0005.jpg",
+    "sha256": "1dc4417c68eff97bab25f1a6485ac4debd410c5caf510cdeeb4efd360cc4cc49",
+    "capture_id": "20260827_top_validation_01-light_wrinkle-0005"
+  }
+}

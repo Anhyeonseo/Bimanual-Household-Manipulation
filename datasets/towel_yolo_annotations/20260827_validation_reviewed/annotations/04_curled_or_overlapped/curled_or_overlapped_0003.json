@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260827_top_validation_01-curled_or_overlapped_0003",
+  "split": "validation",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      775.0,
+      110.0
+    ],
+    [
+      736.0,
+      100.0
+    ],
+    [
+      652.0,
+      118.0
+    ],
+    [
+      587.0,
+      154.0
+    ],
+    [
+      450.0,
+      180.0
+    ],
+    [
+      416.0,
+      202.0
+    ],
+    [
+      405.0,
+      228.0
+    ],
+    [
+      312.0,
+      220.0
+    ],
+    [
+      258.0,
+      252.0
+    ],
+    [
+      162.0,
+      372.0
+    ],
+    [
+      148.0,
+      408.0
+    ],
+    [
+      144.0,
+      449.0
+    ],
+    [
+      166.0,
+      540.0
+    ],
+    [
+      176.0,
+      649.0
+    ],
+    [
+      201.0,
+      649.0
+    ],
+    [
+      226.0,
+      623.0
+    ],
+    [
+      242.97619047619054,
+      617.5
+    ],
+    [
+      258.0,
+      609.0
+    ],
+    [
+      288.0,
+      591.0
+    ],
+    [
+      319.0,
+      591.0
+    ],
+    [
+      320.0,
+      603.0
+    ],
+    [
+      512.0,
+      789.0
+    ],
+    [
+      533.0,
+      791.0
+    ],
+    [
+      671.0,
+      669.0
+    ],
+    [
+      727.0,
+      597.0
+    ],
+    [
+      825.0,
+      397.0
+    ],
+    [
+      843.0,
+      303.0
+    ],
+    [
+      839.0,
+      246.0
+    ],
+    [
+      809.0,
+      162.0
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "04_curled_or_overlapped/curled_or_overlapped_0003.jpg",
+    "sha256": "b4924bdf12ea2f8afaec71f73857974f33c4f4dad3a774a32f7a5a9559b53dfd",
+    "capture_id": "20260827_top_validation_01-heavy_wrinkle-0003"
+  }
+}

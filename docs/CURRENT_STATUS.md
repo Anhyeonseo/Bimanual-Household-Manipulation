@@ -2,10 +2,9 @@
 
 기준일: 2026-08-27
 
-최신 별도 파일로 추적되는 자동검증 결과는
-[2026-08-20 수건 software foundation 검증](test-results/2026-08-20-towel-software-foundation.md)이다.
-이후 R0 실기 결과와 최종 plan-only gate는 이 문서에 통합했고 새 결과 문서는
-추가하지 않았다. 현재 회귀시험 결과는 repository test로 확인한다.
+R0 실기 결과, 최종 plan-only gate와 R1 관측 검증은 이 문서에 통합한다.
+현재 자동검증 결과는 repository test와 `VERIFICATION_MATRIX.md`로 확인하며,
+단계마다 별도 결과 문서를 추가하지 않는다.
 
 ## 프로젝트 상태
 
@@ -16,7 +15,9 @@ R0 물리·카메라·작업셀 기반과 canonical 접기 task-pose 후보를 �
 순서는 1차 양팔 아래→위, 2차 가까운 한 팔 오른쪽→왼쪽 edge-midpoint다. software와
 full-FK IK 검증은 통과했지만 strict MoveIt 최종 승격에는 로컬에 없는 등록 완료
 URDF·workcell shadow·right tabletop artifact가 필요하다. 실제 수건 motion은
-승인되지 않았고 `motion_authorized=false`다.
+승인되지 않았고 `motion_authorized=false`다. R1은 실제 Top 원본 595장,
+사람 검수 segmentation과 독립 held-out, 실제 3-frame observation burst까지
+motion-free로 검증해 완료했다.
 
 ## 재사용 가능한 기반
 
@@ -35,19 +36,19 @@ URDF·workcell shadow·right tabletop artifact가 필요하다. 실제 수건 mo
 |---|---|---|
 | 태스크 범위 | 실측 304/296/304/296 mm, 면 100%, dry/unwashed, 최종 nominal 150×150 mm | 질량은 동적 모델/primitive 전 측정 |
 | cloth contact | 좌우 1겹·4겹 current-pose hold 2회와 가벼운 pull PASS | 자동 open/close-to-contact, 동적 slip·장력 승격 |
-| annotation 계약 | schema, validator, deterministic split manifest | 실제 episode index 생성 |
-| 수건 데이터셋 | synthetic example만 있음 | 구김·평탄·1차/2차 fold 실제 데이터 |
-| segmentation | reviewed polygon→metric observation backend | 실제 mask, component, border 검사 |
-| corner/topology | 순수 기하와 confidence gate | 가림·말림·다층 ambiguity 검증 |
-| temporal state | 3-frame 동일 상태 gate | timestamp, spread, settle, hysteresis |
-| observation lifecycle | Top metric 영역·실기 clear 왕복과 무가림 재관측 PASS | camera phase와 runtime 상태기계 구현 |
+| annotation 계약 | schema, validator, deterministic split와 실제 capture/episode manifest | R2 sim/real action-outcome episode에 동일 identity 계약 적용 |
+| 수건 데이터셋 | 개발 595장/검수 103장 + held-out 38장 중 검수 35장·robot OOD 3장 + 실제 3-frame 5 episode/15장; split leakage 0 | R2 sim/real episode 계약 유지 |
+| segmentation | held-out towel 30/30·empty 5/5, mask IoU 평균 0.980284·최저 0.965564, border FN 0/FP 1; raw pixel K/D/P→table metric backend | exact blue towel/fixed camera 범위 유지, 무검수 pseudo-label 금지 |
+| corner/topology | outline quadrilateral·metric area·flatness, non-flat/fold `ALIGNED` 0건; 검증된 action context에서만 fold outline 판정 | 들림·다층 ambiguity는 wrist/RGB-D 근거 전까지 UNKNOWN |
+| temporal state | 실제 5 episode/15장 3-frame 상태 일치; 1차 IoU min 0.903769, 2차 min 0.859693 | 실제 primitive 전후 동일 계약 재사용 |
+| observation lifecycle | `OBSERVE_CLEAR→primitive→RETREAT_AND_SETTLE→REOBSERVE_CLEAR`, freshness·settle·identity·3-frame fail-closed gate 실데이터 PASS | R3 primitive runner와 연결 |
 | fold plan-only | 후보: 양팔 1차·오른팔 edge-midpoint 2차 full-FK IK PASS; strict MoveIt은 등록 artifact 부재로 BLOCKED | 등록 완료 URDF/shadow/tabletop evidence 복원 뒤 dense collision 재실행 |
 | Isaac/학습 | 표시 전용 workcell과 legacy 단일팔 rigid scripted grasp; Isaac Lab towel env·policy는 없음 | S0/S1 physics와 vectorized smoke test, heuristic baseline부터 구축 |
 | 조작 primitive | 미구현 | 개별 plan-only→supervised 제한 반복 |
 | 펼쳐진 수건 2회 접기 | 미구현 | R4 standalone fold gate 통과 |
 | 펼치기·평탄화 | 미구현 | R5/R6 단계 성공 기준 통과 |
 | 통합 복구 | offline 유한 상태기계 | 실제 실패 signature와 feedback 연결 |
-| hardware-free CI | 수건 계약·기하·replay workflow 구현 | 갱신된 300 mm fixture 회귀 확인 |
+| hardware-free CI | 수건 host 회귀 126개, 계약·schema·dataset 검증과 ROS overlay RViz 시험 5개 PASS | R2 Isaac vectorized smoke test 연결 |
 
 Top 카메라 R0-A 실기 확인에서 장치
 `/dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1.1:1.0-video-index0`, MJPEG
@@ -178,17 +179,17 @@ URDF도 clear pose에서 큰 self-collision을 만들기 때문에 등록 모델
 않았다. RViz MarkerArray 설정, stage별 시각화와 execution-disabled launch는 새
 canonical 형식으로 이식했다.
 
-입력 파일명과 내부 status인 `towel_task_contract.candidate.yaml`/
-`R0_STATIC_CONTACT_CANDIDATE`는 의도적으로 유지한다. 자동·동적 contact가 아직
-승인되지 않은 motion-lock 상태이며, R0 최종 완료에는 strict plan-only PASS와
-`motion_authorized=false`가 함께 필요하다.
+입력 파일명 `towel_task_contract.candidate.yaml`은 유지하되 내부 status는 실제
+3-frame 검증을 반영해 `R1_OBSERVATION_CANDIDATE`로 승격했다. 자동·동적 contact와
+수건 motion은 여전히 승인되지 않았으며 `motion_authorized=false`를 유지한다.
 
 ## R0 종료 시 남은 비승인 항목
 
 다음 항목은 누락이 아니라 소비 단계까지 명시적으로 연기한 gate다.
 
-1. left wrist의 새 staged metric 검증과 양쪽 wrist robot mask/confidence는 R1에서
-   실제 multi-view metric fusion 또는 motion correction에 쓰기 전에 연결한다.
+1. left wrist의 새 staged metric 검증은 R1에서 실제 multi-view metric fusion 또는
+   motion correction에 쓰기 전에 연결한다. 양쪽 wrist/robot pixel mask는 실제
+   clear-view 거절 실패가 필요성을 보일 때만 추가한다.
 2. 자동 jaw open/close-to-contact, 동적 slip·장력과 테이블 마찰은 R3 primitive
    전에 측정·commission한다. 현재 정적 retention만 승인됐다.
 3. rigid proxy는 cloth attachment·변형을 증명하지 않는다. surface cloth와
@@ -196,14 +197,13 @@ canonical 형식으로 이식했다.
 4. 케이블은 명시적 mesh가 아니라 operator-reviewed joint envelope로 검사했다.
    실제 primitive dry-run 전에 케이블·접촉 gate를 다시 확인한다.
 
-## 바로 다음 작업 — R1
+## 바로 다음 작업 — R2
 
-1. `OBSERVE_CLEAR→primitive→RETREAT_AND_SETTLE→REOBSERVE_CLEAR` phase와 freshness
-   계약을 구현한다.
-2. 통과한 작업대 배치에서 실제 수건 episode를 수집하고 mask/component/border,
-   robot occlusion과 topology backend를 검증한다.
-3. left wrist 고정 gripper 가림과 양쪽 wrist mask를 confidence에 반영하고,
-   가려짐·들림·다층 ambiguity를 `UNKNOWN`으로 유지한다.
-4. primitive 전후 state·outcome을 기록해 R2 Isaac Lab S0/S1과 heuristic
-   correction baseline, 이후 goal-conditioned residual policy가 같은 계약을
-   소비하게 한다.
+1. R1의 고정 Top camera·파란 수건 범위와 episode split을 그대로 재사용한다.
+2. Isaac Lab S0에서 최신 URDF·작업대·카메라 FOV와 승인 workspace를 고정한다.
+3. S1 surface cloth의 drop/settle, vertex-patch grasp, lift/place/release를 seed별로
+   재현하고 실물 질량·마찰이 필요한 시점에는 측정을 선행한다.
+4. heuristic baseline과 이후 residual policy가 같은 observation/action/outcome
+   계약과 held-out episode를 소비하게 한다.
+5. left wrist는 실제 multi-view fusion의 실패 근거가 생길 때 staged metric 보정을
+   수행하며, 그 전에는 들림·다층 ambiguity를 `UNKNOWN`으로 유지한다.

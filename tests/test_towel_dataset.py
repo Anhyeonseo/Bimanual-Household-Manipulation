@@ -41,10 +41,37 @@ def annotation(observation_id="item-1", split="train", digest="a" * 64):
     }
 
 
+def empty_annotation(observation_id="empty-1", split="train", digest="e" * 64):
+    value = annotation(observation_id, split, digest)
+    value.update(
+        state_label="EMPTY",
+        segmentation_polygon_px=[],
+        corners=[],
+        fold_lines_px=[],
+    )
+    return value
+
+
 def test_annotation_validates_bounds_labels_and_digest():
     result = validate_annotation(annotation())
     assert result["observation_id"] == "item-1"
     assert result["corner_count"] == 1
+
+
+def test_empty_negative_requires_no_towel_geometry():
+    result = validate_annotation(empty_annotation())
+    assert result["state_label"] == "EMPTY"
+    assert result["polygon_point_count"] == 0
+
+    value = empty_annotation()
+    value["segmentation_polygon_px"] = [[1, 1], [2, 1], [2, 2]]
+    with pytest.raises(TowelDatasetError, match="empty segmentation"):
+        validate_annotation(value)
+
+    value = empty_annotation()
+    value["corners"] = annotation()["corners"]
+    with pytest.raises(TowelDatasetError, match="cannot contain"):
+        validate_annotation(value)
 
 
 @pytest.mark.parametrize(
@@ -69,6 +96,17 @@ def test_invalid_annotations_fail_closed(change, message):
     value = annotation()
     change(value)
     with pytest.raises(TowelDatasetError, match=message):
+        validate_annotation(value)
+
+
+def test_segmentation_polygon_accepts_continuous_image_edge_coordinates():
+    value = annotation()
+    value["segmentation_polygon_px"] = [
+        [0.0, 0.0], [640.0, 0.0], [640.0, 480.0], [0.0, 480.0]
+    ]
+    validate_annotation(value)
+    value["segmentation_polygon_px"][1][0] = 640.001
+    with pytest.raises(TowelDatasetError, match="outside"):
         validate_annotation(value)
 
 
@@ -136,6 +174,22 @@ def test_manifest_rejects_id_duplicates_and_source_leakage():
             annotation("a", "train", "c" * 64),
             annotation("b", "test", "c" * 64),
         ])
+
+
+def test_manifest_rejects_capture_episode_split_leakage():
+    first = annotation("a", "train", "a" * 64)
+    second = annotation("b", "test", "b" * 64)
+    first["source"]["capture_id"] = "placement-01"
+    second["source"]["capture_id"] = "placement-01"
+    with pytest.raises(TowelDatasetError, match="capture_id"):
+        build_dataset_manifest([first, second])
+
+
+def test_capture_id_must_be_nonempty_when_present():
+    value = annotation()
+    value["source"]["capture_id"] = ""
+    with pytest.raises(TowelDatasetError, match="capture_id"):
+        validate_annotation(value)
 
 
 def test_dataset_root_checks_file_existence_and_sha(tmp_path):

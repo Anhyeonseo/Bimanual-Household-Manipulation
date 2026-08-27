@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260826_top_01-second_fold_0002",
+  "split": "train",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      723.8709677419355,
+      384.3010752688172
+    ],
+    [
+      720.0,
+      368.0
+    ],
+    [
+      711.0,
+      352.0
+    ],
+    [
+      687.0,
+      344.0
+    ],
+    [
+      435.0,
+      362.0
+    ],
+    [
+      318.0,
+      362.0
+    ],
+    [
+      296.0,
+      370.0
+    ],
+    [
+      272.0,
+      442.0
+    ],
+    [
+      264.0,
+      512.0
+    ],
+    [
+      264.0,
+      741.0
+    ],
+    [
+      304.0,
+      767.0
+    ],
+    [
+      384.0,
+      759.0
+    ],
+    [
+      669.0,
+      757.0
+    ],
+    [
+      725.0,
+      751.0
+    ],
+    [
+      734.0,
+      739.0
+    ],
+    [
+      753.0,
+      733.0
+    ],
+    [
+      738.9247311827957,
+      575.6989247311828
+    ],
+    [
+      733.5483870967741,
+      496.1290322580645
+    ],
+    [
+      722.7956989247311,
+      439.13978494623655
+    ],
+    [
+      721.7204301075269,
+      415.48387096774195
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "06_second_fold/second_fold_0002.jpg",
+    "sha256": "a999a042b71024dcd90f163c96a430901c227aad580c4f9fbc1032b787c1c5c4",
+    "capture_id": null
+  }
+}

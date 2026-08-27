@@ -117,6 +117,55 @@ def _finite_vector(values: Sequence[float], length: int, name: str) -> tuple[flo
     return result
 
 
+def point_segment_distance_m(
+    point: Iterable[float],
+    start: Iterable[float],
+    target: Iterable[float],
+) -> float:
+    """Return the shortest 3D distance from a point to a finite line segment."""
+    point_values = tuple(float(value) for value in point)
+    start_values = tuple(float(value) for value in start)
+    target_values = tuple(float(value) for value in target)
+    if not all(
+        len(values) == 3
+        for values in (point_values, start_values, target_values)
+    ):
+        raise TowelPlanningError(
+            "TCP path audit requires three finite XYZ vectors"
+        )
+    if not all(
+        math.isfinite(value)
+        for values in (point_values, start_values, target_values)
+        for value in values
+    ):
+        raise TowelPlanningError("TCP path audit vectors must be finite")
+    delta = tuple(
+        end - beginning
+        for beginning, end in zip(start_values, target_values, strict=True)
+    )
+    length_squared = sum(value * value for value in delta)
+    if length_squared <= 1.0e-18:
+        closest = start_values
+    else:
+        fraction = sum(
+            (value - beginning) * direction
+            for value, beginning, direction in zip(
+                point_values, start_values, delta, strict=True
+            )
+        ) / length_squared
+        fraction = min(1.0, max(0.0, fraction))
+        closest = tuple(
+            beginning + fraction * direction
+            for beginning, direction in zip(start_values, delta, strict=True)
+        )
+    return math.sqrt(
+        sum(
+            (value - expected) ** 2
+            for value, expected in zip(point_values, closest, strict=True)
+        )
+    )
+
+
 def towel_bounds_from_worktable(
     span_m: Sequence[float], origin_xy_m: Sequence[float]
 ) -> tuple[float, float, float, float]:

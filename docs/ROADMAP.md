@@ -94,7 +94,7 @@ OBSERVE_CLEAR에서 카메라 마운트와 팔 메시가 최대 약 16.2 mm 겹�
 - 완료: 300 mm 수건 전체와 승인된 외곽 여유가 Top의 검증된 metric 영역 안에 있음
 - 연기: 질량과 수건-작업대 마찰은 이를 소비하는 동적 gate 전에 측정
 - 완료: 오른팔 FK+wrist tabletop 물체 좌표의 독립 target 검증
-- 완료: 1차 단팔·폐루프 보정과 2차 양팔 접기의 task-pose MoveIt plan-only envelope
+- 완료: 1차 양팔·폐루프 보정과 2차 단팔 접기의 task-pose MoveIt plan-only envelope
 - 미완료: 자동 contact/slip, 허용 TCP separation과 양팔 속도 차이는 이를
   소비하는 primitive 전에 commission
 
@@ -118,17 +118,46 @@ full-FK IK는 통과했으나 등록 artifact 부재로 strict MoveIt 승격은 
 
 - `OBSERVE_CLEAR → primitive → RETREAT_AND_SETTLE → REOBSERVE_CLEAR` phase 구현
 - 실제 image segmentation, component와 frame-border 검사
-- URDF 기반 robot occlusion mask와 가림 비율
+- 승인된 양팔 clear pose joint tolerance와 보수적 clear-view validity 검사
+- robot-occluded frame을 clear-view 거절/OOD 세트로 유지; 정밀 pixel mask는 실패 근거가 있을 때만 추가
 - visual corner, held TCP constraint와 unknown의 증거 출처 분리
 - contour, 말린 edge, 내부 주름, layer ambiguity와 flatness 추정
 - 들린 수건에 평면 homography를 사용하지 않는 3D/조건부 관측 경계
 - timestamp, calibration/model identity, spread와 hysteresis가 포함된 stabilizer
 - 구김·부분 펼침·정렬·1차/2차 fold 실제 데이터의 episode 단위 split
 
-초기 구현은 RGB와 양 손목 다중 시점으로 시작하되 held-out 데이터에서 hidden
-layer를 안전하게 거부하지 못하면 RGB-D 또는 고정 사선 카메라를 추가한다.
+R1의 작업대 평면 상태 판정은 검증된 `OBSERVE_CLEAR`와 고정 Top RGB만으로
+완료했다. 이 구조에서는 정밀 robot pixel mask와 wrist fusion을 추가해도 승인
+정보가 늘지 않으므로 보류한다. 이후 들린 수건이나 hidden layer를 실제로 판정할
+때 Top RGB만으로 안전하게 거부하지 못하면 wrist 다중 시점, RGB-D 또는 고정
+사선 카메라를 근거 순서대로 추가한다.
 
-완료 조건: 실제 held-out episode에서 mask, corner, flatness, occlusion과 상태
+완료 결과: 1280×960 RGB 개발 원본 595장(empty 16, 평탄 100, 가벼운 구김 120,
+심한 구김 107, 말림·겹침 73, 1차 fold 81, 2차 fold 50, robot 가림 48)을
+통합했고 전수 decode·크기 검사를 통과했다. 두 차례 LabelMe 검수로 non-empty
+90장과 empty 13장, 총 103개 segmentation annotation을 계약 import했고 잘못된
+empty 2장은 거절했다. 자동 제안은 두 batch 모두 평균 IoU 0.9 이상이지만 각 1장씩
+완전 실패가 있어 무검수 승격하지 않는다. 독립 held-out session 38장은 매 frame
+물리 재배치와 capture ID/SHA를 기록했고, 그중 35장(empty 5, non-empty 30)을
+사람 검수 segmentation으로 승인했으며 robot-occluded 3장은 rejection/OOD다.
+reviewed mask는 empty 13개, 단일 connected component 90개, 다중 component 0개이며
+22개가 image border에 닿는다. border 접촉 mask는 보이는 영역의 유효 training
+label로 남기되 runtime에서는 `clear_view_valid=false`로 거절한다.
+held-out mask 후보는 towel 30/30·empty 5/5, non-empty IoU 평균 0.980284·최저
+0.965564이고 border 잘림 4/4, false negative 0, 보수적 false reject 1이다.
+원본 pixel은 K/D/P 왜곡 보정 후 table homography로 투영하고 visible area는 실측
+`0.304×0.296 m` 면적과 metric으로 비교한다. mask outline backend는 hidden layer와
+fold count를 추측하지 않아 non-flat/fold held-out을 `ALIGNED`로 승인하지 않는다.
+motion-free lifecycle은 freshness, settle, clear pose, clear-view validity,
+연속 3-frame과 calibration/model/URDF identity를 fail-closed로 검사하고 primitive
+전후 episode evidence를 만든다. 실제 `20260827_top_lifecycle_validation_01`의
+5개 물리 배치에서 각 3장씩 15장을 검증했고 presence·clear view와 상태가 모든
+window에서 일치했다. fold count는 RGB에서 추측하지 않고 검증된 fold action
+context에서만 주입한다. 20 mm 이하 비그립 봉제 고리는 segmentation에는 보존하되
+metric fold-body outline에서 제외했으며, 1차 fold IoU 최저 `0.903769`, 2차 fold
+최저 `0.859693`으로 기존 `0.82/0.85` 기준을 통과했다. 따라서 R1은 완료다.
+
+완료 조건: 실제 held-out episode에서 mask, corner, flatness, clear-view rejection과 상태
 분류가 검증 임계값을 통과하고, 가려짐·들림·다층 ambiguity를 `ALIGNED`로
 승인하지 않는다.
 
@@ -183,10 +212,12 @@ fault는 같은 session의 양팔 정지로 이어진다.
 전체 구김 문제와 분리해 사람이 평탄·정렬한 300×300 mm 수건에서 먼저 fold
 executor를 완성한다.
 
-- 1차 single-layer 단팔 corner grasp와 nominal 300×150 mm coarse 결과 검증
+- 1차 아래쪽 moving edge 양 끝의 single-layer 양팔 grasp와 아래→위 fold,
+  nominal 300×150 mm coarse 결과 검증
 - clear 재관측 뒤 평행이동·회전·느슨함을 최대 2회의 bounded correction으로 보정
 - stationary-half가 함께 미끄러지면 pull 축소 또는 승인된 passive pin 사용
-- 2차 multi-layer 양팔 endpoint grasp와 첫 접힘 보존
+- 2차 오른쪽 moving edge midpoint의 multi-layer 오른팔 단독 grasp와
+  오른쪽→왼쪽 fold; 왼팔 반대 방향은 bounded fallback으로만 유지
 - nominal 150×150 mm 결과, rebound와 stack 돌출 검사
 - 실패한 1차 fold에서 2차 fold 금지
 

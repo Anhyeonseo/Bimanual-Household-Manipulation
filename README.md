@@ -132,7 +132,6 @@ adapter 하나로 제한한다.
 - [현재 상태](docs/CURRENT_STATUS.md)
 - [최종 로드맵](docs/ROADMAP.md)
 - [검증 매트릭스](docs/VERIFICATION_MATRIX.md)
-- [최신 software foundation 검증 결과](docs/test-results/2026-08-20-towel-software-foundation.md)
 - [선행 캔 파지 파이프라인](docs/CAN_TO_BIN.md)
 - [도구 구조와 진입점](tools/README.md)
 - [제3자 고지](docs/THIRD_PARTY_NOTICES.md)

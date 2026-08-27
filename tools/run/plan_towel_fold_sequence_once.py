@@ -45,6 +45,7 @@ from tools.lib.towel_task_pose_planning import (  # noqa: E402
     TaskPose,
     build_correction_probes,
     phase_to_dict,
+    point_segment_distance_m,
     solve_task_pose_branches,
     towel_bounds_from_worktable,
     validate_phase_contract,
@@ -310,49 +311,6 @@ def phase_gripper_modes(
 
 def wait_future(node: Node, future, timeout_s: float):
     return planning.wait_future(node, future, timeout_s)
-
-
-def point_segment_distance_m(
-    point: Iterable[float],
-    start: Iterable[float],
-    target: Iterable[float],
-) -> float:
-    point_values = tuple(float(value) for value in point)
-    start_values = tuple(float(value) for value in start)
-    target_values = tuple(float(value) for value in target)
-    if not all(len(values) == 3 for values in (point_values, start_values, target_values)):
-        raise RuntimeError("TCP path audit requires three finite XYZ vectors")
-    if not all(
-        math.isfinite(value)
-        for values in (point_values, start_values, target_values)
-        for value in values
-    ):
-        raise RuntimeError("TCP path audit vectors must be finite")
-    delta = tuple(
-        end - beginning
-        for beginning, end in zip(start_values, target_values, strict=True)
-    )
-    length_squared = sum(value * value for value in delta)
-    if length_squared <= 1.0e-18:
-        closest = start_values
-    else:
-        fraction = sum(
-            (value - beginning) * direction
-            for value, beginning, direction in zip(
-                point_values, start_values, delta, strict=True
-            )
-        ) / length_squared
-        fraction = min(1.0, max(0.0, fraction))
-        closest = tuple(
-            beginning + fraction * direction
-            for beginning, direction in zip(start_values, delta, strict=True)
-        )
-    return math.sqrt(
-        sum(
-            (value - expected) ** 2
-            for value, expected in zip(point_values, closest, strict=True)
-        )
-    )
 
 
 class MoveItPlanOnlyGate:

@@ -34,17 +34,17 @@
 | 단계 | nominal footprint | 면적 | 순수 기하 기준 |
 |---|---:|---:|---|
 | 펼침 | 300×300 mm | 0.0900 m² | 네 모서리와 전체 edge 노출 |
-| 1차 접기 | 300×150 mm | 0.0450 m² | 단팔 corner 이동과 후속 폐루프 정렬 |
-| 2차 접기 | 150×150 mm | 0.0225 m² | 양팔 이동 edge 파지점 간격 최대 약 150 mm |
+| 1차 접기 | 300×150 mm | 0.0450 m² | 양팔 moving-edge endpoint 이동과 후속 폐루프 정렬 |
+| 2차 접기 | 150×150 mm | 0.0225 m² | 오른팔 moving-edge midpoint 이동, 왼팔 fallback |
 
 두 중심선 접기의 이상적인 corner 이동 거리는 각각 300 mm이고, 반원 arc의
 반경과 최대 높이는 150 mm다. 실제 명령은 이 수치를 그대로 복사하지 않는다.
-1차는 한 팔이 국소 corner patch만 제어하므로 반대 endpoint가 같은 arc를 따른다고
-가정할 수 없고, clear 재관측과 보정을 설계에 포함한다. 2차는 짧아진 edge의
-양팔 endpoint grasp 후보를 사용하되 TCP 위치, jaw opening-line yaw, downward
-approach cone, TCP separation, 카메라 FOV와 작업대 여유를 검증한다. SO-101 한
-팔은 5-DOF이므로 임의의 exact 6D pose를 요구하지 않고 full 6D FK를 증빙으로
-기록한다.
+1차는 넓은 한 겹 moving edge의 양 끝을 양팔이 함께 제어해 회전과 비틀림을
+줄이고, clear 재관측과 최대 2회 보정을 설계에 포함한다. 2차는 짧아진 두 겹
+edge의 midpoint를 가까운 오른팔이 잡고 왼팔은 clear pose에 둔다. 각 단계는
+TCP 위치, jaw opening-line yaw, downward approach cone, 카메라 FOV와 작업대
+여유를 검증한다. SO-101 한 팔은 5-DOF이므로 임의의 exact 6D pose를 요구하지
+않고 full 6D FK를 증빙으로 기록한다.
 
 ## 3. 전체 상태기계
 
@@ -95,7 +95,8 @@ OBSERVE_CLEAR
 | `height_or_wrinkle_map` | 구김 높이 또는 RGB 다중 시점 기반 대체 feature |
 | `corner_candidates` | 위치, 노출도, grasp 가능성, confidence |
 | `corner_evidence_source` | visual, held TCP constraint 또는 unknown 구분 |
-| `robot_occlusion_mask` | 팔·gripper가 가린 영역과 전체 가림 비율 |
+| `clear_pose_verified` | 양팔 joint state가 승인된 clear pose 허용오차 안인지 여부 |
+| `clear_view_valid` | 수건 작업영역이 잘리지 않고 큰 전경 가림이 없는지에 대한 보수적 판정 |
 | `layer_ambiguity` | grasp 후보가 단일 layer인지 확인되지 않은 정도 |
 | `visible_area_ratio` | 등록된 전체 수건 면적 대비 현재 투영 면적 |
 | `edge_and_diagonal_metrics` | 네 변과 두 대각선의 길이·편차 |
@@ -103,6 +104,11 @@ OBSERVE_CLEAR
 | `state_label` | 구김, 부분 펼침, 평탄, 1차/2차 접힘 상태 |
 | `source_stamp` | 프레임 timestamp와 calibration/bundle SHA |
 | `settled` | release·퇴피 뒤 형상 진동이 허용 범위 안인지 여부 |
+
+정밀한 URDF 기반 robot pixel mask는 R1의 선행 조건이 아니다. 전체 상태 승인은
+양팔이 clear pose에 있고 수건 작업영역이 유효하게 보이는 정지 프레임에서만 한다.
+robot-occluded 프레임은 clear-view 거절/OOD 검증에 사용하며, 가림 비율을 정확히
+추정하는 별도 모델은 실제 실패 사례가 필요성을 보일 때 추가한다.
 
 ### 권장 관측 방식
 
@@ -118,12 +124,12 @@ OBSERVE_CLEAR
 fold arc와 같이 수건이 들린 상태에서는 RGB-D, 검증된 다중 시점 또는
 gripper에 붙은 조건부 TCP constraint가 없으면 3D corner를 만들지 않는다.
 
-Top 영상의 팔 가림은 검증된 camera-to-base와 URDF로 robot mask를 투영해
-분리한다. 가려진 픽셀을 cloth로 추정해 채우지 않는다. right wrist의 intrinsic,
-torque-hold eye-in-hand와 optical frame는 R0에서 검증됐지만, 검증된 자세·화면
-경계 밖으로 외삽하거나 손목 영상 하나만으로 들린 수건의 3D 점을 만들지 않는다.
-left wrist의 고정 gripper 가림과 양쪽 wrist의 robot mask는 관측 confidence에
-반영한다.
+Top 전체 상태는 양팔 joint state가 승인 clear pose 안에 있고 작업영역에 큰 전경
+가림이 없는 프레임에서만 확정한다. 가려진 픽셀을 cloth로 추정해 채우지 않는다.
+right wrist의 intrinsic, torque-hold eye-in-hand와 optical frame는 R0에서
+검증됐지만, 검증된 자세·화면 경계 밖으로 외삽하거나 손목 영상 하나만으로 들린
+수건의 3D 점을 만들지 않는다. left wrist의 고정 gripper 가림은 wrist view를
+실제 fusion에 쓸 때 보정한다.
 
 ## 5. 수건 상태 표현
 
@@ -234,7 +240,7 @@ slip, 시도 횟수와 실패 원인을 저장해 simulator randomization과 pol
 - 예상 전체 면적 대비 관측 면적 90% 이상
 - 높이·주름 기반 flatness threshold 통과
 - 말린 edge, 내부 겹침과 다층 corner의 ambiguity가 승인 한계 이하
-- robot occlusion을 제외한 clear observation에서 위 조건이 확인됨
+- 승인 clear pose의 유효한 clear observation에서 위 조건이 확인됨
 - 네 모서리 모두 양팔의 승인 workspace 안에 있음
 
 그 뒤 최소 회전 방향으로 작업대 x/y축에 맞춰 `ALIGNED` 상태를 만든다.
@@ -438,6 +444,13 @@ config/
   towel_fake_reachability.example.json
 docs/
   TOWEL_FOLDING.md
+datasets/
+  towel_yolo_source/20260826_top_01/
+  towel_yolo_source/20260827_top_validation_01/
+  towel_yolo_source/20260827_top_lifecycle_validation_01/
+  towel_yolo_annotations/20260827_pilot_reviewed/
+  towel_yolo_annotations/20260827_review_batch2/
+  towel_yolo_annotations/20260827_validation_reviewed/
 tools/
   lib/towel_geometry.py
   lib/towel_fold_path.py
@@ -449,6 +462,7 @@ tools/
   lib/towel_fake_reachability.py
   lib/towel_task_pose_planning.py
   lib/towel_bimanual_then_single_planning.py
+  lib/towel_observation_lifecycle.py
   run/validate_towel_contract.py
   run/validate_towel_schemas.py
   run/validate_towel_dataset.py
@@ -458,6 +472,9 @@ tools/
   run/plan_towel_fold_sequence_once.py
   run/diagnose_towel_fold_kinematics.py
   run/visualize_towel_fold_sequence.py
+  run/bootstrap_towel_segmentation_pilot.py
+  run/capture_towel_yolo_interactive.py
+  run/validate_towel_observation_burst.py
 tests/
   test_towel_geometry.py
   test_towel_fold_path.py
@@ -468,8 +485,18 @@ tests/
   test_towel_task_replay.py
   test_towel_fake_reachability.py
   test_towel_schemas.py
+  test_towel_observation_lifecycle.py
+  test_towel_segmentation_bootstrap.py
+  test_capture_towel_yolo_interactive.py
 ```
 
-위 목록은 현재 구현된 motion-free 기반이다. 이후 실제 mask backend,
-`run_towel_task_once.py`, perception 진단 도구와 fold executor는 해당 로드맵
-gate가 시작될 때만 추가하며 빈 placeholder를 먼저 만들지 않는다.
+위 목록은 현재 구현된 motion-free 기반이다. 실제 Top image mask/outline,
+held-out segmentation과 5×3 real observation burst를 통과했다. hidden layer와
+fold count는 RGB 면적만으로 승인하지 않으며, 검증된 fold action context와 metric
+outline이 함께 있을 때만 1차/2차 완료 상태를 만든다. 실제 motion runner와 fold
+executor는 R3 gate에서 추가하며 빈 placeholder를 먼저 만들지 않는다.
+
+R1 데이터는 개발 원본 595장, 사람 검수 train annotation 103장, 물리 재배치
+held-out 38장 중 검수 35장과 robot-occluded OOD 3장, 실제 상태 5개×3프레임
+burst로 구성된다. source image, review manifest, capture ID와 SHA를 함께 보존해
+R2의 학습 split과 이후 primitive 전후 관측이 같은 기준을 재사용하게 한다.

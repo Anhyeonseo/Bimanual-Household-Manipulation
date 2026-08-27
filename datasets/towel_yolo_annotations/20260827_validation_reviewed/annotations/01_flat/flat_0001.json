@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260827_top_validation_01-flat_0001",
+  "split": "validation",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      320.0,
+      76.0
+    ],
+    [
+      244.0,
+      404.0
+    ],
+    [
+      202.0,
+      709.0
+    ],
+    [
+      388.0,
+      743.0
+    ],
+    [
+      576.0,
+      757.0
+    ],
+    [
+      967.0,
+      761.0
+    ],
+    [
+      1026.3095238095239,
+      754.4047619047619
+    ],
+    [
+      1077.5000000000002,
+      750.8333333333334
+    ],
+    [
+      1083.4523809523812,
+      752.0238095238095
+    ],
+    [
+      1081.0,
+      628.0
+    ],
+    [
+      1049.0,
+      400.0
+    ],
+    [
+      977.0,
+      84.0
+    ],
+    [
+      914.0,
+      92.0
+    ],
+    [
+      719.0,
+      68.0
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "01_flat/flat_0001.jpg",
+    "sha256": "0210307cf586dc09cb38b8f32eceaab616b0dd07caec8f019f1b3b56ae29aaf6",
+    "capture_id": "20260827_top_validation_01-flat-0001"
+  }
+}

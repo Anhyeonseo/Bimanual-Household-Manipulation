@@ -15,6 +15,7 @@ from tools.lib.towel_task_pose_planning import (
     TaskPose,
     build_correction_probes,
     evaluate_task_pose,
+    point_segment_distance_m,
     towel_bounds_from_worktable,
     validate_phase_contract,
 )
@@ -38,6 +39,36 @@ PLAN_ONLY_LAUNCH = (
 MOVEIT_RVIZ_CONFIG = (
     ROOT / "ros2_ws/src/so101_moveit_config/config/moveit.rviz"
 )
+
+
+def test_tcp_path_distance_is_zero_on_adjacent_task_chord():
+    assert point_segment_distance_m(
+        (0.5, 0.0, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)
+    ) == pytest.approx(0.0)
+
+
+def test_tcp_path_distance_measures_lateral_moveit_deviation():
+    assert point_segment_distance_m(
+        (0.5, 0.003, 0.004), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)
+    ) == pytest.approx(0.005)
+
+
+def test_tcp_path_distance_clamps_before_and_after_segment():
+    assert point_segment_distance_m(
+        (-0.003, 0.004, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)
+    ) == pytest.approx(0.005)
+    assert point_segment_distance_m(
+        (1.003, 0.004, 0.0), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)
+    ) == pytest.approx(0.005)
+
+
+def test_tcp_path_distance_rejects_nonfinite_or_wrong_shape():
+    with pytest.raises(TowelPlanningError, match="three finite XYZ"):
+        point_segment_distance_m((0.0, 0.0), (0.0,) * 3, (1.0,) * 3)
+    with pytest.raises(TowelPlanningError, match="must be finite"):
+        point_segment_distance_m(
+            (float("nan"), 0.0, 0.0), (0.0,) * 3, (1.0,) * 3
+        )
 
 
 def test_towel_is_centered_inside_validated_table_with_margin():
