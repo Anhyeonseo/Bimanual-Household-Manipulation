@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260826_top_01-light_wrinkle_0012",
+  "split": "train",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      466.0,
+      84.0
+    ],
+    [
+      439.0,
+      721.0
+    ],
+    [
+      786.7780429594272,
+      744.6300715990453
+    ],
+    [
+      870.0,
+      712.0
+    ],
+    [
+      889.0,
+      738.0
+    ],
+    [
+      940.0,
+      738.0
+    ],
+    [
+      1132.0,
+      706.0
+    ],
+    [
+      1218.7589498806683,
+      675.417661097852
+    ],
+    [
+      1194.0,
+      591.0
+    ],
+    [
+      1111.0,
+      316.0
+    ],
+    [
+      1021.0,
+      83.0
+    ],
+    [
+      1000.0,
+      75.0
+    ],
+    [
+      764.0,
+      82.0
+    ],
+    [
+      724.0,
+      29.0
+    ],
+    [
+      672.219570405728,
+      35.79952267303103
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "02_light_wrinkle/light_wrinkle_0012.jpg",
+    "sha256": "48d4605965ec96a254f54ed604b7b2ac409be74f44f0dfd58c8ee5f6ea982280",
+    "capture_id": null
+  }
+}

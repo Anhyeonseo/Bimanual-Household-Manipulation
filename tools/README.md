@@ -36,6 +36,8 @@ python tools/run/validate_towel_observation_burst.py \
   datasets/towel_yolo_source/20260827_top_lifecycle_validation_01
 python tools/run/export_towel_yolo_segmentation.py \
   --output tmp/towel_yolo_segmentation
+.venv-yolo/bin/python tools/run/bootstrap_towel_yolo_assisted_review.py \
+  --device cpu
 .venv-yolo/bin/python tools/run/evaluate_towel_yolo_segmentation.py \
   tmp/towel_yolo_runs/yolo26n_seg_r0/weights/best.pt \
   --output tmp/towel_yolo_segmentation_evaluation.json
@@ -71,8 +73,8 @@ hidden layer나 fold count를 승인하지 않는다.
 presence, clear-view와 feature spread를 재검사한다. fold count는 검증된 action
 context에서만 주입하고, 비그립 봉제 고리는 segmentation에 유지한 채 20 mm 이하
 폭만 metric fold-body outline에서 제외한다.
-`export_towel_yolo_segmentation.py`는 승인된 review manifest 세 개만 읽어 사람
-검수 train 103장과 독립 validation 35장을 YOLO segmentation 형식으로 내보낸다.
+`export_towel_yolo_segmentation.py`는 승인된 review manifest 네 개만 읽어 사람
+검수 train 540장과 독립 validation 35장을 YOLO segmentation 형식으로 내보낸다.
 기존 split을 그대로 보존하고 source SHA/capture 누수, 미검수 label, robot-occluded
 training label과 review digest 불일치를 거절한다. empty frame은 빈 label 파일로
 남기며 모든 polygon은 export 뒤 raster round-trip IoU `0.999` 이상을 요구한다.
@@ -83,6 +85,18 @@ held-out inference 성능을 승인하지 않는다.
 함께 기록하고 validation의 수건 검출, empty rejection과 fixed-threshold pixel mask
 IoU를 계산한다. Ultralytics mAP만으로 runtime 승격하지 않으며 새 test session 없이
 validation 결과를 최종 일반화 성능으로 해석하지 않는다.
+`bootstrap_towel_yolo_assisted_review.py`는 기존 검수 train 103장을 제외한 개발
+원본에 `best.pt` mask 초안을 만든다. 학습 후보 444장은 LabelMe workspace로,
+robot-occluded 48장은 OOD overlay로 분리한다. confidence, 다중 검출, border와
+OpenCV fallback을 이용해 high/medium/low 검수 순서를 만들지만 모든 출력은 명시적
+LabelMe 확인 전 `training_labels_authorized=false`다.
+현재 전수 검수 closeout은 444장 중 437장을 승인하고 상태가 나쁜 7장을 제외했으며,
+robot-occluded 48장은 계속 OOD 전용으로 유지한다.
+승인 train 540장으로 재학습한 expanded weight는 같은 validation에서 수건 30/30,
+empty 5/5, mask IoU 평균 0.980166·최저 0.966108을 기록했다. weight와 학습 run은
+대부분 Git ignore 대상이지만 팀 검증용 canonical
+`artifacts/models/towel_yolo26n_seg_expanded_r1/best.pt` 하나는 SHA와 함께
+버전 관리한다. 새 독립 test 전에는 runtime backend를 교체하지 않는다.
 `diagnose_towel_fold_kinematics.py`는 입력 evidence가 아직 없을 때 canonical
 1·2차 fold의 full-FK pose 해만 별도 JSON으로 기록한다. 이 결과는 MoveIt 경로와
 충돌을 승인하지 않는다. `visualize_towel_fold_sequence.py`는 두 결과 형식을 모두

@@ -69,9 +69,15 @@ datasets/towel_yolo_annotations/*
 !datasets/towel_yolo_annotations/20260827_pilot_reviewed/**
 !datasets/towel_yolo_annotations/20260827_review_batch2/
 !datasets/towel_yolo_annotations/20260827_review_batch2/**
+!datasets/towel_yolo_annotations/20260827_yolo_assisted_reviewed/
+!datasets/towel_yolo_annotations/20260827_yolo_assisted_reviewed/**
 !datasets/towel_yolo_annotations/20260827_validation_reviewed/
 !datasets/towel_yolo_annotations/20260827_validation_reviewed/**
-artifacts/
+artifacts/*
+!artifacts/models/
+artifacts/models/*
+!artifacts/models/towel_yolo26n_seg_expanded_r1/
+!artifacts/models/towel_yolo26n_seg_expanded_r1/best.pt
 tmp/
 output/
 .verification/

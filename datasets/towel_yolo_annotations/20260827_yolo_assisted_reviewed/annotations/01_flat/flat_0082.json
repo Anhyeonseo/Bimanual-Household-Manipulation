@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260826_top_01-flat_0082",
+  "split": "train",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      830.0,
+      86.0
+    ],
+    [
+      480.0,
+      86.0
+    ],
+    [
+      135.0,
+      115.0
+    ],
+    [
+      75.0,
+      408.0
+    ],
+    [
+      53.0,
+      742.0
+    ],
+    [
+      210.0,
+      761.0
+    ],
+    [
+      537.0,
+      761.0
+    ],
+    [
+      796.0,
+      745.0
+    ],
+    [
+      945.0,
+      720.0
+    ],
+    [
+      930.0,
+      524.0
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "01_flat/flat_0082.jpg",
+    "sha256": "827115ae082776f9ffe27f7749de2aa805e251a9540f9dd5f0704a8e0bb6306c",
+    "capture_id": null
+  }
+}

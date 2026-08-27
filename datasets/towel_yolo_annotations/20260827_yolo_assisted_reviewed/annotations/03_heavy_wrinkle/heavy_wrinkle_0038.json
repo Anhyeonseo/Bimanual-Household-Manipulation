@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260826_top_01-heavy_wrinkle_0038",
+  "split": "train",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      416.0,
+      484.0
+    ],
+    [
+      439.0,
+      540.0
+    ],
+    [
+      500.0,
+      614.0
+    ],
+    [
+      596.0,
+      628.0
+    ],
+    [
+      567.0,
+      669.0
+    ],
+    [
+      463.0,
+      740.0
+    ],
+    [
+      485.0,
+      774.0
+    ],
+    [
+      547.0,
+      825.0
+    ],
+    [
+      625.0,
+      872.0
+    ],
+    [
+      709.0,
+      905.0
+    ],
+    [
+      830.0,
+      921.0
+    ],
+    [
+      853.0,
+      916.0
+    ],
+    [
+      865.0,
+      896.0
+    ],
+    [
+      843.0,
+      866.0
+    ],
+    [
+      844.0,
+      835.0
+    ],
+    [
+      859.0,
+      818.0
+    ],
+    [
+      891.0,
+      810.0
+    ],
+    [
+      912.0,
+      816.0
+    ],
+    [
+      947.0,
+      871.0
+    ],
+    [
+      941.0,
+      907.0
+    ],
+    [
+      954.0,
+      929.0
+    ],
+    [
+      1080.0,
+      929.0
+    ],
+    [
+      1113.0,
+      623.0
+    ],
+    [
+      1079.0,
+      509.0
+    ],
+    [
+      1085.0,
+      435.0
+    ],
+    [
+      1114.0,
+      419.0
+    ],
+    [
+      1113.0,
+      385.0
+    ],
+    [
+      714.0,
+      280.0
+    ],
+    [
+      576.0,
+      386.0
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "03_heavy_wrinkle/heavy_wrinkle_0038.jpg",
+    "sha256": "ce06c4c5be59c1f485c630cdd2ecf5da856c231ce51aa3e1711b017acf3a13b9",
+    "capture_id": null
+  }
+}

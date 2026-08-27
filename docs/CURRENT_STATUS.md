@@ -37,8 +37,8 @@ motion-free로 검증해 완료했다.
 | 태스크 범위 | 실측 304/296/304/296 mm, 면 100%, dry/unwashed, 최종 nominal 150×150 mm | 질량은 동적 모델/primitive 전 측정 |
 | cloth contact | 좌우 1겹·4겹 current-pose hold 2회와 가벼운 pull PASS | 자동 open/close-to-contact, 동적 slip·장력 승격 |
 | annotation 계약 | schema, validator, deterministic split와 실제 capture/episode manifest | R2 sim/real action-outcome episode에 동일 identity 계약 적용 |
-| 수건 데이터셋 | 개발 595장/검수 103장 + held-out 38장 중 검수 35장·robot OOD 3장 + 실제 3-frame 5 episode/15장; split leakage 0 | R2 sim/real episode 계약 유지 |
-| segmentation | 기존 backend towel 30/30·empty 5/5, IoU 평균 0.980284·최저 0.965564; YOLO26n-seg 100 epoch와 고정 conf 0.25 validation towel 30/30·empty 5/5, IoU 평균 0.979250·최저 0.942682 | YOLO weight 보존·새 독립 test session 평가 후 runtime backend 채택 여부 결정, 무검수 pseudo-label 금지 |
+| 수건 데이터셋 | 개발 595장 중 검수 train 540장(기존 103 + assisted 승인 437, 제외 7) + held-out 38장 중 검수 35장·robot OOD 3장 + 실제 3-frame 5 episode/15장; split leakage 0 | R2 sim/real episode 계약 유지 |
+| segmentation | 기존 backend towel 30/30·empty 5/5, IoU 평균 0.980284·최저 0.965564; train 540장 expanded YOLO26n-seg도 30/30·5/5, IoU 평균 0.980166·최저 0.966108로 103장 baseline의 0.979250·0.942682보다 개선 | 새 독립 test와 실시간 카메라 검증 뒤 runtime backend 결정, 무검수 pseudo-label 금지 |
 | corner/topology | outline quadrilateral·metric area·flatness, non-flat/fold `ALIGNED` 0건; 검증된 action context에서만 fold outline 판정 | 들림·다층 ambiguity는 wrist/RGB-D 근거 전까지 UNKNOWN |
 | temporal state | 실제 5 episode/15장 3-frame 상태 일치; 1차 IoU min 0.903769, 2차 min 0.859693 | 실제 primitive 전후 동일 계약 재사용 |
 | observation lifecycle | `OBSERVE_CLEAR→primitive→RETREAT_AND_SETTLE→REOBSERVE_CLEAR`, freshness·settle·identity·3-frame fail-closed gate 실데이터 PASS | R3 primitive runner와 연결 |

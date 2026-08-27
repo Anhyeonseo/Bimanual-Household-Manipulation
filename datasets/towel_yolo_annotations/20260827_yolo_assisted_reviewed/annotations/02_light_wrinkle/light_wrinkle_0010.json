@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260826_top_01-light_wrinkle_0010",
+  "split": "train",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      573.0,
+      84.0
+    ],
+    [
+      469.35560859188536,
+      178.99761336515513
+    ],
+    [
+      438.3293556085918,
+      229.11694510739858
+    ],
+    [
+      464.5823389021479,
+      269.6897374701671
+    ],
+    [
+      336.0,
+      440.0
+    ],
+    [
+      332.0,
+      460.0
+    ],
+    [
+      668.0,
+      650.0
+    ],
+    [
+      996.0,
+      809.0
+    ],
+    [
+      1117.0,
+      847.0
+    ],
+    [
+      1193.0,
+      674.0
+    ],
+    [
+      1254.0,
+      490.0
+    ],
+    [
+      1251.0,
+      468.0
+    ],
+    [
+      1232.0,
+      450.0
+    ],
+    [
+      1243.0,
+      346.0
+    ],
+    [
+      1237.0,
+      316.0
+    ],
+    [
+      871.0,
+      172.0
+    ],
+    [
+      595.0,
+      78.0
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "02_light_wrinkle/light_wrinkle_0010.jpg",
+    "sha256": "2f613c94a711be82de6e4b4bad22e143f5e1e10c43ee60d62e6d14e92d8b2033",
+    "capture_id": null
+  }
+}

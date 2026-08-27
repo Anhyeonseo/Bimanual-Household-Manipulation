@@ -21,6 +21,7 @@ from tools.lib.towel_yolo_segmentation import (  # noqa: E402
 DEFAULT_REVIEW_ROOTS = (
     ROOT / "datasets/towel_yolo_annotations/20260827_pilot_reviewed",
     ROOT / "datasets/towel_yolo_annotations/20260827_review_batch2",
+    ROOT / "datasets/towel_yolo_annotations/20260827_yolo_assisted_reviewed",
     ROOT / "datasets/towel_yolo_annotations/20260827_validation_reviewed",
 )
 
@@ -32,7 +33,7 @@ def main() -> int:
         type=Path,
         nargs="*",
         default=DEFAULT_REVIEW_ROOTS,
-        help="review directories; defaults to the three approved R1 batches",
+        help="review directories; defaults to the four approved R1 batches",
     )
     parser.add_argument(
         "--source-root",

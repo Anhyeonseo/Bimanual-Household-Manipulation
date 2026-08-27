@@ -478,6 +478,7 @@ tools/
   run/validate_towel_observation_burst.py
   run/export_towel_yolo_segmentation.py
   run/evaluate_towel_yolo_segmentation.py
+  run/bootstrap_towel_yolo_assisted_review.py
 tests/
   test_towel_geometry.py
   test_towel_fold_path.py
@@ -493,6 +494,7 @@ tests/
   test_capture_towel_yolo_interactive.py
   test_towel_yolo_segmentation.py
   test_evaluate_towel_yolo_segmentation.py
+  test_towel_yolo_assisted_review.py
 ```
 
 위 목록은 현재 구현된 motion-free 기반이다. 실제 Top image mask/outline,
@@ -501,7 +503,7 @@ fold count는 RGB 면적만으로 승인하지 않으며, 검증된 fold action 
 outline이 함께 있을 때만 1차/2차 완료 상태를 만든다. 실제 motion runner와 fold
 executor는 R3 gate에서 추가하며 빈 placeholder를 먼저 만들지 않는다.
 
-R1 데이터는 개발 원본 595장, 사람 검수 train annotation 103장, 물리 재배치
+R1 데이터는 개발 원본 595장, 사람 검수 train annotation 540장, 물리 재배치
 held-out 38장 중 검수 35장과 robot-occluded OOD 3장, 실제 상태 5개×3프레임
 burst로 구성된다. source image, review manifest, capture ID와 SHA를 함께 보존해
 R2의 학습 split과 이후 primitive 전후 관측이 같은 기준을 재사용하게 한다.
@@ -511,3 +513,11 @@ YOLO26n-seg baseline은 검수 train 103장으로 100 epoch 학습했고 validat
 고정 `conf=0.25` 수건 30/30 검출, empty 5/5 거절, non-empty mask IoU 평균
 `0.979250`, 최저 `0.942682`를 기록했다. 이는 학습 중 사용한 validation 결과이므로
 새 독립 test session 전에는 최종 일반화 성능이나 runtime backend 승격 근거가 아니다.
+기존 검수 103장을 제외한 개발 원본은 YOLO-assisted proposal로 확장했다. 학습 후보
+444장과 robot-occluded OOD 48장을 분리했고, YOLO miss 15장은 OpenCV fallback과
+high-priority로 검수했다. 전수 LabelMe 검수 결과 437장을 승인하고 상태가 나쁜
+7장을 제외해 기존 데이터와 합친 train annotation은 540장이다.
+같은 35장 validation에서 540장 expanded YOLO는 수건 `30/30`, empty `5/5`, mask
+IoU 평균 `0.980166`, 최저 `0.966108`을 기록해 103장 baseline의 평균 `0.979250`,
+최저 `0.942682`보다 개선됐다. 기존 OpenCV backend와는 평균/최저가 엇갈려 새 독립
+test와 실시간 카메라 검증 전까지 runtime backend를 교체하지 않는다.

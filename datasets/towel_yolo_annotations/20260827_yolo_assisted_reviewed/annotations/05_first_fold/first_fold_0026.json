@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260826_top_01-first_fold_0026",
+  "split": "train",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      347.0,
+      156.0
+    ],
+    [
+      312.0,
+      239.0
+    ],
+    [
+      265.0,
+      502.0
+    ],
+    [
+      228.0,
+      774.0
+    ],
+    [
+      236.0,
+      893.0
+    ],
+    [
+      483.0,
+      903.0
+    ],
+    [
+      729.0,
+      899.0
+    ],
+    [
+      736.0,
+      886.0
+    ],
+    [
+      739.0,
+      376.0
+    ],
+    [
+      726.0,
+      180.0
+    ],
+    [
+      670.0,
+      166.0
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "05_first_fold/first_fold_0026.jpg",
+    "sha256": "04a3225977c29b699b222428c3905206e3ef5a4f85d6a2000ba243aa83d9a135",
+    "capture_id": null
+  }
+}
