@@ -17,6 +17,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: requirements/host.txt
       - name: Install host test dependencies
         run: python -m pip install -r requirements/host.txt
       - name: Run towel software tests
@@ -38,4 +39,4 @@ jobs:
           python tools/run/select_towel_fake_reachability.py config/towel_fake_reachability.example.json --output tmp/towel_fake_reachability.json
       - name: Assert motion remains locked
         run: |
-          python -c "import json; from pathlib import Path; files=Path('tmp').glob('*.json'); assert all(not json.loads(p.read_text())['motion_authorized'] and json.loads(p.read_text())['motion_commands'] == 0 for p in files)"
+          python -c "import json; from pathlib import Path; files=[Path('tmp/towel_plan.json'), Path('tmp/towel_replay.json'), Path('tmp/towel_fake_reachability.json')]; assert all(not json.loads(p.read_text())['motion_authorized'] and json.loads(p.read_text())['motion_commands'] == 0 for p in files)"
