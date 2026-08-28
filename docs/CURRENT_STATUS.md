@@ -11,11 +11,19 @@ R0 실기 결과, 최종 plan-only gate와 R1 관측 검증은 이 문서에 통
 최종 목표 수건은 nominal 300×300 mm로 확정됐다. 실제 네 변, 근사 두께,
 면 100%·건조·미세탁 조건과 좌우 1/4겹 정적 retention을 등록했다. 질량,
 작업대 마찰, 자동 contact와 동적 slip·장력 한계는 아직 측정되지 않았다.
-R0 물리·카메라·작업셀 기반과 canonical 접기 task-pose 후보를 통합했다. 접기
-순서는 1차 양팔 아래→위, 2차 가까운 한 팔 오른쪽→왼쪽 edge-midpoint다. software와
+R0 물리·카메라·작업셀 기반과 canonical 접기 task-pose 후보를 통합했다. 최신 접기
+순서는 1차 양팔 아래→위, 2차 오른팔 오른쪽→왼쪽 edge-midpoint다. software와
 full-FK IK뿐 아니라 등록 완료 r0g URDF·workcell shadow·right tabletop artifact를
-고정한 strict MoveIt plan-only gate도 통과했다. 실제 수건 motion은 승인되지
-않았고 `motion_authorized=false`다. R1은 실제 Top 원본 595장,
+고정한 strict MoveIt plan-only gate도 통과했다. 최신 아래→위·오른팔 artifact로
+R2 S0 reset·articulation·FOV·collision도 다시 통과했다. 이전 후보의 S1 물리 smoke는
+보존하고, 최신 manifest에서도 1차 양팔 vertex-patch lift→laydown→release smoke를
+통과했다. self-contact·물성 보정과 자유 면 전체 형상 결정성은 아직 필요하다.
+Self-contact는 2-node topology filter와 `1/240 s` timestep에서 겹 간격과 테이블
+안착은 유지했지만 20초 뒤 잔진동 때문에 fail-closed로 미통과 처리했다.
+R2 작업 추정 진행률은 `64%`이며, 다음 시뮬레이션은 수건 질량·4겹 두께·
+수건-작업대 마찰의 최소 실측값을 받은 뒤 재개한다. 그 전에는 미보정 기본값에
+맞춘 추가 solver 튜닝이나 후속 S2/S3 실행을 진행하지 않는다.
+실제 수건 motion은 승인되지 않았고 `motion_authorized=false`다. R1은 실제 Top 원본 595장,
 사람 검수 segmentation과 독립 held-out, 실제 3-frame observation burst까지
 motion-free로 검증해 완료했다.
 
@@ -34,7 +42,7 @@ motion-free로 검증해 완료했다.
 
 | 구성 | 현재 | 다음 승인 조건 |
 |---|---|---|
-| 태스크 범위 | 실측 304/296/304/296 mm, 면 100%, dry/unwashed, 최종 nominal 150×150 mm | 질량은 동적 모델/primitive 전 측정 |
+| 태스크 범위 | 실측 304/296/304/296 mm, 면 100%, dry/unwashed, 최종 nominal 150×150 mm | 질량, 4겹 두께 5지점, 수건-작업대 가로/세로 마찰을 S1 self-contact 재실행 전 측정 |
 | cloth contact | 좌우 1겹·4겹 current-pose hold 2회와 가벼운 pull PASS | 자동 open/close-to-contact, 동적 slip·장력 승격 |
 | annotation 계약 | schema, validator, deterministic split와 실제 capture/episode manifest | R2 sim/real action-outcome episode에 동일 identity 계약 적용 |
 | 수건 데이터셋 | 개발 595장 중 검수 train 540장(기존 103 + assisted 승인 437, 제외 7) + held-out 38장 중 검수 35장·robot OOD 3장 + 실제 3-frame 5 episode/15장; split leakage 0 | R2 sim/real episode 계약 유지 |
@@ -42,13 +50,13 @@ motion-free로 검증해 완료했다.
 | corner/topology | outline quadrilateral·metric area·flatness, non-flat/fold `ALIGNED` 0건; 검증된 action context에서만 fold outline 판정 | 들림·다층 ambiguity는 wrist/RGB-D 근거 전까지 UNKNOWN |
 | temporal state | 실제 5 episode/15장 3-frame 상태 일치; 1차 IoU min 0.903769, 2차 min 0.859693 | 실제 primitive 전후 동일 계약 재사용 |
 | observation lifecycle | `OBSERVE_CLEAR→primitive→RETREAT_AND_SETTLE→REOBSERVE_CLEAR`, freshness·settle·identity·3-frame fail-closed gate 실데이터 PASS | R3 primitive runner와 연결 |
-| fold plan-only | r0g strict PASS: 1차 양팔 아래→위, correction 8개, 2차 오른팔 오른쪽→왼쪽; 840구간·12,547상태·미승인 접촉 0 | Isaac S0 재생 뒤 R3 무수건 dry-run; 실제 cloth/contact 승인은 별도 |
-| Isaac/학습 | 표시 전용 workcell과 legacy 단일팔 rigid scripted grasp; Isaac Lab towel env·policy는 없음 | S0/S1 physics와 vectorized smoke test, heuristic baseline부터 구축 |
+| fold plan-only | r0g strict PASS: 1차 양팔 아래→위, correction 8개, 2차 오른팔 오른쪽→왼쪽; 846구간·12,552상태·미승인 접촉 0 | R3 무수건 dry-run; 실제 cloth/contact 승인은 별도 |
+| Isaac/학습 | 최신 canonical SHA/r0g/worktable 고정 S0 PASS. rigid proxy 8-env reset 오차 `7.45e-9 m`, 114-phase articulation `0 rad`, Top image/board margin `29.409 px`/`5.756 mm`, PhysX trajectory 3,383표본 금지 접촉 0. 최신 S1 1,024-node surface cloth의 양팔 9-node×2 attachment→1차 fold→place/release smoke PASS: snap `0.046 mm`, patch lift 최소 `20.933 mm`, 강체회전 포함 추종 오차 `0.426 mm`, release 뒤 jaw 거리 최소 `63.974 mm`, 최종 clearance/높이 `1.500/22.738 mm`. 8-env full-shape 차이 `31.648 mm`로 결정성 미통과. Self-contact 진단은 비이웃 간격 `3.007 mm`와 table clearance `1.500 mm`를 유지했지만 20초 뒤 최대 속도 `0.0294 m/s > 0.015`로 settle FAIL | 실측 물성으로 self-contact chatter 제거 후 full-shape 결정성 검증 |
 | 조작 primitive | 미구현 | 개별 plan-only→supervised 제한 반복 |
 | 펼쳐진 수건 2회 접기 | 미구현 | R4 standalone fold gate 통과 |
 | 펼치기·평탄화 | 미구현 | R5/R6 단계 성공 기준 통과 |
 | 통합 복구 | offline 유한 상태기계 | 실제 실패 signature와 feedback 연결 |
-| hardware-free CI | 수건 host 회귀 126개, 계약·schema·dataset 검증과 ROS overlay RViz 시험 5개 PASS | R2 Isaac vectorized smoke test 연결 |
+| hardware-free CI | 수건·YOLO·S0/S1 host/replay 계약과 ROS overlay 관련 현재 전체 회귀 873개 PASS | direct-link attachment·place/release 회귀 연결 |
 
 Top 카메라 R0-A 실기 확인에서 장치
 `/dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1.1:1.0-video-index0`, MJPEG
@@ -143,11 +151,10 @@ config로 승격했다. Pi 재빌드 뒤 Top `1280x960@30`, 두 wrist `640x480@3
 동시에 `STREAMING`했고 reconnect와 capture/decode error는 없었다.
 `motion_authorized=false`는 유지한다.
 
-R0-G canonical 후보는 300 mm 수건을 검증된 작업대 중앙에 두고 로봇 가까운
+최신 canonical 후보는 300 mm 수건을 검증된 작업대 중앙에 두고 로봇 가까운
 아래쪽 moving edge 양 끝을 양팔로 잡아 먼 위쪽으로 먼저 접는다. clear 재관측과
-bounded correction 뒤에는 짧아진 두 겹 edge의 중앙을 가까운 오른팔이
-오른쪽→왼쪽으로 접는다. 왼팔과 왼쪽→오른쪽 방향은 bounded fallback 후보로만
-유지한다. X/Y 부호는 artifact의 좌표 재현용 metadata에만 남긴다.
+bounded correction 뒤에는 짧아진 두 겹 오른쪽 edge의 중앙을 오른팔이
+오른쪽→왼쪽으로 접는다. X/Y 부호는 artifact의 좌표 재현용 metadata에 함께 남긴다.
 
 SO-101 한 팔은 5-DOF이므로 임의 exact 6D pose를 주장하지 않는다. 각 phase는
 TCP xyz와 jaw opening-line yaw를 검사하고 full 6D FK를 기록한다. contact와
@@ -160,11 +167,13 @@ data-fit candidate URDF에서 초기 clear 자세의 카메라 마운트와 팔 
 등록 완료 `so101_dual_preview_right_registered_r0g.urdf`와 manifest, workcell
 shadow, right tabletop validation을 복원해 최종 runner를 다시 실행했다. 선택된
 canonical 후보는 1차 양팔 아래→위, 2차 오른팔 오른쪽→왼쪽이며 bounded
-correction 8개를 포함해 840개 경로 구간과 12,547개 strict 상태를 통과했다.
+correction 8개를 포함해 846개 경로 구간과 12,552개 strict 상태를 통과했다.
 미승인 접촉은 0건, 허용된 얕은 동일팔 mesh 접촉 최대는 `3.810 mm / 4 mm`,
-dense TCP 경로 편차 최대는 `2.868 mm / 4 mm`였다. 결과는
-`tmp/towel_fold_sequence_strict_r0g_20260828.json`이며 SHA-256은
-`e70315f7a2138b45d21f014be8ee791f71fb1cee0e7c1d0fcac9db410d00cfb0`다.
+dense TCP 경로 편차 최대는 `2.875 mm / 4 mm`였다. 시작 departure는 FCL만
+통과하던 어깨 단독 우회를 제거하고 베이스+어깨 동시 이동과 25% 베이스 부분 복귀로
+교체해 PhysX에서도 금지 접촉 0을 확인했다. 결과는
+`artifacts/bimanual/planning/towel_bimanual_then_single_robot_near_to_far_r2_s0.json`이며
+SHA-256은 `c9d9d93974996603ab1c64b3711d5c32c71f8e3f8e35d4cdfc65dc459c35632b`다.
 실제 controller·resident motion API는 사용하지 않았고 `motion_commands=0`이다.
 
 full-FK 결과는 1차·2차를 한 artifact에 기록하고 RViz에서 `first`, `second`,
@@ -174,7 +183,9 @@ artifact가 아닌 full-FK-only 관절 pose animation은 충돌 미검사 경고
 
 strict MoveIt 경로의 dense 검사는 각 관절 상태의 충돌뿐 아니라 각 active TCP가
 인접 task waypoint chord에서 벗어난 거리도 검사한다. 최대 허용 편차는 기존
-dense Cartesian 검증과 같은 `4 mm`이며, phase endpoint만 맞고 중간 TCP가 크게
+dense Cartesian 검증과 같은 `4 mm`이며 contact·attachment 구간에만 강제한다.
+free-space departure는 편차를 기록하되 collision과 joint limit을 적용한다. 따라서
+phase endpoint만 맞고 수건을 든 중간 TCP가 크게
 휘는 OMPL 경로는 거부한다.
 
 기존 로컬의 1차·2차 독립 candidate sweep runner는 canonical geometry와 중복되어
@@ -204,11 +215,14 @@ canonical 형식으로 이식했다.
 
 ## 바로 다음 작업 — R2
 
-1. R1의 고정 Top camera·파란 수건 범위와 episode split을 그대로 재사용한다.
-2. Isaac Lab S0에서 최신 URDF·작업대·카메라 FOV와 승인 workspace를 고정한다.
-3. S1 surface cloth의 drop/settle, vertex-patch grasp, lift/place/release를 seed별로
-   재현하고 실물 질량·마찰이 필요한 시점에는 측정을 선행한다.
-4. heuristic baseline과 이후 residual policy가 같은 observation/action/outcome
-   계약과 held-out episode를 소비하게 한다.
+1. 수건 질량, 4겹 두께 5지점, 책에 고정한 수건의 작업대 가로/세로 정지·동적
+   마찰을 방향별 3회 측정한다. 별도 추는 쓰지 않고 당김 저울로 책+수건 전체
+   무게와 수평 당김값을 함께 잰다.
+2. 실측값을 S1 material 후보에 고정하고 현재 `1/240 s` self-contact gate를
+   임계값 완화 없이 다시 실행한다.
+3. settle과 비이웃 vertex 간격을 통과한 뒤 8-env full-shape 결정성, 2차 접기,
+   correction, S2 material randomization 순으로 진행한다.
+4. 직접 늘어남·영률·포아송비와 수건-수건 마찰은 R2 선행조건에서 제외한다.
+   처짐과 낙하시간은 초기 보정이 부족할 때만 추가한다.
 5. left wrist는 실제 multi-view fusion의 실패 근거가 생길 때 staged metric 보정을
    수행하며, 그 전에는 들림·다층 ambiguity를 `UNKNOWN`으로 유지한다.

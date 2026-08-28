@@ -35,13 +35,14 @@
 |---|---:|---:|---|
 | 펼침 | 300×300 mm | 0.0900 m² | 네 모서리와 전체 edge 노출 |
 | 1차 접기 | 300×150 mm | 0.0450 m² | 양팔 moving-edge endpoint 이동과 후속 폐루프 정렬 |
-| 2차 접기 | 150×150 mm | 0.0225 m² | 오른팔 moving-edge midpoint 이동, 왼팔 fallback |
+| 2차 접기 | 150×150 mm | 0.0225 m² | 오른팔로 오른쪽 edge midpoint를 잡아 왼쪽으로 이동 |
 
 두 중심선 접기의 이상적인 corner 이동 거리는 각각 300 mm이고, 반원 arc의
 반경과 최대 높이는 150 mm다. 실제 명령은 이 수치를 그대로 복사하지 않는다.
 1차는 넓은 한 겹 moving edge의 양 끝을 양팔이 함께 제어해 회전과 비틀림을
 줄이고, clear 재관측과 최대 2회 보정을 설계에 포함한다. 2차는 짧아진 두 겹
-edge의 midpoint를 가까운 오른팔이 잡고 왼팔은 clear pose에 둔다. 각 단계는
+오른쪽 edge의 midpoint를 오른팔이 잡아 왼쪽으로 넘기고 왼팔은 clear pose에
+둔다. 각 단계는
 TCP 위치, jaw opening-line yaw, downward approach cone, 카메라 FOV와 작업대
 여유를 검증한다. SO-101 한 팔은 5-DOF이므로 임의의 exact 6D pose를 요구하지
 않고 full 6D FK를 증빙으로 기록한다.
@@ -247,15 +248,16 @@ slip, 시도 횟수와 실패 원인을 저장해 simulator randomization과 pol
 
 ## 9. 첫 번째 반 접기
 
-1. 양팔을 순차적으로 moving edge의 양 끝 pregrasp에 배치한다. 왼팔은 high-y,
-   오른팔은 low-y endpoint를 담당하며 팔 교차를 금지한다.
+1. 양팔을 순차적으로 로봇 가까운 아래쪽 moving edge의 양 끝 pregrasp에 배치한다. Top 영상의
+   왼쪽 endpoint는 왼팔(high-y), 오른쪽 endpoint는 오른팔(low-y)이 담당하며
+   팔 교차를 금지한다.
 2. 양쪽 single-layer contact를 모두 확인한 뒤에만 두 grasp를 attachment로
    취급한다.
-3. 로봇 가까운 아래쪽 변에서 먼 위쪽 변으로 두 TCP가 같은 17-point 반원 arc를
-   따라 이동하고, laydown gate 뒤 함께 release한다. 내부 계산에서는 이 방향을
-   `x_negative_to_positive`로 기록한다.
-4. 양팔을 clear pose로 물린 뒤 현재 mask, 두 대응 corner, edge와 fold-line을
-   새로 관측한다.
+3. 아래쪽 변에서 먼 위쪽 변으로 두 TCP가 같은 17-point 반원 arc를 따라 이동하고,
+   laydown gate 뒤 함께 release한다. 내부 계산에서는 이 방향을
+   `robot_near_to_far`와 `x_negative_to_positive`로 기록한다.
+4. release 뒤 오른팔, 왼팔 순서로 충돌 없이 clear pose로 물린 뒤 현재 mask,
+   두 대응 corner, edge와 fold-line을 새로 관측한다.
 5. 평행이동이면 `micro_drag`, 회전·느슨함이면 `lift_pull_place`를 한 번 실행하고
    다시 clear 관측한다. 첫 fold의 correction budget은 최대 2회다.
 6. corner/fold-line 기준을 통과하지 못하거나 두 번의 보정이 개선을 만들지
@@ -270,17 +272,20 @@ correction 후보, `30 mm` 초과·대각 겹침·corner 소실은 재시도 후
 
 1차 fold 뒤에는 수건이 여러 겹이므로 새 외곽선을 다시 추정한다. 가까운 팔
 하나가 짧아진 moving edge의 중앙을 잡고 다른 팔은 clear pose에 둔다. 기본
-후보는 오른팔의 오른쪽→왼쪽 방향이며, 왼팔과 왼쪽→오른쪽 방향은 bounded
-fallback이다. 내부 좌표 기록은 각각 `y_negative_to_positive`와
-`y_positive_to_negative`를 사용한다.
+승인 후보는 오른팔의 오른쪽→왼쪽 방향이며 내부 좌표 기록은
+`y_negative_to_positive`를 사용한다. 다른 팔·방향은 동일한 strict gate를 새로
+통과하기 전까지 실행 후보로 승격하지 않는다.
 접촉점은 실제 bundle 높이를 사용하지만 반대쪽 laydown은 5-DOF 도달 한계와
 기존 dense Cartesian 결과를 반영해 테이블 위 TCP 40 mm에서 release한다.
 contact/pregrasp에는 70° downward cone을, 이미 cloth가 붙은 transfer·laydown에는
 최대 90° cone을 적용한다.
 
 MoveIt이 두 waypoint 사이에서 만든 관절 경로는 0.02 rad 이하 간격으로 다시
-샘플링한다. 각 샘플의 full-FK TCP가 인접 task chord에서 `4 mm`보다 멀리
+샘플링한다. contact 및 수건이 attachment된 구간에서 각 샘플의 full-FK TCP가
+인접 task chord에서 `4 mm`보다 멀리
 벗어나면, endpoint와 collision이 통과해도 수건 arc 경로로 승인하지 않는다.
+아직 수건을 잡지 않은 free-space departure는 이 직선 chord gate를 강제하지 않고
+동일한 편차를 기록하면서 collision과 joint limit을 검사한다.
 
 release 뒤 필요하면 제한된 `release_and_smooth`를 실행하고 다음을 확인한다.
 

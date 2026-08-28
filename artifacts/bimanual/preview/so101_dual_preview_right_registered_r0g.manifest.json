@@ -1,0 +1,78 @@
+{
+  "isaac_import": {
+    "input_file": "/home/an-hyeonseo/Documents/GitHub/SO101-Can-Towel-Manipulation/artifacts/bimanual/preview/so101_dual_preview_right_registered_r0g.urdf",
+    "ros_package_list": [
+      {
+        "package_name": "so101_description",
+        "package_path": "/home/an-hyeonseo/Documents/GitHub/SO101-Can-Towel-Manipulation/ros2_ws/src/so101_description"
+      }
+    ]
+  },
+  "joint_limits": {
+    "approved_path": "config/bimanual_operational_limits.json",
+    "approved_sha256": "436a5cfdc80aeaacfc4fd55812ec7ce102c7ecfe7443071484a942cad0946263",
+    "arm_joint_count": 10,
+    "grippers_excluded": true,
+    "runtime_change_authorized": false,
+    "status": "OPERATOR_VERIFIED_FULL_TASK_ENVELOPE"
+  },
+  "joint_zero_status": {
+    "left": "VALIDATED_EXISTING_Q0_CONTRACT",
+    "right": "MULTI_POSE_VALIDATED_SHADOW_ONLY"
+  },
+  "left_mount": {
+    "rpy_rad": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "status": "REFERENCE",
+    "xyz_m": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "motion_authorized": false,
+  "right_mount": {
+    "rpy_rad": [
+      -0.029819341600276685,
+      0.008533907531986795,
+      -0.06590248704954467
+    ],
+    "status": "MULTI_POSE_REGISTERED_SHADOW_ONLY",
+    "xyz_m": [
+      -0.005083961778590117,
+      -0.23042143203481955,
+      -0.003924726444298888
+    ]
+  },
+  "right_registration_candidate": {
+    "joint_zero_offsets_rad": {
+      "right_base_joint": 0.0,
+      "right_elbow_joint": 0.04564613153696746,
+      "right_shoulder_joint": -0.04349433446772289,
+      "right_wrist_flex_joint": 0.022135488171600694,
+      "right_wrist_roll_joint": 0.0
+    },
+    "method": "workcell_anchored_right_joint_zero_bundle_adjustment",
+    "path": "/home/an-hyeonseo/Documents/GitHub/SO101-Can-Towel-Manipulation/artifacts/calibration/top_eye_to_hand_20260825_r0c/right_resident_torque_candidate.yaml",
+    "runtime_promotion_authorized": false,
+    "sha256": "a4584689c6e645b12b485f8d46c1d4b4a9c4de56861525092e050d5cc4dc5019",
+    "status": "EYE_TO_HAND_VALIDATED_MOTION_STILL_NOT_AUTHORIZED",
+    "validation_rotation_max_deg": 0.9660164347256047,
+    "validation_translation_max_mm": 3.271950664209784
+  },
+  "schema_version": 1,
+  "simulation_only": true,
+  "source_xacro": "ros2_ws/src/so101_description/urdf/so101_dual_preview.urdf.xacro",
+  "urdf": "/home/an-hyeonseo/Documents/GitHub/SO101-Can-Towel-Manipulation/artifacts/bimanual/preview/so101_dual_preview_right_registered_r0g.urdf",
+  "urdf_sha256": "1acc73ed9a2a538c16446a9b8d781214db08aa31508973db99cddcd221f7af52",
+  "wrist_camera_mount_geometry": {
+    "left": true,
+    "left_optical_frame": "VALIDATED",
+    "right": true,
+    "right_optical_frame": "VALIDATED_TORQUE_HOLD_EYE_IN_HAND",
+    "same_wrist_joint_origin": true
+  }
+}

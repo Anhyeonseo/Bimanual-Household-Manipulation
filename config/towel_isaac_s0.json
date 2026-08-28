@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "status": "R2_S0_HOST_PREFLIGHT_CANDIDATE",
+  "motion_authorized": false,
+  "simulation_success_claimed": false,
+  "stage": {
+    "name": "rigid_proxy",
+    "cloth_dynamics_enabled": false,
+    "robot_controller_enabled": false,
+    "proxy_size_m": [0.3, 0.3, 0.003],
+    "physics_dt_s": 0.008333333333333333,
+    "rendering_required": false
+  },
+  "vectorized_replay": {
+    "environment_count": 8,
+    "seeds": [21001, 21002, 21003, 21004, 21005, 21006, 21007, 21008],
+    "reset_randomization_enabled": false,
+    "trajectory_source": "strict_moveit_plan_only"
+  },
+  "expected_strategy": {
+    "candidate_id": "first_bimanual_robot_near_to_far__second_right_right_to_left_edge_midpoint",
+    "first_axis": "x",
+    "first_direction": "robot_near_to_far",
+    "first_arm_assignment": "left_high_y_right_low_y",
+    "second_axis": "y",
+    "second_direction": "right_to_left",
+    "second_active_arm": "right"
+  },
+  "sources": {
+    "urdf": {
+      "path": "artifacts/bimanual/preview/so101_dual_preview_right_registered_r0g.urdf",
+      "sha256": "1acc73ed9a2a538c16446a9b8d781214db08aa31508973db99cddcd221f7af52"
+    },
+    "urdf_manifest": {
+      "path": "artifacts/bimanual/preview/so101_dual_preview_right_registered_r0g.manifest.json",
+      "sha256": "3b9e719ab0e01a90167815d773415cc3fdb44ddca22e9d3c054be42cc4079361"
+    },
+    "top_camera_info": {
+      "path": "ros2_ws/src/manipulation_camera_manager/config/top_camera_info.yaml",
+      "sha256": "e3d401ceca4c8dcee944f0a69e9c0bd8f7b2875c1b63ffc8dce265219f356338"
+    },
+    "worktable": {
+      "path": "ros2_ws/src/manipulation_camera_manager/config/top_worktable_homography.yaml",
+      "sha256": "df8fa4b4a4c9bebcc3dce595857e9033b9ffe0777e2826c06c13767a3ed157b0"
+    },
+    "task_contract": {
+      "path": "config/towel_task_contract.candidate.yaml",
+      "sha256": "8285db579f8d6120dec2f99752878801c3e932259455df73b278777f8dace797"
+    },
+    "plan": {
+      "path": "artifacts/bimanual/planning/towel_bimanual_then_single_robot_near_to_far_r2_s0.json",
+      "sha256": "c9d9d93974996603ab1c64b3711d5c32c71f8e3f8e35d4cdfc65dc459c35632b"
+    }
+  },
+  "required_runtime": {
+    "python": "3.12",
+    "isaac_sim": "6.0.1",
+    "isaac_lab_required_for_simulation": true
+  }
+}

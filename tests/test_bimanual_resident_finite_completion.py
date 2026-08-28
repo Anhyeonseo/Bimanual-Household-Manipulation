@@ -134,7 +134,7 @@ def test_resident_host_contract_requires_finite_completion_firmware() -> None:
     )
     rolling_motion = text(
         ROOT
-        / "tools/"
+        / "tools/setup/resident_gate/"
         "execute_resident_bimanual_rolling_base_small_roundtrip_once.py"
     )
     assert "F8_FIRMWARE_VERSION = 0x00024809" in adapter

@@ -76,6 +76,7 @@ PLANNING_ATTEMPTS_PER_IK_BRANCH = 8
 MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M = 0.0001
 RIGHT_CLEARANCE_SHOULDER_RAD = -0.12
 RIGHT_CLEARANCE_ELBOW_RAD = -0.2
+RIGHT_DEPARTURE_BASE_RESTORE_FRACTION = 0.25
 DEFAULT_CONTRACT = ROOT / "config/towel_task_contract.candidate.yaml"
 DEFAULT_WORKTABLE = (
     ROOT
@@ -688,33 +689,46 @@ class MoveItPlanOnlyGate:
         target: tuple[float, ...],
         task_targets: tuple[TaskPose, ...],
     ) -> tuple[list[dict[str, object]], dict[str, object]]:
-        """Leave OBSERVE_CLEAR through a bounded seven-stage joint route.
+        """Leave OBSERVE_CLEAR through a PhysX-safe strict joint route.
 
-        OBSERVE_CLEAR contains only the measured shallow same-arm mesh contacts.
-        Planning directly with those pairs allowed lets OMPL choose paths that
-        deepen the right jaw/shoulder overlap.  The registered-r0g strict sweep
-        selected shoulder=-0.12 before elbow=-0.2; each deterministic joint
-        chord is independently audited against the unchanged 4 mm bound.
+        The base and shoulder move together on the first chord.  This preserves
+        the measured jaw/shoulder clearance behavior of the strict r0g route
+        while rotating the lower arm away from Isaac's merged fixed-base mesh.
+        The superseded shoulder-only -0.12 rad chord passed FCL but collided in
+        PhysX.  Every replacement chord is densely audited against the same
+        unchanged 4 mm MoveIt bound.
         """
         current = start
         route = (
-            ("shoulder_clearance", 7, RIGHT_CLEARANCE_SHOULDER_RAD),
-            ("elbow_clearance", 8, RIGHT_CLEARANCE_ELBOW_RAD),
-            ("wrist_roll", 10, target[10]),
-            ("wrist_flex", 9, target[9]),
-            ("target_elbow", 8, target[8]),
-            ("target_shoulder", 7, target[7]),
-            ("target_base", 6, target[6]),
+            (
+                "base_shoulder_clearance",
+                {6: target[6], 7: RIGHT_CLEARANCE_SHOULDER_RAD},
+            ),
+            ("elbow_clearance", {8: RIGHT_CLEARANCE_ELBOW_RAD}),
+            ("wrist_roll", {10: target[10]}),
+            ("wrist_flex", {9: target[9]}),
+            ("target_elbow", {8: target[8]}),
+            (
+                "partial_restore_base_before_target",
+                {
+                    6: target[6]
+                    + RIGHT_DEPARTURE_BASE_RESTORE_FRACTION
+                    * (start[6] - target[6])
+                },
+            ),
+            ("target_shoulder", {7: target[7]}),
+            ("target_base", {6: target[6]}),
         )
         segments: list[dict[str, object]] = []
         self.set_exceptions(False)
-        for route_name, index, value in route:
-            if abs(current[index] - value) <= 1.0e-12:
+        for route_name, updates in route:
+            target_positions = list(current)
+            for index, value in updates.items():
+                target_positions[index] = float(value)
+            target_state = tuple(target_positions)
+            if target_state == current:
                 continue
             name = f"{phase_name}_route_{route_name}"
-            target_positions = list(current)
-            target_positions[index] = float(value)
-            target_state = tuple(target_positions)
             segment = self.deterministic_arm_segment(
                 name, current, target_state, "right"
             )
@@ -727,6 +741,9 @@ class MoveItPlanOnlyGate:
             )
             segment["planning_attempt"] = 1
             segment["validated_clear_departure_route"] = True
+            segment["physx_safe_base_shoulder_diagonal"] = (
+                route_name == "base_shoulder_clearance"
+            )
             segments.append(segment)
             current = target_state
         if current != target:

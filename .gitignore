@@ -78,6 +78,15 @@ artifacts/*
 artifacts/models/*
 !artifacts/models/towel_yolo26n_seg_expanded_r1/
 !artifacts/models/towel_yolo26n_seg_expanded_r1/best.pt
+!artifacts/bimanual/
+artifacts/bimanual/*
+!artifacts/bimanual/preview/
+artifacts/bimanual/preview/*
+!artifacts/bimanual/preview/so101_dual_preview_right_registered_r0g.urdf
+!artifacts/bimanual/preview/so101_dual_preview_right_registered_r0g.manifest.json
+!artifacts/bimanual/planning/
+artifacts/bimanual/planning/*
+!artifacts/bimanual/planning/towel_bimanual_then_single_robot_near_to_far_r2_s0.json
 tmp/
 output/
 .verification/

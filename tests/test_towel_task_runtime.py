@@ -106,6 +106,7 @@ def test_candidate_contract_records_canonical_fold_policy():
     ]
     assert policy["second_active_arm_candidates"] == ["right", "left"]
     assert policy["second_inactive_arm_policy"] == "remain_at_observe_clear"
+    assert "second_relay_fallback" not in policy
     assert policy["kinematic_contract"]["arm_dof"] == 5
     assert policy["kinematic_contract"][
         "arbitrary_exact_6d_pose_claimed"
