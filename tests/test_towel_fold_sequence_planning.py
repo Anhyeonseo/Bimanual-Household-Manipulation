@@ -8,6 +8,7 @@ import yaml
 
 from tools.lib.grasp_yaw_kinematics import GraspYawKinematics
 from tools.lib.towel_task_pose_planning import (
+    CORRECTION_DEPARTURE_FRACTIONS,
     MAXIMUM_APPROACH_TILT_RAD,
     MAXIMUM_ATTACHED_TRANSFER_TILT_RAD,
     TowelPlanningError,
@@ -203,12 +204,26 @@ def test_correction_envelope_has_both_signed_extrema_on_both_corners():
     assert max(abs(value) for probe in probes for value in probe.offset_xy_m) == pytest.approx(0.030)
     for probe in probes:
         validate_phase_contract(probe.phases)
+        departure_phases = tuple(
+            phase
+            for phase in probe.phases
+            if phase.path_cache_key is not None
+            and phase.path_cache_key.startswith("correction_pregrasp_")
+        )
+        assert len(departure_phases) == 2 * len(CORRECTION_DEPARTURE_FRACTIONS)
         assert probe.phases[-1].clear_pose is True
         assert probe.phases[-1].clear_arm == probe.arm
-        assert probe.phases[-1].reverse_of == f"{probe.probe_id}_pregrasp"
-        assert probe.phases[-2].reuse_target_of == f"{probe.probe_id}_pregrasp"
+        assert probe.phases[-1].reverse_of == (
+            departure_phases[0].name if probe.arm == "left" else None
+        )
+        return_pregrasp = next(
+            phase
+            for phase in probe.phases
+            if phase.name == f"{probe.probe_id}_return_pregrasp"
+        )
+        assert return_pregrasp.reuse_target_of == f"{probe.probe_id}_pregrasp"
         assert probe.phases[0].path_cache_key == (
-            f"correction_pregrasp_{probe.corner}_{probe.arm}"
+            f"correction_pregrasp_{probe.corner}_{probe.arm}_gateway_01"
         )
 
 

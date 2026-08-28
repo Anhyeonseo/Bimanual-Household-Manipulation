@@ -10,7 +10,7 @@
 | T5 | 실제 mask, component, frame border와 clear-view rejection | 오프라인+실기 | HELD-OUT MASK PASS: towel 30/30·empty 5/5, IoU mean 0.980284/min 0.965564, border FN 0/FP 1; motion 비승인 |
 | T6 | corner, 말린 edge, layer ambiguity, height/flatness | 오프라인+실기 | PASS: 5×3 real burst 상태 일치, non-flat/fold `ALIGNED` 0; action-context fold IoU min 1차 0.903769/2차 0.859693 |
 | T7 | jaw gap, 단일/다층 grasp, slip, 장력·속도 계약 | 실기 | 좌우 1/4겹 정적 retention PASS; 자동 contact·동적 slip/장력은 미구현 |
-| T8a | 1차 양팔·보정/2차 단팔 sequence의 task-pose MoveIt plan-only | 자동+MoveIt | 후보 full-FK IK PASS; strict collision은 등록 완료 URDF/shadow/tabletop artifact 부재로 BLOCKED, motion command 0 |
+| T8a | 1차 양팔·보정/2차 단팔 sequence의 task-pose MoveIt plan-only | 자동+MoveIt | PASS: r0g URDF/shadow/tabletop 고정, 840구간·12,547 strict 상태, 미승인 접촉 0, mesh 3.810/4 mm, TCP 2.868/4 mm, motion command 0 |
 | T8b | Isaac Lab S0–S3, heuristic baseline과 visual residual/unfolding policy | 자동+Isaac+오프라인 | R2 범위; 미구현 |
 | T9 | 독립 primitive dry-run, supervised-once와 제한 반복 | 실기 | 미구현 |
 | T10 | 평탄 수건의 1차 fold와 300×150 mm 검증 | 실기 | 미구현 |

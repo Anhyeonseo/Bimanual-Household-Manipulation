@@ -76,11 +76,13 @@ cloth가 붙은 transfer·laydown은 물리적 의미와 기존 dense Cartesian 
 맞춰 최대 90°를 허용한다. 2차 laydown TCP는 도달 불가능한 16 mm를 주장하지
 않고 검증된 40 mm release 높이를 사용한다.
 
-현재 후보의 전체 full-FK IK와 software regression은 통과했다. 최종 strict
-MoveIt 승격은 등록 완료 URDF manifest, workcell shadow, right tabletop validation
-artifact가 로컬에 존재할 때만 실행한다. 저장소의 data-fit candidate URDF로는
-OBSERVE_CLEAR에서 카메라 마운트와 팔 메시가 최대 약 16.2 mm 겹쳐 fail-closed
-되므로, 이 충돌을 임시 예외로 숨겨 PASS로 기록하지 않는다.
+현재 후보의 전체 full-FK IK와 software regression에 이어 최종 strict MoveIt
+plan-only gate도 통과했다. 등록 완료 r0g URDF manifest, workcell shadow와 right
+tabletop validation을 고정해 1차 양팔 아래→위, bounded correction 8개, 2차
+오른팔 오른쪽→왼쪽 후보의 840개 구간·12,547개 상태를 검사했다. 미승인 접촉은
+0건이고 mesh 접촉 최대 `3.810/4 mm`, TCP 편차 최대 `2.868/4 mm`다. data-fit
+candidate URDF의 약 16.2 mm 카메라 마운트 충돌은 모델을 섞거나 예외 처리하지
+않고 이전 fail-closed 증거로 남긴다.
 
 현재까지 고정된 R0 계약은 다음과 같다.
 
@@ -110,9 +112,9 @@ OBSERVE_CLEAR에서 카메라 마운트와 팔 메시가 최대 약 16.2 mm 겹�
 
 완료 판정: 물리·좌표계, clear observation과 canonical task-pose MoveIt plan-only
 후보 하나가 등록 완료 URDF와 strict collision gate를 통과해야 한다. 후보 탐색은
-고정된 우선순위에서 첫 승인 해가 나오면 멈추고 앞선 거부 이유를 기록한다. 현재
-full-FK IK는 통과했으나 등록 artifact 부재로 strict MoveIt 승격은 미완료다.
-실제 fold는 승인하지 않으며 `motion_authorized=false`를 유지한다.
+고정된 우선순위에서 첫 승인 해가 나오면 멈추고 앞선 거부 이유를 기록한다. 이
+R0 plan-only 판정은 r0g artifact에서 완료됐다. 실제 fold, 자동 jaw contact와
+cloth deformation은 승인하지 않으며 `motion_authorized=false`를 유지한다.
 
 ## R1 — 실제 관측·가림·topology
 

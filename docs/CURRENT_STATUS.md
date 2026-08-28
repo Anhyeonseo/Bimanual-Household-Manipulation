@@ -1,6 +1,6 @@
 # 현재 상태
 
-기준일: 2026-08-27
+기준일: 2026-08-28
 
 R0 실기 결과, 최종 plan-only gate와 R1 관측 검증은 이 문서에 통합한다.
 현재 자동검증 결과는 repository test와 `VERIFICATION_MATRIX.md`로 확인하며,
@@ -13,9 +13,9 @@ R0 실기 결과, 최종 plan-only gate와 R1 관측 검증은 이 문서에 통
 작업대 마찰, 자동 contact와 동적 slip·장력 한계는 아직 측정되지 않았다.
 R0 물리·카메라·작업셀 기반과 canonical 접기 task-pose 후보를 통합했다. 접기
 순서는 1차 양팔 아래→위, 2차 가까운 한 팔 오른쪽→왼쪽 edge-midpoint다. software와
-full-FK IK 검증은 통과했지만 strict MoveIt 최종 승격에는 로컬에 없는 등록 완료
-URDF·workcell shadow·right tabletop artifact가 필요하다. 실제 수건 motion은
-승인되지 않았고 `motion_authorized=false`다. R1은 실제 Top 원본 595장,
+full-FK IK뿐 아니라 등록 완료 r0g URDF·workcell shadow·right tabletop artifact를
+고정한 strict MoveIt plan-only gate도 통과했다. 실제 수건 motion은 승인되지
+않았고 `motion_authorized=false`다. R1은 실제 Top 원본 595장,
 사람 검수 segmentation과 독립 held-out, 실제 3-frame observation burst까지
 motion-free로 검증해 완료했다.
 
@@ -42,7 +42,7 @@ motion-free로 검증해 완료했다.
 | corner/topology | outline quadrilateral·metric area·flatness, non-flat/fold `ALIGNED` 0건; 검증된 action context에서만 fold outline 판정 | 들림·다층 ambiguity는 wrist/RGB-D 근거 전까지 UNKNOWN |
 | temporal state | 실제 5 episode/15장 3-frame 상태 일치; 1차 IoU min 0.903769, 2차 min 0.859693 | 실제 primitive 전후 동일 계약 재사용 |
 | observation lifecycle | `OBSERVE_CLEAR→primitive→RETREAT_AND_SETTLE→REOBSERVE_CLEAR`, freshness·settle·identity·3-frame fail-closed gate 실데이터 PASS | R3 primitive runner와 연결 |
-| fold plan-only | 후보: 양팔 1차·오른팔 edge-midpoint 2차 full-FK IK PASS; strict MoveIt은 등록 artifact 부재로 BLOCKED | 등록 완료 URDF/shadow/tabletop evidence 복원 뒤 dense collision 재실행 |
+| fold plan-only | r0g strict PASS: 1차 양팔 아래→위, correction 8개, 2차 오른팔 오른쪽→왼쪽; 840구간·12,547상태·미승인 접촉 0 | Isaac S0 재생 뒤 R3 무수건 dry-run; 실제 cloth/contact 승인은 별도 |
 | Isaac/학습 | 표시 전용 workcell과 legacy 단일팔 rigid scripted grasp; Isaac Lab towel env·policy는 없음 | S0/S1 physics와 vectorized smoke test, heuristic baseline부터 구축 |
 | 조작 primitive | 미구현 | 개별 plan-only→supervised 제한 반복 |
 | 펼쳐진 수건 2회 접기 | 미구현 | R4 standalone fold gate 통과 |
@@ -155,11 +155,16 @@ pregrasp에는 70 deg downward cone을 적용하고, attached transfer·laydown�
 최대 90 deg를 명시한다. 2차 contact는 bundle 높이에서 시작하되 laydown은
 기존 dense Cartesian 검증과 실제 도달 한계를 반영한 TCP 40 mm release다.
 
-software regression과 canonical 후보의 전체 full-FK IK는 통과했다.
-하지만 strict MoveIt 진단은 저장소의 data-fit candidate URDF에서 초기 clear
-자세의 카메라 마운트와 팔 메시가 최대 약 16.2 mm 겹쳐 fail-closed됐다. 최종
-runner가 요구하는 등록 완료 URDF manifest, workcell shadow, right tabletop
-validation artifact는 Git과 로컬에 없으므로 PASS artifact를 만들지 않았다.
+data-fit candidate URDF에서 초기 clear 자세의 카메라 마운트와 팔 메시가 최대
+약 16.2 mm 겹친 이전 strict 진단은 그대로 fail-closed 증거로 보존한다. 이후
+등록 완료 `so101_dual_preview_right_registered_r0g.urdf`와 manifest, workcell
+shadow, right tabletop validation을 복원해 최종 runner를 다시 실행했다. 선택된
+canonical 후보는 1차 양팔 아래→위, 2차 오른팔 오른쪽→왼쪽이며 bounded
+correction 8개를 포함해 840개 경로 구간과 12,547개 strict 상태를 통과했다.
+미승인 접촉은 0건, 허용된 얕은 동일팔 mesh 접촉 최대는 `3.810 mm / 4 mm`,
+dense TCP 경로 편차 최대는 `2.868 mm / 4 mm`였다. 결과는
+`tmp/towel_fold_sequence_strict_r0g_20260828.json`이며 SHA-256은
+`e70315f7a2138b45d21f014be8ee791f71fb1cee0e7c1d0fcac9db410d00cfb0`다.
 실제 controller·resident motion API는 사용하지 않았고 `motion_commands=0`이다.
 
 full-FK 결과는 1차·2차를 한 artifact에 기록하고 RViz에서 `first`, `second`,

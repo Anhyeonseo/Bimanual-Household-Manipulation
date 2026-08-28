@@ -33,6 +33,10 @@ PERIMETER_MARGIN_M = 0.030
 EDGE_GRASP_INSET_M = 0.015
 PREGRASP_CLEARANCE_M = 0.035
 CORRECTION_LIMIT_M = 0.030
+CORRECTION_GATEWAY_NEAR_EDGE_INSET_M = 0.040
+CORRECTION_DEPARTURE_FRACTIONS = tuple(
+    index / 20.0 for index in range(1, 21)
+)
 FIRST_LAYER_TCP_Z_OFFSET_M = 0.015
 SECOND_LAYER_TCP_Z_OFFSET_M = 0.016
 
@@ -50,6 +54,7 @@ OBSERVE_CLEAR_JAW_YAW_BY_ARM_RAD = {
     "right": 0.7182052256208875,
 }
 MAXIMUM_TCP_POSITION_ERROR_M = 0.0025
+IK_POSITION_RESIDUAL_SCALE_M = 0.0005
 MAXIMUM_JAW_YAW_ERROR_RAD = math.radians(4.0)
 MAXIMUM_APPROACH_TILT_RAD = math.radians(70.0)
 MAXIMUM_ATTACHED_TRANSFER_TILT_RAD = math.radians(90.0)
@@ -245,6 +250,13 @@ def build_correction_probes(
         ("low_y_patch", "right", (left + 0.055, bottom + EDGE_GRASP_INSET_M)),
     )
     contact_z = table_z_m + FIRST_LAYER_TCP_Z_OFFSET_M
+    # ``first_footprint.left`` is the first fold line (the original towel
+    # center) and ``right`` is the original far edge.  Reflecting the far edge
+    # around the fold line reconstructs the original near edge.  The gateway
+    # is therefore the same reachable pregrasp X used by the canonical first
+    # fold, before transferring above the placed half-towel.
+    original_near_x = 2.0 * left - right
+    gateway_x = original_near_x + CORRECTION_GATEWAY_NEAR_EDGE_INSET_M
     probes = []
     for corner, arm, (start_x, start_y) in corners:
         for primitive, offsets in (
@@ -265,6 +277,73 @@ def build_correction_probes(
                     (start_x, start_y, contact_z + PREGRASP_CLEARANCE_M),
                     0.0, "pregrasp_open", "one_layer",
                 )
+                clear_xyz = OBSERVE_CLEAR_TCP_BY_ARM_M[arm]
+                clear_yaw = OBSERVE_CLEAR_JAW_YAW_BY_ARM_RAD[arm]
+                departure_phases = []
+                gateway_xyz = (
+                    gateway_x,
+                    start_y,
+                    contact_z + PREGRASP_CLEARANCE_M,
+                )
+                route_legs = (
+                    ("gateway", clear_xyz, gateway_xyz, clear_yaw, 0.0),
+                    (
+                        "transfer",
+                        gateway_xyz,
+                        pregrasp.xyz_m,
+                        0.0,
+                        pregrasp.jaw_yaw_rad,
+                    ),
+                )
+                for leg_name, origin_xyz, target_xyz, origin_yaw, target_yaw in route_legs:
+                    for departure_index, fraction in enumerate(
+                        CORRECTION_DEPARTURE_FRACTIONS, start=1
+                    ):
+                        final_departure = (
+                            leg_name == "transfer"
+                            and math.isclose(fraction, 1.0, abs_tol=1.0e-12)
+                        )
+                        departure_name = (
+                            f"{probe_id}_pregrasp"
+                            if final_departure
+                            else (
+                                f"{probe_id}_departure_{leg_name}_"
+                                f"{departure_index:02d}"
+                            )
+                        )
+                        departure_pose = _pose(
+                            departure_name,
+                            arm,
+                            tuple(
+                                origin + fraction * (target - origin)
+                                for origin, target in zip(
+                                    origin_xyz, target_xyz, strict=True
+                                )
+                            ),
+                            wrap_half_turn(
+                                origin_yaw
+                                + fraction * wrap_half_turn(
+                                    target_yaw - origin_yaw
+                                )
+                            ),
+                            "pregrasp_open",
+                            "one_layer",
+                            (
+                                MAXIMUM_APPROACH_TILT_RAD
+                                if final_departure
+                                else MAXIMUM_ATTACHED_TRANSFER_TILT_RAD
+                            ),
+                        )
+                        departure_phases.append(
+                            PhaseSpec(
+                                departure_name,
+                                (departure_pose,),
+                                path_cache_key=(
+                                    f"correction_pregrasp_{corner}_{arm}_"
+                                    f"{leg_name}_{departure_index:02d}"
+                                ),
+                            )
+                        )
                 contact = _pose(
                     f"{probe_id}_contact", arm,
                     (start_x, start_y, contact_z),
@@ -276,11 +355,7 @@ def build_correction_probes(
                     else contact_z + 0.030
                 )
                 phases = [
-                    PhaseSpec(
-                        f"{probe_id}_pregrasp",
-                        (pregrasp,),
-                        path_cache_key=f"correction_pregrasp_{corner}_{arm}",
-                    ),
+                    *departure_phases,
                     PhaseSpec(
                         f"{probe_id}_contact", (contact,),
                         attachment_event="attach_single_layer_patch_after_contact_gate",
@@ -359,15 +434,36 @@ def build_correction_probes(
                             ),
                             reuse_target_of=f"{probe_id}_pregrasp",
                         ),
-                        PhaseSpec(
-                            f"{probe_id}_reobserve_clear",
-                            (),
-                            clear_pose=True,
-                            clear_arm=arm,
-                            reverse_of=f"{probe_id}_pregrasp",
-                        ),
                     ]
                 )
+                for reverse_index in range(len(departure_phases) - 1, -1, -1):
+                    source_phase = departure_phases[reverse_index]
+                    if reverse_index == 0:
+                        phases.append(
+                            PhaseSpec(
+                                f"{probe_id}_reobserve_clear",
+                                (),
+                                clear_pose=True,
+                                clear_arm=arm,
+                                # A right-arm departure from OBSERVE_CLEAR uses
+                                # the registered staged route, so its final
+                                # segment alone is not the whole approach.
+                                # The runner applies the densely checked staged
+                                # clear return instead of reversing one suffix.
+                                reverse_of=(
+                                    source_phase.name if arm == "left" else None
+                                ),
+                            )
+                        )
+                        continue
+                    return_pose = departure_phases[reverse_index - 1].targets[0]
+                    phases.append(
+                        PhaseSpec(
+                            f"{probe_id}_return_departure_{reverse_index:02d}",
+                            (return_pose,),
+                            reverse_of=source_phase.name,
+                        )
+                    )
                 probes.append(
                     CorrectionProbe(
                         probe_id=probe_id,
@@ -480,7 +576,7 @@ def solve_task_pose_branches(
         cone_violation = max(0.0, approach_tilt - maximum_approach_tilt)
         return np.concatenate(
             (
-                (xyz - target) / 0.0020,
+                (xyz - target) / IK_POSITION_RESIDUAL_SCALE_M,
                 np.asarray((yaw_error / math.radians(2.0),)),
                 np.asarray((cone_violation / math.radians(2.0),)),
                 # The arm is underactuated for arbitrary 6D pose control.
