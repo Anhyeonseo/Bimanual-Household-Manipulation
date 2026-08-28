@@ -51,6 +51,7 @@ Thumbs.db
 *.db3
 *.mcap
 *.onnx
+*.pt
 # Keep only the reviewed R1 Top-camera datasets in Git. Future captures stay
 # local until they receive the same split, manifest, and review audit.
 datasets/*
@@ -68,9 +69,24 @@ datasets/towel_yolo_annotations/*
 !datasets/towel_yolo_annotations/20260827_pilot_reviewed/**
 !datasets/towel_yolo_annotations/20260827_review_batch2/
 !datasets/towel_yolo_annotations/20260827_review_batch2/**
+!datasets/towel_yolo_annotations/20260827_yolo_assisted_reviewed/
+!datasets/towel_yolo_annotations/20260827_yolo_assisted_reviewed/**
 !datasets/towel_yolo_annotations/20260827_validation_reviewed/
 !datasets/towel_yolo_annotations/20260827_validation_reviewed/**
-artifacts/
+artifacts/*
+!artifacts/models/
+artifacts/models/*
+!artifacts/models/towel_yolo26n_seg_expanded_r1/
+!artifacts/models/towel_yolo26n_seg_expanded_r1/best.pt
+!artifacts/bimanual/
+artifacts/bimanual/*
+!artifacts/bimanual/preview/
+artifacts/bimanual/preview/*
+!artifacts/bimanual/preview/so101_dual_preview_right_registered_r0g.urdf
+!artifacts/bimanual/preview/so101_dual_preview_right_registered_r0g.manifest.json
+!artifacts/bimanual/planning/
+artifacts/bimanual/planning/*
+!artifacts/bimanual/planning/towel_bimanual_then_single_robot_near_to_far_r2_s0.json
 tmp/
 output/
 .verification/

@@ -267,7 +267,7 @@ def main() -> int:
             "physical_fold_success_checked": False,
         },
         "direction_labels": {
-            "first_fold": "robot_near_bottom_to_far_top",
+            "first_fold": candidate.first_direction,
             "second_fold": candidate.second_direction,
         },
         "towel_placement": {

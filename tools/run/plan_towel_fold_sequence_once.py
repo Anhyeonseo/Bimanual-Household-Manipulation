@@ -28,6 +28,7 @@ from moveit_msgs.msg import MoveItErrorCodes, PlanningSceneComponents, RobotStat
 from moveit_msgs.srv import ApplyPlanningScene, GetPlanningScene, GetStateValidity
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -73,6 +74,9 @@ MAXIMUM_DENSE_TCP_PATH_DEVIATION_M = 0.004
 MAXIMUM_GOAL_RESIDUAL_RAD = 0.001
 PLANNING_ATTEMPTS_PER_IK_BRANCH = 8
 MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M = 0.0001
+RIGHT_CLEARANCE_SHOULDER_RAD = -0.12
+RIGHT_CLEARANCE_ELBOW_RAD = -0.2
+RIGHT_DEPARTURE_BASE_RESTORE_FRACTION = 0.25
 DEFAULT_CONTRACT = ROOT / "config/towel_task_contract.candidate.yaml"
 DEFAULT_WORKTABLE = (
     ROOT
@@ -309,6 +313,22 @@ def phase_gripper_modes(
     return modes
 
 
+def needs_validated_right_departure(
+    phase: PhaseSpec,
+    current: tuple[float, ...],
+    clear: tuple[float, ...],
+) -> bool:
+    """Identify a right-arm task departure from the shallow-contact clear pose."""
+    if current != clear or len(phase.targets) != 1:
+        return False
+    first_target = phase.targets[0]
+    return (
+        first_target.arm == "right"
+        and "departure" in first_target.name
+        and first_target.semantic == "pregrasp_open"
+    )
+
+
 def wait_future(node: Node, future, timeout_s: float):
     return planning.wait_future(node, future, timeout_s)
 
@@ -336,7 +356,13 @@ class MoveItPlanOnlyGate:
         self.strict_matrix = None
         self.exceptions_enabled = False
         self.validated_path_cache: dict[
-            str, tuple[tuple[float, ...], list[dict[str, object]], dict[str, object]]
+            str,
+            tuple[
+                tuple[float, ...],
+                list[dict[str, object]],
+                dict[str, object],
+                list[dict[str, object]],
+            ],
         ] = {}
 
     def wait(self) -> None:
@@ -395,6 +421,13 @@ class MoveItPlanOnlyGate:
         )
         if response.valid:
             return True, ""
+        if response.contacts:
+            try:
+                validate_contact_set(response.contacts)
+            except RuntimeError:
+                pass
+            else:
+                return True, ""
         contacts = ", ".join(
             f"{item.contact_body_1}--{item.contact_body_2}:{item.depth:.6f}"
             for item in response.contacts
@@ -530,6 +563,42 @@ class MoveItPlanOnlyGate:
             "_trajectory": trajectory,
         }
 
+    def deterministic_arm_segment(
+        self,
+        name: str,
+        start: tuple[float, ...],
+        target: tuple[float, ...],
+        side: str,
+    ) -> dict[str, object]:
+        """Build an exact joint chord for an independently validated route."""
+        group_name, group_joints, _ = planning.arm_contract(side)
+        names = tuple(group_joints[:5])
+        indices = tuple(CANONICAL_JOINTS.index(joint) for joint in names)
+        start_arm = tuple(float(start[index]) for index in indices)
+        target_arm = tuple(float(target[index]) for index in indices)
+        if not any(abs(a - b) > 1.0e-12 for a, b in zip(start_arm, target_arm)):
+            raise RuntimeError(f"{name}: deterministic segment has no arm motion")
+        trajectory = JointTrajectory()
+        trajectory.joint_names = list(names)
+        trajectory.points = [
+            JointTrajectoryPoint(positions=list(start_arm)),
+            JointTrajectoryPoint(positions=list(target_arm)),
+        ]
+        return {
+            "name": name,
+            "start_positions_rad": list(start),
+            "target_positions_rad": list(target),
+            "planning_group": group_name,
+            "moveit_error_code": int(MoveItErrorCodes.SUCCESS),
+            "planning_time_s": 0.0,
+            "trajectory_joint_names": list(names),
+            "trajectory_positions_rad": [list(start_arm), list(target_arm)],
+            "trajectory_point_count": 2,
+            "joint_goal_residual_rad": 0.0,
+            "planning_method": "validated_single_joint_linear_interpolation",
+            "_trajectory": trajectory,
+        }
+
     def reverse_segment(
         self,
         name: str,
@@ -612,6 +681,179 @@ class MoveItPlanOnlyGate:
             "reversed_validated_segment": str(source["name"]),
             "_trajectory": trajectory,
         }
+
+    def validated_right_departure(
+        self,
+        phase_name: str,
+        start: tuple[float, ...],
+        target: tuple[float, ...],
+        task_targets: tuple[TaskPose, ...],
+    ) -> tuple[list[dict[str, object]], dict[str, object]]:
+        """Leave OBSERVE_CLEAR through a PhysX-safe strict joint route.
+
+        The base and shoulder move together on the first chord.  This preserves
+        the measured jaw/shoulder clearance behavior of the strict r0g route
+        while rotating the lower arm away from Isaac's merged fixed-base mesh.
+        The superseded shoulder-only -0.12 rad chord passed FCL but collided in
+        PhysX.  Every replacement chord is densely audited against the same
+        unchanged 4 mm MoveIt bound.
+        """
+        current = start
+        route = (
+            (
+                "base_shoulder_clearance",
+                {6: target[6], 7: RIGHT_CLEARANCE_SHOULDER_RAD},
+            ),
+            ("elbow_clearance", {8: RIGHT_CLEARANCE_ELBOW_RAD}),
+            ("wrist_roll", {10: target[10]}),
+            ("wrist_flex", {9: target[9]}),
+            ("target_elbow", {8: target[8]}),
+            (
+                "partial_restore_base_before_target",
+                {
+                    6: target[6]
+                    + RIGHT_DEPARTURE_BASE_RESTORE_FRACTION
+                    * (start[6] - target[6])
+                },
+            ),
+            ("target_shoulder", {7: target[7]}),
+            ("target_base", {6: target[6]}),
+        )
+        segments: list[dict[str, object]] = []
+        self.set_exceptions(False)
+        for route_name, updates in route:
+            target_positions = list(current)
+            for index, value in updates.items():
+                target_positions[index] = float(value)
+            target_state = tuple(target_positions)
+            if target_state == current:
+                continue
+            name = f"{phase_name}_route_{route_name}"
+            segment = self.deterministic_arm_segment(
+                name, current, target_state, "right"
+            )
+            is_final = route_name == "target_base"
+            segment["strict_validation"] = self.dense_validate(
+                segment,
+                {"task_open": self.grippers["task_open"]},
+                False,
+                task_targets if is_final else (),
+            )
+            segment["planning_attempt"] = 1
+            segment["validated_clear_departure_route"] = True
+            segment["physx_safe_base_shoulder_diagonal"] = (
+                route_name == "base_shoulder_clearance"
+            )
+            segments.append(segment)
+            current = target_state
+        if current != target:
+            raise RuntimeError(f"{phase_name}: staged departure missed its target")
+        if not segments:
+            raise RuntimeError(f"{phase_name}: staged departure has no segments")
+        final_segment = segments[-1]
+        final_segment["name"] = phase_name
+        prefix_records = [
+            {
+                "name": str(segment["name"]),
+                "targets": [],
+                "validated_clearance_route": True,
+                "moveit": segment,
+            }
+            for segment in segments[:-1]
+        ]
+        return prefix_records, final_segment
+
+    def staged_bimanual_reobserve_clear(
+        self,
+        phase_name: str,
+        start: tuple[float, ...],
+        clear: tuple[float, ...],
+    ) -> tuple[list[dict[str, object]], dict[str, object]]:
+        """Return from the first retreat through strict r0g route stages.
+
+        The registered-r0g state grid and every connecting single-joint chord
+        were checked through MoveIt's strict state-validity service.  Restoring
+        shoulder and elbow before rotating the base keeps the right arm below
+        and away from the overhead-camera mount.  Each actual candidate route
+        is audited again below, so a different IK branch cannot inherit the
+        diagnostic result without passing the same dense checks.
+        """
+        current = start
+        prefix_records: list[dict[str, object]] = []
+        route = (
+            ("target_shoulder", 7, clear[7]),
+            ("target_elbow", 8, clear[8]),
+            ("target_base", 6, clear[6]),
+            ("target_wrist_roll", 10, clear[10]),
+            ("target_wrist_flex", 9, clear[9]),
+        )
+        for route_name, index, value in route:
+            if abs(current[index] - value) <= 1.0e-12:
+                continue
+            name = f"{phase_name}_route_{route_name}"
+            target_state = list(current)
+            target_state[index] = float(value)
+            target_state_tuple = tuple(target_state)
+            previous_exceptions = self.exceptions_enabled
+            try:
+                self.set_exceptions(False)
+                segment = self.deterministic_arm_segment(
+                    name, current, target_state_tuple, "right"
+                )
+                segment["strict_validation"] = self.dense_validate(
+                    segment,
+                    {"task_open": self.grippers["task_open"]},
+                    False,
+                    (),
+                )
+            finally:
+                if self.exceptions_enabled != previous_exceptions:
+                    self.set_exceptions(previous_exceptions)
+            segment["planning_attempt"] = 1
+            segment["staged_reobserve_clear_route"] = True
+            prefix_records.append(
+                {
+                    "name": name,
+                    "targets": [],
+                    "staged_reobserve_clear_route": True,
+                    "moveit": segment,
+                }
+            )
+            current = target_state_tuple
+
+        if current == clear:
+            if not prefix_records:
+                raise RuntimeError(f"{phase_name}: staged clear return has no motion")
+            final_record = prefix_records.pop()
+            final_segment = final_record["moveit"]
+            final_segment["name"] = phase_name
+            final_segment["completed_clear_without_final_ompl_segment"] = True
+            return prefix_records, final_segment
+
+        failures = []
+        for attempt in range(1, PLANNING_ATTEMPTS_PER_IK_BRANCH + 1):
+            previous_exceptions = self.exceptions_enabled
+            try:
+                self.set_exceptions(True)
+                final_segment = self.plan_segment(phase_name, current, clear)
+                self.set_exceptions(False)
+                final_segment["strict_validation"] = self.dense_validate(
+                    final_segment,
+                    {"task_open": self.grippers["task_open"]},
+                    False,
+                    (),
+                )
+            except RuntimeError as exc:
+                failures.append(f"attempt={attempt}: {exc}")
+                continue
+            finally:
+                if self.exceptions_enabled != previous_exceptions:
+                    self.set_exceptions(previous_exceptions)
+            final_segment["planning_attempt"] = attempt
+            final_segment["staged_reobserve_clear_route"] = True
+            return prefix_records, final_segment
+        reason = failures[0] if failures else "no final clear segment"
+        raise RuntimeError(f"{phase_name}: staged clear return failed; {reason}")
 
     def dense_validate(
         self,
@@ -796,25 +1038,51 @@ def solve_and_plan_phases(
             phase.path_cache_key is not None
             and phase.path_cache_key in gate.validated_path_cache
         ):
-            cached_target, cached_evaluations, cached_segment = (
+            (
+                cached_target,
+                cached_evaluations,
+                cached_segment,
+                cached_prefix_records,
+            ) = (
                 gate.validated_path_cache[phase.path_cache_key]
             )
+            cached_start_segment = (
+                cached_prefix_records[0]["moveit"]
+                if cached_prefix_records
+                else cached_segment
+            )
             cached_start = tuple(
-                float(value) for value in cached_segment["start_positions_rad"]
+                float(value)
+                for value in cached_start_segment["start_positions_rad"]
             )
             if current != cached_start:
                 raise RuntimeError(
                     f"{phase.name}: cached path start state changed"
                 )
             segment = copy.deepcopy(cached_segment)
+            prefix_records = copy.deepcopy(cached_prefix_records)
+            renamed_prefixes = []
+            for prefix_index, prefix_record in enumerate(prefix_records, start=1):
+                old_name = str(prefix_record["name"])
+                new_name = f"{phase.name}_cached_route_{prefix_index:02d}"
+                prefix_record["name"] = new_name
+                prefix_record["cached_path_reused_from"] = old_name
+                prefix_record["moveit"]["name"] = new_name
+                prefix_record["moveit"][
+                    "strict_validation_reused_from"
+                ] = old_name
+                renamed_prefixes.append(new_name)
             segment["name"] = phase.name
             segment["strict_validation_reused_from"] = str(
                 cached_segment["name"]
             )
+            if renamed_prefixes:
+                segment["phase_prefix_record_names"] = renamed_prefixes
             phase_record["task_pose_evaluations"] = copy.deepcopy(
                 cached_evaluations
             )
             phase_record["moveit"] = segment
+            records.extend(prefix_records)
             records.append(phase_record)
             current = cached_target
             continue
@@ -828,9 +1096,24 @@ def solve_and_plan_phases(
                     f"{phase.name}: reverse source not found: {phase.reverse_of}"
                 )
             source_segment = source_record["moveit"]
-            source_start = tuple(
-                float(value) for value in source_segment["start_positions_rad"]
+            prefix_names = tuple(
+                str(value)
+                for value in source_segment.get(
+                    "phase_prefix_record_names", ()
+                )
             )
+            source_components = []
+            for prefix_name in prefix_names:
+                prefix_record = next(
+                    (item for item in records if item["name"] == prefix_name),
+                    None,
+                )
+                if prefix_record is None:
+                    raise RuntimeError(
+                        f"{phase.name}: reverse prefix not found: {prefix_name}"
+                    )
+                source_components.append(prefix_record["moveit"])
+            source_components.append(source_segment)
             if phase.clear_arm is not None:
                 active_arm = phase.clear_arm
             else:
@@ -840,11 +1123,64 @@ def solve_and_plan_phases(
                         f"{phase.name}: reverse phase requires one active arm"
                     )
                 active_arm = next(iter(active_arms))
-            target_positions = replace_arm(
-                current,
-                active_arm,
-                arm_values(source_start, active_arm),
-            )
+            target_positions = current
+            reverse_segments = []
+            for component_index, source_component in enumerate(
+                reversed(source_components), start=1
+            ):
+                source_start = tuple(
+                    float(value)
+                    for value in source_component["start_positions_rad"]
+                )
+                component_target = replace_arm(
+                    target_positions,
+                    active_arm,
+                    arm_values(source_start, active_arm),
+                )
+                final_component = component_index == len(source_components)
+                component_name = (
+                    phase.name
+                    if final_component
+                    else f"{phase.name}_route_{component_index:02d}"
+                )
+                reverse_segment = gate.reverse_segment(
+                    component_name,
+                    target_positions,
+                    component_target,
+                    source_component,
+                )
+                moving_names = set(reverse_segment["trajectory_joint_names"])
+                source_target = tuple(
+                    float(value)
+                    for value in source_component["target_positions_rad"]
+                )
+                inactive_state_unchanged = all(
+                    abs(target_positions[index] - source_target[index]) <= 1.0e-12
+                    for index, joint in enumerate(CANONICAL_JOINTS)
+                    if joint not in moving_names
+                )
+                if inactive_state_unchanged:
+                    reverse_segment["strict_validation"] = copy.deepcopy(
+                        source_component["strict_validation"]
+                    )
+                    reverse_segment["strict_validation"][
+                        "validation_reused_for_exact_reverse"
+                    ] = True
+                else:
+                    previous_exceptions = gate.exceptions_enabled
+                    gate.set_exceptions(False)
+                    try:
+                        reverse_segment["strict_validation"] = gate.dense_validate(
+                            reverse_segment,
+                            phase_gripper_modes(phase, gate.grippers),
+                            False,
+                            phase.targets,
+                        )
+                    finally:
+                        if gate.exceptions_enabled != previous_exceptions:
+                            gate.set_exceptions(previous_exceptions)
+                reverse_segments.append(reverse_segment)
+                target_positions = component_target
             if phase.clear_pose:
                 expected_clear = replace_arm(
                     current,
@@ -856,37 +1192,19 @@ def solve_and_plan_phases(
                         f"{phase.name}: reverse source does not return to "
                         "OBSERVE_CLEAR"
                     )
-            segment = gate.reverse_segment(
-                phase.name, current, target_positions, source_segment
-            )
-            moving_names = set(segment["trajectory_joint_names"])
-            source_target = tuple(
-                float(value) for value in source_segment["target_positions_rad"]
-            )
-            inactive_state_unchanged = all(
-                abs(current[index] - source_target[index]) <= 1.0e-12
-                for index, joint in enumerate(CANONICAL_JOINTS)
-                if joint not in moving_names
-            )
-            if inactive_state_unchanged:
-                segment["strict_validation"] = copy.deepcopy(
-                    source_segment["strict_validation"]
+            for component in reverse_segments[:-1]:
+                records.append(
+                    {
+                        "name": str(component["name"]),
+                        "targets": [],
+                        "exact_composite_reverse_route": True,
+                        "moveit": component,
+                    }
                 )
-                segment["strict_validation"][
-                    "validation_reused_for_exact_reverse"
-                ] = True
-            else:
-                gate.set_exceptions(False)
-                try:
-                    segment["strict_validation"] = gate.dense_validate(
-                        segment,
-                        phase_gripper_modes(phase, gate.grippers),
-                        False,
-                        phase.targets,
-                    )
-                finally:
-                    if not gate.exceptions_enabled:
-                        gate.set_exceptions(True)
+            segment = reverse_segments[-1]
+            segment["exact_composite_reverse_component_count"] = len(
+                reverse_segments
+            )
             phase_record["task_pose_evaluations"] = []
             phase_record["moveit"] = segment
             records.append(phase_record)
@@ -920,6 +1238,7 @@ def solve_and_plan_phases(
             failures = []
             segment = None
             for attempt in range(1, PLANNING_ATTEMPTS_PER_IK_BRANCH + 1):
+                previous_exceptions = gate.exceptions_enabled
                 try:
                     candidate_segment = gate.plan_segment(
                         phase.name, current, target_positions
@@ -935,8 +1254,8 @@ def solve_and_plan_phases(
                     failures.append(f"attempt={attempt}: {exc}")
                     continue
                 finally:
-                    if not gate.exceptions_enabled:
-                        gate.set_exceptions(True)
+                    if gate.exceptions_enabled != previous_exceptions:
+                        gate.set_exceptions(previous_exceptions)
                 candidate_segment["planning_attempt"] = attempt
                 candidate_segment["reused_joint_target_of"] = phase.reuse_target_of
                 segment = candidate_segment
@@ -955,6 +1274,7 @@ def solve_and_plan_phases(
             current = target_positions
             continue
         if phase.clear_pose:
+            gate.set_exceptions(True)
             target_clear = clear
             if phase.clear_arm is not None:
                 target_clear = replace_arm(
@@ -983,6 +1303,7 @@ def solve_and_plan_phases(
                         )
                     )
                     and not target.name.endswith("workspace")
+                    and current_arm == clear_arm
                 ) or target.name == "second_left_return_pregrasp"
                 branches = solve_task_pose_branches(
                     kinematics[target.arm],
@@ -1002,22 +1323,149 @@ def solve_and_plan_phases(
                     combined = replace_arm(combined, target.arm, branch["positions_rad"])
                 candidates.append((combined, list(combination)))
 
+            active_arms = {target.arm for target in phase.targets}
+            if any(
+                arm_values(current, arm) == arm_values(clear, arm)
+                for arm in active_arms
+            ):
+                gate.set_exceptions(True)
+
         failures = []
         selected = None
         for target_positions, evaluations in candidates:
+            staged_right_departure = needs_validated_right_departure(
+                phase, current, clear
+            )
+            if staged_right_departure:
+                gate.set_exceptions(True)
             valid, contact_reason = gate.endpoint_valid(target_positions)
             if not valid:
                 failures.append(f"endpoint collision: {contact_reason}")
                 continue
-            for attempt in range(1, PLANNING_ATTEMPTS_PER_IK_BRANCH + 1):
+            staged_right_reobserve = phase.clear_pose and (
+                (
+                    phase.name == "first_reobserve_clear"
+                    and phase.clear_arm is None
+                )
+                or (
+                    phase.clear_arm == "right"
+                    and phase.name.endswith("_reobserve_clear")
+                )
+            )
+            if staged_right_reobserve:
                 try:
-                    segment = gate.plan_segment(
+                    prefix_records, segment = gate.staged_bimanual_reobserve_clear(
                         phase.name, current, target_positions
                     )
+                except RuntimeError as exc:
+                    failures.append(f"staged reobserve clear: {exc}")
+                    continue
+                selected = (
+                    target_positions,
+                    evaluations,
+                    segment,
+                    prefix_records,
+                )
+                break
+            if staged_right_departure:
+                try:
+                    prefix_records, segment = gate.validated_right_departure(
+                        phase.name,
+                        current,
+                        target_positions,
+                        phase.targets,
+                    )
+                except RuntimeError as exc:
+                    failures.append(
+                        "validated departure "
+                        f"right_target={arm_values(target_positions, 'right')}: {exc}"
+                    )
+                    continue
+                selected = (
+                    target_positions,
+                    evaluations,
+                    segment,
+                    prefix_records,
+                )
+                break
+            deterministic_departure = (
+                len(phase.targets) == 1
+                and phase.targets[0].semantic == "pregrasp_open"
+                and (
+                    "departure" in phase.name
+                    or (
+                        phase.path_cache_key is not None
+                        and phase.path_cache_key.startswith(
+                            "correction_pregrasp_"
+                        )
+                    )
+                )
+            )
+            planning_start = current
+            departure_prefix_records: list[dict[str, object]] = []
+            if deterministic_departure:
+                side = phase.targets[0].arm
+                wrist_roll_index = CANONICAL_JOINTS.index(
+                    f"{side}_wrist_roll_joint"
+                )
+                wrist_roll_delta = (
+                    target_positions[wrist_roll_index]
+                    - current[wrist_roll_index]
+                )
+                if abs(wrist_roll_delta) > math.pi / 2.0:
+                    rebranched = list(current)
+                    rebranched[wrist_roll_index] = target_positions[wrist_roll_index]
+                    rebranched_state = tuple(rebranched)
+                    rebranch_name = f"{phase.name}_wrist_roll_rebranch"
+                    try:
+                        gate.set_exceptions(False)
+                        rebranch_segment = gate.deterministic_arm_segment(
+                            rebranch_name,
+                            current,
+                            rebranched_state,
+                            side,
+                        )
+                        rebranch_segment["strict_validation"] = gate.dense_validate(
+                            rebranch_segment,
+                            phase_gripper_modes(phase, gate.grippers),
+                            False,
+                            (),
+                        )
+                    except RuntimeError as exc:
+                        failures.append(f"wrist-roll rebranch: {exc}")
+                        continue
+                    rebranch_segment["planning_attempt"] = 1
+                    rebranch_segment["jaw_line_equivalent_rebranch"] = True
+                    departure_prefix_records.append(
+                        {
+                            "name": rebranch_name,
+                            "targets": [],
+                            "jaw_line_equivalent_rebranch": True,
+                            "moveit": rebranch_segment,
+                        }
+                    )
+                    planning_start = rebranched_state
+            attempt_count = (
+                1 if deterministic_departure else PLANNING_ATTEMPTS_PER_IK_BRANCH
+            )
+            for attempt in range(1, attempt_count + 1):
+                try:
+                    if deterministic_departure:
+                        segment = gate.deterministic_arm_segment(
+                            phase.name,
+                            planning_start,
+                            target_positions,
+                            phase.targets[0].arm,
+                        )
+                    else:
+                        segment = gate.plan_segment(
+                            phase.name, current, target_positions
+                        )
                 except RuntimeError as exc:
                     failures.append(f"attempt={attempt}: {exc}")
                     continue
                 try:
+                    previous_exceptions = gate.exceptions_enabled
                     gate.set_exceptions(False)
                     segment["strict_validation"] = gate.dense_validate(
                         segment,
@@ -1036,25 +1484,66 @@ def solve_and_plan_phases(
                         phase.targets,
                     )
                 except RuntimeError as exc:
-                    failures.append(f"attempt={attempt}: {exc}")
+                    maximum_joint_delta = max(
+                        abs(a - b)
+                        for a, b in zip(
+                            planning_start, target_positions, strict=True
+                        )
+                    )
+                    pose_errors = [
+                        float(item.get("tcp_position_error_m", math.nan))
+                        for item in evaluations
+                    ]
+                    joint_deltas = {
+                        name: float(target - start)
+                        for name, start, target in zip(
+                            CANONICAL_JOINTS,
+                            current,
+                            target_positions,
+                            strict=True,
+                        )
+                        if abs(target - start) > 0.1
+                    }
+                    failures.append(
+                        f"attempt={attempt}: {exc}; "
+                        f"max_joint_delta={maximum_joint_delta:.6f} "
+                        f"tcp_endpoint_errors={pose_errors} "
+                        f"joint_deltas={joint_deltas}"
+                    )
                     continue
                 finally:
-                    if not gate.exceptions_enabled:
-                        gate.set_exceptions(True)
+                    if gate.exceptions_enabled != previous_exceptions:
+                        gate.set_exceptions(previous_exceptions)
                 segment["planning_attempt"] = attempt
-                selected = (target_positions, evaluations, segment)
+                selected = (
+                    target_positions,
+                    evaluations,
+                    segment,
+                    departure_prefix_records,
+                )
                 break
             if selected is not None:
                 break
         if selected is None:
-            reason = failures[0] if failures else "no branch combination"
+            unique_failures = list(dict.fromkeys(failures))
+            reason = (
+                " | ".join(unique_failures[:8])
+                if unique_failures
+                else "no branch combination"
+            )
             raise RuntimeError(f"{phase.name}: all branches failed; {reason}")
-        current, evaluations, segment = selected
+        current, evaluations, segment, prefix_records = selected
+        if prefix_records:
+            segment["phase_prefix_record_names"] = [
+                str(record["name"]) for record in prefix_records
+            ]
+        records.extend(prefix_records)
         if phase.path_cache_key is not None:
             gate.validated_path_cache[phase.path_cache_key] = (
                 tuple(current),
                 copy.deepcopy(evaluations),
                 copy.deepcopy(segment),
+                copy.deepcopy(prefix_records),
             )
         phase_record["task_pose_evaluations"] = evaluations
         phase_record["moveit"] = segment

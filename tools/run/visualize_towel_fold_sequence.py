@@ -267,6 +267,9 @@ def marker_array(
         "right_to_left": "오른쪽→왼쪽",
         "left_to_right": "왼쪽→오른쪽",
     }.get(str(candidate.get("second_direction")), "가로 방향")
+    first_direction = {
+        "robot_near_to_far": "아래→위",
+    }.get(str(candidate.get("first_direction")), "진행 방향 미확정")
     title = _marker("canonical_fold_title", 0, Marker.TEXT_VIEW_FACING)
     title.pose.position = _point(
         (
@@ -278,7 +281,7 @@ def marker_array(
     title.scale.z = 0.025
     _color(title, PASS_COLOR if strict else WARNING_COLOR)
     title.text = (
-        f"1차: 양팔 아래→위 | 2차: {second_arm} {second_direction}"
+        f"1차: 양팔 {first_direction} | 2차: {second_arm} {second_direction}"
         + (" | STRICT MOVEIT" if strict else " | FULL-FK ONLY / COLLISION UNCHECKED")
     )
     result.markers.append(title)

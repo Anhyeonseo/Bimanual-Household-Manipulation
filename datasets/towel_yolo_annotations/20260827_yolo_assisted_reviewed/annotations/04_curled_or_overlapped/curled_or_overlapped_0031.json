@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260826_top_01-curled_or_overlapped_0031",
+  "split": "train",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      213.98568019093074,
+      183.7708830548926
+    ],
+    [
+      211.59904534606198,
+      205.25059665871123
+    ],
+    [
+      212.0,
+      202.0
+    ],
+    [
+      242.0,
+      563.0
+    ],
+    [
+      296.0,
+      629.0
+    ],
+    [
+      432.0,
+      719.0
+    ],
+    [
+      642.0,
+      761.0
+    ],
+    [
+      753.0,
+      753.0
+    ],
+    [
+      1045.0,
+      671.0
+    ],
+    [
+      1161.0,
+      623.0
+    ],
+    [
+      1001.0,
+      234.0
+    ],
+    [
+      803.0,
+      138.0
+    ],
+    [
+      794.0,
+      143.0
+    ],
+    [
+      798.7112171837708,
+      136.0381861575179
+    ],
+    [
+      791.5513126491646,
+      128.8782816229117
+    ],
+    [
+      779.618138424821,
+      119.33174224343676
+    ],
+    [
+      763.0,
+      120.0
+    ],
+    [
+      659.0,
+      68.0
+    ],
+    [
+      218.7589498806682,
+      164.67780429594274
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "04_curled_or_overlapped/curled_or_overlapped_0031.jpg",
+    "sha256": "0c76f149fab56f172c1be6ba701ded5cbfc4faf4aa91715c4a1aa020fb799911",
+    "capture_id": null
+  }
+}

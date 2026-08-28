@@ -40,7 +40,7 @@ SECOND_RELEASE_TCP_Z_OFFSET_M = 0.040
 FIRST_ARC_SAMPLE_COUNT = 17
 SECOND_ARC_SAMPLE_COUNT = 9
 RETREAT_CLEARANCE_M = 0.050
-DEPARTURE_FRACTIONS = (0.10, 0.25, 0.45, 0.70, 1.00)
+DEPARTURE_FRACTIONS = tuple(index / 20.0 for index in range(1, 21))
 
 
 def _blend_yaw(start: float, target: float, fraction: float) -> float:
@@ -70,6 +70,11 @@ def _departure_phases(
             _blend_yaw(origin_yaw, target_yaw, fraction),
             "pregrasp_open",
             layer,
+            (
+                MAXIMUM_APPROACH_TILT_RAD
+                if math.isclose(fraction, 1.0, abs_tol=1.0e-12)
+                else MAXIMUM_ATTACHED_TRANSFER_TILT_RAD
+            ),
         )
         phases.append(PhaseSpec(pose.name, (pose,)))
     return tuple(phases)

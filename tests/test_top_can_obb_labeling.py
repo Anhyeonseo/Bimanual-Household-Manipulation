@@ -7,7 +7,11 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from tools.label_top_can_obb import label_text, parse_cases, parse_label
+from tools.setup.can_perception.label_top_can_obb import (
+    label_text,
+    parse_cases,
+    parse_label,
+)
 
 
 def _write_case(root: Path, capture_id: str, state: str, frames: list[tuple[str, float]]) -> None:

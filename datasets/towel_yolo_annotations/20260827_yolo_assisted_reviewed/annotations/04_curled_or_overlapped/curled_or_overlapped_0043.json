@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260826_top_01-curled_or_overlapped_0043",
+  "split": "train",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      920.0,
+      113.0
+    ],
+    [
+      424.0,
+      116.0
+    ],
+    [
+      205.0,
+      155.0
+    ],
+    [
+      169.0,
+      417.0
+    ],
+    [
+      166.0,
+      811.0
+    ],
+    [
+      313.0,
+      808.0
+    ],
+    [
+      446.0,
+      719.0
+    ],
+    [
+      646.0,
+      541.0
+    ],
+    [
+      778.0,
+      403.0
+    ],
+    [
+      934.0,
+      204.0
+    ],
+    [
+      936.0,
+      156.0
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "04_curled_or_overlapped/curled_or_overlapped_0043.jpg",
+    "sha256": "5a72de4f93cd011901acecadc8642ed88bcf0c9908520bbee78fcecaea63c610",
+    "capture_id": null
+  }
+}

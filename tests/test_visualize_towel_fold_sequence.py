@@ -65,10 +65,11 @@ def diagnostic_document() -> dict:
         "clear_joint_positions_rad": [0.0] * 12,
         "selected_candidate": {
             "candidate_id": "canonical",
-            "second_active_arm": "right",
-            "second_direction": "right_to_left",
-            "first_expected_footprint_xyxy_m": [0.33, 0.48, -0.27, 0.03],
-            "final_expected_footprint_xyxy_m": [0.33, 0.48, -0.12, 0.03],
+            "first_direction": "robot_near_to_far",
+            "second_active_arm": "left",
+            "second_direction": "left_to_right",
+            "first_expected_footprint_xyxy_m": [0.18, 0.48, -0.27, -0.12],
+            "final_expected_footprint_xyxy_m": [0.33, 0.48, -0.27, -0.12],
             "first_fold": [
                 phase(
                     "first_contact",
@@ -90,12 +91,12 @@ def diagnostic_document() -> dict:
             "second_fold": [
                 phase(
                     "second_contact",
-                    [target("second_right", "right", [0.405, -0.24, 0.011])],
+                    [target("second_left", "left", [0.21, -0.195, 0.011])],
                     [0.3] * 12,
                 ),
                 phase(
                     "second_fold_01",
-                    [target("second_right", "right", [0.405, -0.10, 0.12])],
+                    [target("second_left", "left", [0.45, -0.195, 0.12])],
                     [0.4] * 12,
                 ),
             ],
@@ -103,13 +104,13 @@ def diagnostic_document() -> dict:
     }
 
 
-def test_both_stage_markers_show_dual_first_and_single_right_second():
+def test_both_stage_markers_show_dual_first_and_single_left_second():
     markers = MODULE.marker_array(diagnostic_document(), stage="both")
     namespaces = {marker.ns for marker in markers.markers}
     assert "first_left_path" in namespaces
     assert "first_right_path" in namespaces
-    assert "second_right_path" in namespaces
-    assert "second_left_path" not in namespaces
+    assert "second_left_path" in namespaces
+    assert "second_right_path" not in namespaces
     assert "initial_towel" in namespaces
     assert "after_first_fold" in namespaces
     assert "final_footprint" in namespaces
@@ -118,7 +119,7 @@ def test_both_stage_markers_show_dual_first_and_single_right_second():
         if marker.ns == "canonical_fold_title"
     )
     assert "양팔 아래→위" in title.text
-    assert "오른팔 오른쪽→왼쪽" in title.text
+    assert "왼팔 왼쪽→오른쪽" in title.text
     assert "COLLISION UNCHECKED" in title.text
 
 
@@ -128,8 +129,8 @@ def test_stage_filter_separates_first_and_second_paths():
     first_names = {marker.ns for marker in first.markers}
     second_names = {marker.ns for marker in second.markers}
     assert "first_left_path" in first_names
-    assert "second_right_path" not in first_names
-    assert "second_right_path" in second_names
+    assert "second_left_path" not in first_names
+    assert "second_left_path" in second_names
     assert "first_left_path" not in second_names
 
 

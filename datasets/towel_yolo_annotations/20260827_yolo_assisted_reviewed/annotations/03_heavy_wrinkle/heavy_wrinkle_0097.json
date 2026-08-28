@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_observation_annotation",
+  "observation_id": "bootstrap-20260826_top_01-heavy_wrinkle_0097",
+  "split": "train",
+  "state_label": "AMBIGUOUS",
+  "image_width_px": 1280,
+  "image_height_px": 960,
+  "segmentation_polygon_px": [
+    [
+      292.0,
+      260.0
+    ],
+    [
+      297.0,
+      371.0
+    ],
+    [
+      330.0,
+      419.0
+    ],
+    [
+      311.0,
+      444.0
+    ],
+    [
+      362.0,
+      485.0
+    ],
+    [
+      331.0,
+      522.0
+    ],
+    [
+      285.0,
+      626.0
+    ],
+    [
+      260.0,
+      790.0
+    ],
+    [
+      267.0,
+      819.0
+    ],
+    [
+      496.0,
+      826.0
+    ],
+    [
+      717.0,
+      759.0
+    ],
+    [
+      827.0,
+      674.0
+    ],
+    [
+      957.0,
+      459.0
+    ],
+    [
+      946.0,
+      436.0
+    ],
+    [
+      811.0,
+      355.0
+    ],
+    [
+      719.9522673031026,
+      324.58233890214797
+    ],
+    [
+      661.0,
+      257.0
+    ],
+    [
+      557.0,
+      261.0
+    ],
+    [
+      364.0,
+      242.0
+    ]
+  ],
+  "corners": [],
+  "fold_lines_px": [],
+  "height_available": false,
+  "occluded": false,
+  "ambiguous_reason": "human_reviewed_segmentation_only",
+  "source": {
+    "image_path": "03_heavy_wrinkle/heavy_wrinkle_0097.jpg",
+    "sha256": "b6b468c0862dd311093370b14e9d58864d04699bc8b3eba43cbe45287a53ddf4",
+    "capture_id": null
+  }
+}

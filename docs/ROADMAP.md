@@ -76,11 +76,13 @@ cloth가 붙은 transfer·laydown은 물리적 의미와 기존 dense Cartesian 
 맞춰 최대 90°를 허용한다. 2차 laydown TCP는 도달 불가능한 16 mm를 주장하지
 않고 검증된 40 mm release 높이를 사용한다.
 
-현재 후보의 전체 full-FK IK와 software regression은 통과했다. 최종 strict
-MoveIt 승격은 등록 완료 URDF manifest, workcell shadow, right tabletop validation
-artifact가 로컬에 존재할 때만 실행한다. 저장소의 data-fit candidate URDF로는
-OBSERVE_CLEAR에서 카메라 마운트와 팔 메시가 최대 약 16.2 mm 겹쳐 fail-closed
-되므로, 이 충돌을 임시 예외로 숨겨 PASS로 기록하지 않는다.
+현재 후보의 전체 full-FK IK와 software regression에 이어 최종 strict MoveIt
+plan-only gate도 통과했다. 등록 완료 r0g URDF manifest, workcell shadow와 right
+tabletop validation을 고정해 1차 양팔 아래→위, bounded correction 8개, 2차
+오른팔 오른쪽→왼쪽 후보의 846개 구간·12,552개 상태를 검사했다. 미승인 접촉은
+0건이고 mesh 접촉 최대 `3.810/4 mm`, TCP 편차 최대 `2.875/4 mm`다. data-fit
+candidate URDF의 약 16.2 mm 카메라 마운트 충돌은 모델을 섞거나 예외 처리하지
+않고 이전 fail-closed 증거로 남긴다.
 
 현재까지 고정된 R0 계약은 다음과 같다.
 
@@ -92,7 +94,7 @@ OBSERVE_CLEAR에서 카메라 마운트와 팔 메시가 최대 약 16.2 mm 겹�
   교차검증은 R1에서 metric 융합 전에 수행
 - 완료: 양팔이 수건을 가리지 않는 `OBSERVE_CLEAR` 왕복과 안전 정지
 - 완료: 300 mm 수건 전체와 승인된 외곽 여유가 Top의 검증된 metric 영역 안에 있음
-- 연기: 질량과 수건-작업대 마찰은 이를 소비하는 동적 gate 전에 측정
+- 진행 중: 질량, 4겹 두께와 수건-작업대 마찰은 R2 S1 self-contact 재실행 전에 측정
 - 완료: 오른팔 FK+wrist tabletop 물체 좌표의 독립 target 검증
 - 완료: 1차 양팔·폐루프 보정과 2차 단팔 접기의 task-pose MoveIt plan-only envelope
 - 미완료: 자동 contact/slip, 허용 TCP separation과 양팔 속도 차이는 이를
@@ -110,9 +112,9 @@ OBSERVE_CLEAR에서 카메라 마운트와 팔 메시가 최대 약 16.2 mm 겹�
 
 완료 판정: 물리·좌표계, clear observation과 canonical task-pose MoveIt plan-only
 후보 하나가 등록 완료 URDF와 strict collision gate를 통과해야 한다. 후보 탐색은
-고정된 우선순위에서 첫 승인 해가 나오면 멈추고 앞선 거부 이유를 기록한다. 현재
-full-FK IK는 통과했으나 등록 artifact 부재로 strict MoveIt 승격은 미완료다.
-실제 fold는 승인하지 않으며 `motion_authorized=false`를 유지한다.
+고정된 우선순위에서 첫 승인 해가 나오면 멈추고 앞선 거부 이유를 기록한다. 이
+R0 plan-only 판정은 r0g artifact에서 완료됐다. 실제 fold, 자동 jaw contact와
+cloth deformation은 승인하지 않으며 `motion_authorized=false`를 유지한다.
 
 ## R1 — 실제 관측·가림·topology
 
@@ -176,6 +178,42 @@ metric fold-body outline에서 제외했으며, 1차 fold IoU 최저 `0.903769`,
 - 병렬 randomized rollout과 scripted baseline을 먼저 통과한 뒤 RL 학습 시작
 - 모든 결과에 contract/calibration/URDF/plan/material/seed SHA 기록
 
+최신 S0 증거는 아래→위·오른팔 후보의 846 segment/12,552 state strict MoveIt plan
+SHA, r0g URDF SHA와 검증 worktable 형상을 고정해 얻었다. 300 mm rigid proxy,
+canonical 12축/clear state와 1·2차 114개 phase를 동일한 8-env batch로 만든다.
+Isaac Lab 3.0/Isaac Sim
+6.0.1에서 reset 최대 위치 오차 `7.45e-9 m`, articulation 최대 관절 오차 `0 rad`,
+calibrated Top 최소 image/board margin `29.409 px`/`5.756 mm`를 확인했다. rigid proxy는
+manifest의 작업대 pose로 명시 reset하며 최대 오차는 `7.45e-9 m`다. Isaac PhysX
+collision runner는 endpoint만 보지 않고 원본 MoveIt trajectory를 0.02 rad 이하로
+재보간한 3,383개 표본을 재생해 self/table 금지 접촉 0으로
+`S0_ISAACLAB_TRANSITION_COLLISION_PASS`를 기록했다. 알려진 shallow mesh 쌍은 source
+strict MoveIt/FCL의 `3.9955 mm ≤ 4 mm`, unapproved contact 0 계약을 manifest SHA로
+고정하고, importer별 PhysX 깊이는 별도 진단값으로 보존한다. 실제 motion 명령은 0이다.
+S1의 첫 surface-cloth smoke는 31×31 element/1,024-node mesh를 같은 작업대에
+drop해 8환경 모두 40 step 안에 settle했고, 최종 clearance `1.5 mm`, 환경 간
+최대 차이 `8.94e-8 m`로 PASS했다. 이 결과는 물성 미보정 상태의 contact/settle
+smoke다. 이어 진행한 첫 9-node grasp-anchor lift는 화면상 상승했지만 PhysX가
+non-rigid Xform target을 거부한 경고가 확인되어 PASS 증거에서 폐기했다. 현재 실제
+gripper rigid link 아래 전용 attachment frame을 두고 좌우 각 9개 vertex를 직접 묶은
+low-lift smoke는 8환경에서 attachment snap 최대 `0.125 mm`, 선택 patch lift 최소
+`20.871 mm`, gripper 변위 추종 오차 최대 `0.782 mm`, patch 환경 차이 최대
+`0.057 mm`로 PASS했다. 자유 면 전체 동적 차이 `8.660 mm`는 물성 미보정 진단값으로
+보존했다. 최신 아래→위·오른팔 manifest에서는 contact pose를 다시 고정하고 강체회전을
+포함한 attachment 추종 metric으로 1차 16-sample fold→laydown→attachment 해제→jaw
+open→retreat→settle까지 PASS했다. snap `0.046 mm`, patch lift 최소 `20.933 mm`, 추종
+오차 `0.426 mm`, release 뒤 patch–jaw 거리 최소 `63.974 mm`, 최종 table clearance
+`1.500 mm`다. 동일 8환경 자유 면 전체 차이는 `31.648 mm`로 full-shape 결정성은
+미통과다. 이어 self-contact를 켜고 topology 두 칸 filter와 `1/240 s` timestep을
+적용한 최선 진단은 비이웃 vertex 간격 최소 `3.007 mm`, table clearance `1.500 mm`로
+관통을 막았지만 20초 뒤 최대 속도 `0.0294 m/s`가 `0.015 m/s` settle 한계를 넘어
+FAIL했다. 물성 보정 전에는 이 한계를 올리지 않으며 S1 완료를 주장하지 않는다.
+최소 재개 입력은 수건 질량, 4겹 두께 5지점과 책에 수건을 고정해 잰 작업대
+가로/세로 정지·동적 마찰 각 3회다. 직접 늘어남·영률·포아송비와 수건-수건
+마찰은 선행조건에서 제외하고 후보 일반값을 유지한다. 처짐·낙하시간은 위 최소값
+보정 뒤에도 실제 거동을 설명하지 못할 때 추가한다. 따라서 현재 R2 작업 추정
+진행률은 `64%`이며 측정 전 후속 solver 튜닝과 S2/S3 실행은 중지한다.
+
 Isaac 성공은 실제 cloth dynamics나 grasp의 승인 근거로 사용하지 않는다. 실제
 수건에서 관측된 settling, friction, grasp/slip과 action outcome 분포를 설명하지
 못하면 simulator를 더 복잡하게 맞추기보다 real self-supervised/offline 학습으로
@@ -212,12 +250,12 @@ fault는 같은 session의 양팔 정지로 이어진다.
 전체 구김 문제와 분리해 사람이 평탄·정렬한 300×300 mm 수건에서 먼저 fold
 executor를 완성한다.
 
-- 1차 아래쪽 moving edge 양 끝의 single-layer 양팔 grasp와 아래→위 fold,
+- 1차 로봇 가까운 아래쪽 moving edge 양 끝의 single-layer 양팔 grasp와 아래→위 fold,
   nominal 300×150 mm coarse 결과 검증
 - clear 재관측 뒤 평행이동·회전·느슨함을 최대 2회의 bounded correction으로 보정
 - stationary-half가 함께 미끄러지면 pull 축소 또는 승인된 passive pin 사용
 - 2차 오른쪽 moving edge midpoint의 multi-layer 오른팔 단독 grasp와
-  오른쪽→왼쪽 fold; 왼팔 반대 방향은 bounded fallback으로만 유지
+  오른쪽→왼쪽 fold; 반대 팔·방향은 strict gate를 새로 통과하기 전까지 비승인
 - nominal 150×150 mm 결과, rebound와 stack 돌출 검사
 - 실패한 1차 fold에서 2차 fold 금지
 

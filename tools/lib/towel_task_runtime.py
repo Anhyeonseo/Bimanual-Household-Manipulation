@@ -741,8 +741,8 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
         != ("right_to_left", "left_to_right")
         or fold_policy.get("second_coordinate_direction_by_candidate")
         != {
-            "right_to_left": "y_negative_to_positive",
             "left_to_right": "y_positive_to_negative",
+            "right_to_left": "y_negative_to_positive",
         }
         or fold_policy.get("second_primitive")
         != "single_arm_moving_edge_midpoint_multilayer"
@@ -750,6 +750,7 @@ def validate_towel_contract(contract: Mapping[str, Any]) -> None:
         != ("right", "left")
         or fold_policy.get("second_inactive_arm_policy")
         != "remain_at_observe_clear"
+        or "second_relay_fallback" in fold_policy
         or fold_policy.get("target_area_ratio_after_first_fold") != 0.5
         or fold_policy.get("target_area_ratio_after_second_fold") != 0.25
         or not isinstance(kinematic_contract, Mapping)
