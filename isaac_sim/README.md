@@ -12,69 +12,64 @@ termination, trainer, checkpoint와 held-out evaluation이 없으므로 Isaac La
 강화학습 구현으로 간주하지 않는다. 과거 rigid grasp 회귀·참고용으로 보존하며
 300 mm 수건 학습의 성공 증거로 재사용하지 않는다.
 
-수건용 Isaac Lab은 [수건 로드맵](../docs/ROADMAP.md)의 R2에 따라 별도 S0~S3
-순서로 구축한다. 첫 학습 대상은 저수준 joint control이 아니라 임의 구김에서
-승인된 양팔 primitive와 grasp/placement 파라미터를 선택하는 정책이다. S1의
-scripted attachment/release가 실제 관측 metric과 맞지 않으면 S2/S3 학습을
-진행하지 않는다.
+수건용 Isaac Lab은 [수건 로드맵](../docs/ROADMAP.md)의 R2 S0–S3 순서를
+따른다. 실제 모터 명령은 사용하지 않으며 모든 결과는
+`motion_authorized=false`다.
 
-첫 S0 host 계약은 `tools/run/build_towel_isaac_s0_manifest.py`에 있다. strict MoveIt
-artifact의 motion lock과 300 mm 배치, 12축 상태, phase별 joint target을 검사하고
-검증 worktable geometry, strict MoveIt/FCL shallow-mesh 계약과 동일한 vectorized
-reset/replay batch의 source/replay/reset SHA를 기록한다.
-현재 S0는 최신 아래→위·오른팔 strict artifact SHA를 고정한다. 이전 위→아래·왼팔
-후보의 S1 물리 smoke는 보존하지만 최신 manifest의 S1 완료 증거로 섞지 않는다.
-`run_towel_s0_vectorized_reset.py`는 이를 Isaac Lab 3.0/Isaac Sim 6.0.1 PhysX에서
-소비한다. 8-env rigid proxy reset 2회의 최대 위치 오차는 `7.45e-9 m`이고 결과
-SHA가 일치했다. `run_towel_s0_articulation_replay.py`는 manifest에 path/SHA가
-고정된 최신 r0g 양팔 URDF를 사용해 canonical 12축 이름/순서를 고정하고 114개 phase를 8환경에서
-재생했다. 최대 관절 오차는 `0 rad`이며 `--viz kit --keep-open`으로 같은 장면을
-GUI에서 확인할 수 있다. 이 replay에서는 중력과 robot collision을 명시적으로
-끄므로 상태는 `S0_ISAACLAB_ARTICULATION_REPLAY_PASS_COLLISION_NOT_RUN`이다. Top
-camera FOV는 최소 image margin `29.409 px`, calibrated board margin `5.756 mm`로
-PASS했다. rigid proxy는 manifest의 작업대 pose로 명시 reset하며 위치 오차가
-`1e-6 m`를 넘으면 중단한다. `run_towel_s0_collision_replay.py`는 PhysX contact
-report와 13/13 body API
-coverage/liveness를 확인한 뒤 원본 MoveIt trajectory를 0.02 rad 이하로 재보간한
-3,383개 표본을 self/table collision이 켜진 상태로 재생한다. strict MoveIt/FCL에서만
-허용된 shallow-mesh 쌍과 4 mm 한계는 manifest SHA로 고정하며 다른 접촉에는 적용하지
-않는다. 결과는 금지 접촉 0의 `S0_ISAACLAB_TRANSITION_COLLISION_PASS`다. GUI에서는
-`--stop-on-first-forbidden --keep-open --viz kit`으로 첫 충돌 pose와 빨간 표시를
-확인한다.
+S0는 `tools/run/build_towel_isaac_s0_manifest.py`가 strict MoveIt artifact,
+등록 R0G URDF, 작업대 형상과 12축 replay SHA를 고정한다. vectorized reset,
+articulation replay, Top FOV와 transition collision gate는 모두 통과했다.
 
-`run_towel_s1_surface_drop_settle.py`는 S0 manifest의 작업대 형상을 그대로 사용해
-31×31 element/1,024-node surface-deformable mesh의 drop/settle만 fail-closed로
-검사한다. concrete collision shape가 기본 offset 합계 때문에 작업대보다 `20 mm`
-위에서 멈추는 초기 실패를 hover gate로 차단했고, mm 단위 contact/rest offset을
-고정한 뒤 8환경에서 40 step 이하 settle, clearance `1.5 mm`, 환경 간 최대 차이
-`8.94e-8 m`로
-`S1_ISAACLAB_SURFACE_DROP_SETTLE_SMOKE_PASS_MATERIAL_UNCOMMISSIONED`를 기록했다.
-후보 질량·마찰·탄성은 실측 보정 전이다. 최신 canonical의 attachment와 1차
-lift/place/release는 아래 runner로 통과했지만 2차 fold와 학습은 아직 통과하지 않았다.
+S1의 실측값은 `config/towel_isaac_s1_material.json`, 그리퍼 형상과 Q0는
+`config/so101_gripper_geometry.candidate.json`에 있다. 최종 실행은 Isaac Lab
+CoupledMJWarp+VBD와 실제 jaw STL을 사용한다. fixed/moving jaw가 같은 수건
+입자를 실제로 접촉한 경우에만 실물에서 확인한 “닫힌 동안 유지, Q0로 열면 해제”
+조건을 `nodal_kinematic_target`으로 적용한다. 근접 fallback은 없다.
 
-`run_towel_s1_vertex_patch_lift.py`는 같은 1,024-node surface mesh를 안착 높이에서
-시작해 좌우 gripper rigid link 아래 전용 attachment frame에 각각 9개 vertex를
-명시적으로 붙이고, r0g의
-`first_contact→first_fold_01` 변위를 따라 낮게 드는 smoke다. 첫 실행의 단순 Xform
-target은 화면상 lift와 달리 PhysX가 rigid actor가 아니라고 경고했으므로 결과를
-폐기했다. direct articulation-link 방식은 attachment snap 최대 `0.125 mm`, patch
-lift 최소 `20.871 mm`, gripper 추종 오차 최대 `0.782 mm`, 8-env patch 차이 최대
-`0.057 mm`로 PASS했다. 자유 면 전체 차이 `8.660 mm`는 미보정 물성 진단값이며
-이전 후보 증거로 보존한다. 최신 manifest에 `--place-release`를 적용한 1차 fold는
-snap `0.046 mm`, patch lift 최소 `20.933 mm`, 강체회전 포함 추종 오차 `0.426 mm`,
-release 뒤 patch–jaw 거리 최소 `63.974 mm`, 최종 clearance `1.500 mm`로 PASS했다.
-8-env 자유 면 전체 차이 `31.648 mm`는 exploratory `20 mm`를 넘었으므로 full-shape
-결정성은 미통과다. `--self-contact` 진단은 topology 두 칸 filter와 `1/240 s`에서
-비이웃 간격 최소 `3.007 mm`, table clearance `1.500 mm`를 유지했지만 20초 뒤
-최대 속도 `0.0294 m/s`로 `0.015 m/s` settle gate를 통과하지 못했다. 실측 물성 전에는
-임계값을 완화하지 않는다.
+최종 1차 접기는 다음 순서다.
 
-현재 미보정 후보값은 질량 `0.100 kg`, 정지/동적 마찰 `0.50/0.40`, 영률
-`1.0 MPa`, 포아송비 `0.30`, surface thickness `3 mm`다. 이 값은 물리 충실도
-증거가 아니다. 다음 실행 전 최소 실측은 수건 질량, 4겹 두께 5지점과 작업대
-가로/세로 정지·동적 마찰 각 3회다. 직접 늘어남, 영률·포아송비와 수건-수건
-마찰은 우선 일반값으로 두며, 처짐·낙하시간은 최소 보정 후 필요할 때 추가한다.
-측정 전에는 self-contact solver를 더 조정하거나 S2/S3로 진행하지 않는다.
+1. 로봇 가까운 변의 양끝을 집고 수건 전체를 든다.
+2. 팔을 전진시키며 자유단을 작업대에 접촉시킨다.
+3. TCP 높이를 유지한 채 36 mm 전진해 작업대 마찰로 자유단을 편다.
+4. L 형상을 완성하며 표면 드래그 이동의 절반인 15 mm를 선보정한다.
+5. 팔 방향을 바꿔 윗단을 덮고 Q0로 연 뒤 수직 이탈한다.
+
+3회 독립 실행의 최악값은 layer `51.609/48.391`, paired-vertex p95
+`16.398 mm`, 높이 `26.488 mm`, footprint 폭 `156.332 mm`,
+terminal Z/curl 0이며 독립 실행 간 전체 node 최대 차이는 `0.0116 mm`다.
+11.3 mm 미세보정은 비율 개선 없이 p95를
+`18.523 mm`로 악화시켜 사용하지 않는다.
+고정 요약은
+`artifacts/bimanual/planning/towel_first_fold_surface_drag_r2_s1_summary.json`이다.
+
+FK 진단:
+
+```bash
+PYTHONPATH=/opt/ros/jazzy/lib/python3.12/site-packages:. \
+python3 tools/run/diagnose_towel_suspended_gravity_fold_kinematics.py \
+  --output tmp/towel_first_fold_surface_drag_full_fk.json
+```
+
+headless 물리 검증:
+
+```bash
+/home/an-hyeonseo/isaacsim-6.0.1-venv/bin/python \
+  tools/setup/isaac/run_towel_s1_vertex_patch_lift.py \
+  tmp/towel_isaac_s0_manifest_final_20260828.json \
+  --output tmp/towel_first_fold_surface_drag.json \
+  --place-release --self-contact \
+  --physics-backend newton-coupled-vbd \
+  --kinematic-replay tmp/towel_first_fold_surface_drag_full_fk.json \
+  --urdf-override \
+  artifacts/bimanual/preview/so101_dual_preview_right_registered_r0g_newton_baked_scale.urdf \
+  --actual-jaw-mesh-contact --newton-rubber-friction 100 \
+  --environment-count 1 --disable-cubric-visual-sync --viz none
+```
+
+GUI 확인은 마지막 `--viz none`을 `--viz kit --keep-open`으로 바꾼다.
+실측 물성 재현 도구는
+`tools/setup/isaac/run_towel_s1_material_calibration.py`와
+`tools/setup/isaac/run_towel_newton_material_calibration.py`다.
 
 공식 3.0 beta installer는 현재 전용 venv에 PyTorch `2.10.0+cu128`과 coverage
 `7.6.1`을 설치하지만 Isaac Sim 6.0.1 package metadata는 각각 `2.11.0`과 `7.4.4`를

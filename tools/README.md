@@ -71,11 +71,19 @@ python tools/run/build_towel_isaac_s0_manifest.py \
   tmp/towel_isaac_s0_manifest.json \
   --output tmp/towel_isaac_s1_surface_drop_settle.json \
   --device cuda:0 --viz none
+PYTHONPATH=/opt/ros/jazzy/lib/python3.12/site-packages:. \
+python3 tools/run/diagnose_towel_suspended_gravity_fold_kinematics.py \
+  --output tmp/towel_first_fold_surface_drag_full_fk.json
 /home/an-hyeonseo/isaacsim-6.0.1-venv/bin/python \
   tools/setup/isaac/run_towel_s1_vertex_patch_lift.py \
   tmp/towel_isaac_s0_manifest.json \
-  --output tmp/towel_isaac_s1_place_release_gui.json \
-  --place-release --fold-phase-seconds 0.20 --settle-timeout-s 16 \
+  --output tmp/towel_first_fold_surface_drag_gui.json \
+  --place-release --self-contact \
+  --physics-backend newton-coupled-vbd \
+  --kinematic-replay tmp/towel_first_fold_surface_drag_full_fk.json \
+  --urdf-override artifacts/bimanual/preview/so101_dual_preview_right_registered_r0g_newton_baked_scale.urdf \
+  --actual-jaw-mesh-contact --newton-rubber-friction 100 \
+  --environment-count 1 --disable-cubric-visual-sync \
   --device cuda:0 --viz kit --keep-open
 python tools/run/export_towel_yolo_segmentation.py \
   --output tmp/towel_yolo_segmentation
@@ -166,25 +174,28 @@ GUI 직접 확인이 같은 manifest를 사용한다. rigid proxy도 manifest의
 별도 runner에서 PASS했다. transition collision runner는 Isaac PhysX에서 114 phase의
 원본 MoveIt trajectory를 3,383개 표본으로 재생하고 self/table 금지 접촉 0으로 PASS했다.
 rigid proxy는 cloth 변형·attachment를 증명하지 않으므로 S1 승격 근거로만 사용한다.
-`run_towel_s1_surface_drop_settle.py`는 동일 manifest의 검증 작업대에 31×31
-element/1,024-node surface mesh를 떨어뜨리는 첫 S1 smoke다. 기본 collision offset의
-`20 mm` 공중 정착을 hover gate로 거부한 뒤 실제 shape offset을 고정했고, 8환경에서
-40 step 이하 settle, clearance `1.5 mm`, 환경 간 최대 차이 `8.94e-8 m`로 PASS했다.
-후보 질량·물성은
-실측 전 값이며 이 drop runner만으로 attachment, lift/place/release, 접기와 학습을 승인하지 않는다.
-`run_towel_s1_vertex_patch_lift.py`는 좌우 각각 16 mm 반경의 9-node patch를
-`OmniPhysicsVtxXformAttachment`로 gripper rigid link 아래 attachment frame에 붙이고 r0g의 첫 fold 변위를
-추종한다. 첫 단순 Xform target 결과는 PhysX의 non-rigid target 경고로 폐기했다.
-direct articulation-link low-lift smoke는 snap `0.125 mm`, patch lift 최소
-`20.871 mm`, gripper 추종 오차 최대 `0.782 mm`, 8-env patch 차이 `0.057 mm`로
-PASS한 이전 후보 증거다. 최신 manifest의 `--place-release` 경로는 1차 16-sample
-fold 뒤 attachment를 끄고 jaw open·retreat·settle까지 실행해 snap `0.046 mm`,
-patch lift 최소 `20.933 mm`, 강체회전 포함 추종 오차 `0.426 mm`, release 뒤
-patch–jaw 거리 최소 `63.974 mm`, 최종 clearance `1.500 mm`로 PASS했다. 자유 면
-전체 8-env 차이 `31.648 mm`는 별도 미통과 진단값이며 self-contact·물성 보정은 미완료다.
-`--self-contact`는 topology 두 칸을 제외한 비이웃 vertex 간격도 검사한다. `1/240 s`
-최선 진단에서 최소 간격 `3.007 mm`와 table clearance `1.500 mm`는 유지했지만 20초 뒤
-최대 속도 `0.0294 m/s`로 settle 한계 `0.015 m/s`를 넘어서 결과 파일을 생성하지 않았다.
-새로운 학습 inference backend와 실제 executor는 `docs/ROADMAP.md`의 해당 gate가
-시작될 때 추가한다. 현재 image/annotation perception backend는 R1 범위에서
-검증 완료됐으며, 남은 순서는 `docs/HARDWARE_FREE_BACKLOG.md`를 따른다.
+`run_towel_s1_surface_drop_settle.py`는 S1의 독립 drop/settle smoke다.
+최종 1차 접기 경로는 아래 세 구성으로 단순화했다.
+
+- `lib/towel_suspended_gravity_fold_planning.py`: 완전 들기, 자유단 착지,
+  36 mm 표면 드래그, L 형성, 15 mm 선보정과 중력 laydown task pose
+- `run/diagnose_towel_suspended_gravity_fold_kinematics.py`: 52 phase full-FK,
+  관절 한계와 approach tilt의 motion-free 검사
+- `setup/isaac/run_towel_s1_vertex_patch_lift.py`: CoupledMJWarp+VBD actual-jaw
+  contact, self-contact, hold-until-Q0-open retention, release와 최종 형상 gate
+
+실측값은 `config/towel_isaac_s1_material.json`, Q0와 jaw 형상은
+`config/so101_gripper_geometry.candidate.json`, 수직 접촉 기준은
+`config/towel_first_fold_vertical_contact.candidate.json`에 있다.
+`run_towel_s1_material_calibration.py`와
+`run_towel_newton_material_calibration.py`는 물성 보정 재현용이다.
+
+최종 3회 실행의 최악값은 layer `51.609/48.391`, paired-vertex p95
+`16.398 mm`, 높이 `26.488 mm`, 폭 `156.332 mm`, terminal Z/curl 0이다.
+독립 실행 간 전체 1,024-node 최대 차이는 `0.0116 mm`다.
+근접 fallback과 최종 vertex attachment는 사용하지 않으며 실제 모터 명령은 0이다.
+11.3 mm 미세보정과 이전 residual/seam/regrasp 독립 실험 스택은 개선이 없어 제거했다.
+
+실행 명령은 [Isaac Sim README](../isaac_sim/README.md)에 유지한다. R1의 실제
+image/annotation perception은 완료 상태이며, 이후 순서는
+`docs/HARDWARE_FREE_BACKLOG.md`와 `docs/ROADMAP.md`를 따른다.

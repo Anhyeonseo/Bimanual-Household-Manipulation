@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_isaac_s1_material_candidate",
+  "status": "R2_S1_MATERIAL_CALIBRATED_CANDIDATE",
+  "motion_authorized": false,
+  "physical_fidelity_validated": false,
+  "measurement_date": "2026-08-30",
+  "towel_condition": {
+    "material": "cotton_100_percent",
+    "dry": true,
+    "washed": false,
+    "measured_sides_m": [0.304, 0.296, 0.304, 0.296]
+  },
+  "measurements": {
+    "mass": {
+      "method": "book_difference_with_0.01_kg_hanging_scale",
+      "scale_resolution_g": 10.0,
+      "book_readings_g": [780.0, 780.0, 780.0],
+      "book_plus_towel_readings_g": [830.0, 840.0, 840.0],
+      "difference_readings_g": [50.0, 60.0, 60.0],
+      "mean_g": 56.6666666667,
+      "observed_range_g": [50.0, 60.0]
+    },
+    "thickness": {
+      "method": "four_layer_caliper_first_contact_away_from_hems",
+      "four_layer_readings_mm": [20.3, 18.1, 17.6, 17.2, 18.1],
+      "four_layer_mean_mm": 18.26,
+      "four_layer_median_mm": 18.1,
+      "one_layer_bulk_median_mm": 4.525,
+      "one_layer_observed_range_mm": [4.3, 5.075]
+    },
+    "towel_table_friction": {
+      "method": "book_and_towel_rigidly_coupled_horizontal_pull",
+      "direction": "robot_near_to_far",
+      "moving_assembly_mean_mass_g": 836.6666666667,
+      "onset_pull_readings_gf": [580.0, 590.0, 590.0],
+      "sliding_pull_readings_gf": [610.0, 620.0, 620.0],
+      "onset_coefficients": [0.6932270916, 0.7051792829, 0.7051792829],
+      "sliding_coefficients": [0.7290836653, 0.7410358566, 0.7410358566],
+      "onset_coefficient_mean": 0.7011952191,
+      "sliding_coefficient_mean": 0.7370517928,
+      "perpendicular_direction_measured": false
+    },
+    "edge_release_drop": {
+      "method": "one_edge_both_corners_held_opposite_edge_supported_then_simultaneously_released",
+      "lift_height_mm": 100.1,
+      "trial_count": 3,
+      "video_filename": "KakaoTalk_20260830_074906391.mp4",
+      "video_sha256": "6b47d074c2cf06b76debaff6ed7cbd612878458a70e82ba955c126229aaa1300",
+      "video_fps": 24.0,
+      "video_frame_count": 478,
+      "timing_resolution_s": 0.0416666667,
+      "motion_onset_frames": [140, 278, 393],
+      "near_static_frames": [144, 283, 397],
+      "release_to_near_static_s": [0.1666666667, 0.2083333333, 0.1666666667],
+      "release_to_near_static_mean_s": 0.1805555556,
+      "release_to_near_static_median_s": 0.1666666667,
+      "analysis": "fixed towel-region frame difference with manual visual cross-check",
+      "video_stored_in_repository": false
+    },
+    "cantilever_bending": {
+      "method": "free_overhang_length_when_tip_reaches_45_degrees",
+      "target_angle_deg": 45.0,
+      "overhang_readings_mm": [36.1, 36.6, 36.3],
+      "overhang_mean_mm": 36.3333333333,
+      "overhang_median_mm": 36.3,
+      "observed_range_mm": [36.1, 36.6],
+      "direction_count": 1,
+      "derived_peirce_like_bending_length_mm": 17.6934977919,
+      "derived_effective_flexural_rigidity_n_m": 0.0000342077206063,
+      "derived_value_is_calibration_target_not_certified_test": true
+    }
+  },
+  "model_candidate": {
+    "mass_kg": 0.0566666667,
+    "density_kg_m3": 139.16941076,
+    "static_friction": 0.74,
+    "dynamic_friction": 0.74,
+    "youngs_modulus_pa": 1000000.0,
+    "poissons_ratio": 0.3,
+    "elasticity_damping": 0.05,
+    "surface_bend_stiffness_pa": 2250.0,
+    "bend_damping_s_inv": 500.0,
+    "surface_thickness_m": 0.003,
+    "contact_offset_m": 0.003,
+    "rest_offset_m": 0.0015,
+    "linear_damping_s_inv": 0.1,
+    "settling_damping_s_inv": 1.0,
+    "settling_threshold_m_s": 0.02,
+    "newton_vbd_meter": {
+      "world_units_per_meter": 1.0,
+      "cloth_resolution": [31, 31],
+      "solver_substeps": 10,
+      "solver_iterations": 10,
+      "triangle_stiffness_pa": 10000.0,
+      "triangle_area_stiffness_pa": 10000.0,
+      "triangle_damping_pa_s": 0.0000015,
+      "edge_stiffness_n_m": 0.135,
+      "edge_damping_n_m_s": 0.02,
+      "calibration_contact_stiffness_newton_units": 300000.0,
+      "calibration_status": "CANTILEVER_AND_EDGE_RELEASE_MATCH"
+    }
+  },
+  "model_mapping": {
+    "friction": "isotropic static and dynamic values both use the rounded sliding mean because measured sliding resistance exceeded onset resistance",
+    "thickness": "measured bulk thickness is preserved as evidence; PhysX surface thickness remains the separately validated 3 mm numerical collision parameter",
+    "density": "derived from mean mass, measured 0.304 by 0.296 m area, and one-layer bulk median thickness",
+    "elasticity": "the direct plate mapping of measured flexural rigidity to Youngs modulus was rejected because PhysX exposes surface bend stiffness separately; retain generic Youngs modulus and use 2250 Pa surface bend stiffness, which matched the measured 45 degree cantilever target across eight environments",
+    "bend_damping": "use the lowest bracketed bend damping that matches the 24 fps edge-release observation; 500 per second matched while 100 per second was too slow and 1000 per second produced no resolvable improvement",
+    "linear_damping": "the point-mass 8.87 per-second candidate increased final self-contact speed to 0.0599 m/s and was rejected; retain the prior generic 0.1 per-second value because the dedicated PhysX edge-release scene was matched through bend damping",
+    "newton_vbd_meter": "Newton coefficients were re-calibrated in the exact metre, 31x31, 10-substep, 10-iteration convention used by the IsaacLab fold. With the shared 3e5 numerical table-contact stiffness, edge_ke 0.135 and edge_kd 0.02 matched the 45 degree cantilever at 46.84 degrees and the 24 fps edge-release uncertainty interval."
+  },
+  "dedicated_scene_calibration": {
+    "cantilever": {
+      "artifact": "tmp/towel_s1_calibration_cantilever_b2250_bd500_final_20260830.json",
+      "artifact_sha256": "9154eb140fc6ee32d39418455546fca7f5a51cefff6faf41a5f544ea97b523cd",
+      "surface_bend_stiffness_pa": 2250.0,
+      "bend_damping_s_inv": 500.0,
+      "per_environment_chord_angle_deg": [46.0826034546, 46.3401145935, 46.4771614075, 44.5689125061, 44.3714523315, 44.5037155151, 44.2524223328, 44.24792099],
+      "target_angle_deg": 45.0,
+      "angle_tolerance_deg": 5.0,
+      "shape_settle_time_s": 0.7916666667,
+      "maximum_supported_region_slip_m": 0.0001240981,
+      "matched": true
+    },
+    "edge_release": {
+      "artifact": "tmp/towel_s1_calibration_edge_release_b2250_bd500_frame_aligned_20260830.json",
+      "artifact_sha256": "43954d5d984f6493d3cd6e2296d573fc8173536ecc974db00b717af8974f3fc5",
+      "surface_bend_stiffness_pa": 2250.0,
+      "bend_damping_s_inv": 500.0,
+      "simulated_first_quiet_frame_s": 0.25,
+      "simulated_confirmation_frame_s": 0.2916666667,
+      "simulated_24_fps_uncertainty_window_s": [0.2083333333, 0.2916666667],
+      "measured_24_fps_uncertainty_window_s": [0.1388888889, 0.2222222223],
+      "match_rule": "uncertainty_intervals_overlap",
+      "matched": true
+    },
+    "newton_vbd_meter": {
+      "cantilever_artifact": "tmp/towel_newton_meter_cantilever_ke0p135_kd0p02_contact300k_gpu_20260902.json",
+      "edge_release_artifact": "tmp/towel_newton_meter_edge_release_ke0p135_kd0p02_contact300k_gpu_20260902.json",
+      "world_units_per_meter": 1.0,
+      "cloth_resolution": [31, 31],
+      "solver_substeps": 10,
+      "solver_iterations": 10,
+      "edge_stiffness_n_m": 0.135,
+      "edge_damping_n_m_s": 0.02,
+      "contact_stiffness_newton_units": 300000.0,
+      "cantilever_final_chord_angle_deg": 46.8446954839,
+      "cantilever_target_angle_deg": 45.0,
+      "cantilever_matched": true,
+      "edge_release_simulated_settle_time_s": 0.25,
+      "edge_release_measured_settle_time_s": 0.1805555556,
+      "edge_release_simulated_uncertainty_window_s": [0.2083333333, 0.2916666667],
+      "edge_release_measured_uncertainty_window_s": [0.1388888889, 0.2222222223],
+      "edge_release_match_rule": "24_fps_uncertainty_intervals_overlap",
+      "edge_release_matched": true
+    }
+  },
+  "calibration_trials": [
+    {
+      "youngs_modulus_pa": 13835.1225563,
+      "elasticity_damping": 0.05,
+      "linear_damping_s_inv": 0.1,
+      "self_contact_final_maximum_speed_m_s": 0.0407144874,
+      "minimum_nonlocal_node_separation_m": 0.0029950792,
+      "status": "REJECTED_SELF_CONTACT_SETTLE_FAIL"
+    },
+    {
+      "youngs_modulus_pa": 13835.1225563,
+      "elasticity_damping": 0.05,
+      "linear_damping_s_inv": 8.8708853222,
+      "self_contact_final_maximum_speed_m_s": 0.0599181652,
+      "minimum_nonlocal_node_separation_m": 0.0029950792,
+      "status": "REJECTED_SELF_CONTACT_SETTLE_FAIL"
+    },
+    {
+      "youngs_modulus_pa": 13835.1225563,
+      "elasticity_damping": 0.5,
+      "linear_damping_s_inv": 0.1,
+      "self_contact_final_maximum_speed_m_s": 0.0374805517,
+      "minimum_nonlocal_node_separation_m": 0.0029950792,
+      "status": "REJECTED_SELF_CONTACT_SETTLE_FAIL"
+    }
+  ],
+  "limitations": [
+    "hanging-scale mass resolution is 10 g",
+    "caliper thickness depends on compression pressure",
+    "friction was measured only in the canonical first-fold direction",
+    "edge-release timing is quantized to one 24 fps frame and is not a full-cloth free-fall measurement",
+    "45 degree overhang was measured in one direction as a home calibration target, not a certified textile test",
+    "Newton metre VBD edge-release matches only under the stated 24 fps uncertainty-interval rule; its 0.25 s point estimate is 0.069 s slower than the measured mean",
+    "tensile stretch and towel-towel friction remain unmeasured",
+    "this candidate does not validate physical cloth fidelity or authorize robot motion"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_first_fold_vertical_contact_candidate",
+  "status": "R2_VERTICAL_CONTACT_RELATIVE_FOLD_CANDIDATE",
+  "motion_authorized": false,
+  "automatic_execution_permitted": false,
+  "maximum_approach_tilt_deg": 12.0,
+  "arm_joint_positions_rad": {
+    "left": [
+      -0.04188046231865883,
+      1.2749814987182617,
+      0.044330716133117676,
+      0.1182432621717453,
+      -1.5639182329177856
+    ],
+    "right": [
+      0.1770470142364502,
+      1.5075454711914062,
+      0.20423518121242523,
+      -0.02597607672214508,
+      -1.3168001174926758
+    ]
+  },
+  "planner_relative_path_endpoint_correction_m": {
+    "left": [0.000188, 0.001190, -0.001827],
+    "right": [-0.008474, 0.016686, 0.001793]
+  },
+  "endpoint_correction_source": {
+    "run_label": "towel_s1_edge15_flush2_vertical_relative_env1_fold_b_20260831",
+    "method": "negative of measured registered-TCP laydown displacement error, ramped by canonical fold progress"
+  },
+  "notes": [
+    "These are the achieved vertical-pinch arm targets used by the Isaac contact gate.",
+    "Subsequent fold targets must be solved as relative TCP displacements from this seed.",
+    "Endpoint corrections compensate the measured Isaac registered-TCP path error, not cloth outcome error.",
+    "This candidate does not authorize commands to a physical robot."
+  ]
+}
