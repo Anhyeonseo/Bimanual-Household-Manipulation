@@ -1,6 +1,6 @@
 # 현재 상태
 
-기준일: 2026-08-28
+기준일: 2026-09-03
 
 R0 실기 결과, 최종 plan-only gate와 R1 관측 검증은 이 문서에 통합한다.
 현재 자동검증 결과는 repository test와 `VERIFICATION_MATRIX.md`로 확인하며,
@@ -8,24 +8,37 @@ R0 실기 결과, 최종 plan-only gate와 R1 관측 검증은 이 문서에 통
 
 ## 프로젝트 상태
 
-최종 목표 수건은 nominal 300×300 mm로 확정됐다. 실제 네 변, 근사 두께,
-면 100%·건조·미세탁 조건과 좌우 1/4겹 정적 retention을 등록했다. 질량,
-작업대 마찰, 자동 contact와 동적 slip·장력 한계는 아직 측정되지 않았다.
-R0 물리·카메라·작업셀 기반과 canonical 접기 task-pose 후보를 통합했다. 최신 접기
-순서는 1차 양팔 아래→위, 2차 오른팔 오른쪽→왼쪽 edge-midpoint다. software와
-full-FK IK뿐 아니라 등록 완료 r0g URDF·workcell shadow·right tabletop artifact를
-고정한 strict MoveIt plan-only gate도 통과했다. 최신 아래→위·오른팔 artifact로
-R2 S0 reset·articulation·FOV·collision도 다시 통과했다. 이전 후보의 S1 물리 smoke는
-보존하고, 최신 manifest에서도 1차 양팔 vertex-patch lift→laydown→release smoke를
-통과했다. self-contact·물성 보정과 자유 면 전체 형상 결정성은 아직 필요하다.
-Self-contact는 2-node topology filter와 `1/240 s` timestep에서 겹 간격과 테이블
-안착은 유지했지만 20초 뒤 잔진동 때문에 fail-closed로 미통과 처리했다.
-R2 작업 추정 진행률은 `64%`이며, 다음 시뮬레이션은 수건 질량·4겹 두께·
-수건-작업대 마찰의 최소 실측값을 받은 뒤 재개한다. 그 전에는 미보정 기본값에
-맞춘 추가 solver 튜닝이나 후속 S2/S3 실행을 진행하지 않는다.
-실제 수건 motion은 승인되지 않았고 `motion_authorized=false`다. R1은 실제 Top 원본 595장,
-사람 검수 segmentation과 독립 held-out, 실제 3-frame observation burst까지
-motion-free로 검증해 완료했다.
+R0 작업셀·양팔 기구·카메라·MoveIt plan-only와 R1 실제 Top 관측 검증은 완료됐다.
+실제 목표 수건은 면 100%, nominal 300×300 mm이며 네 변은
+`304/296/304/296 mm`다. 실측값은 질량 평균 `56.7 g`, 4겹 두께 중앙값
+`18.1 mm`, 작업대 유효 정지/이동 마찰 `0.701/0.737`, 100.1 mm
+edge-release 평균 `0.181 s`, 45° cantilever overhang 평균 `36.33 mm`다.
+원시값과 simulator 파생값은 `config/towel_isaac_s1_material.json`에 고정한다.
+
+R2 S0의 vectorized reset, articulation, FOV와 transition collision gate는 통과했다.
+S1은 Isaac Lab CoupledMJWarp+VBD, 등록 R0G 양팔 URDF, 실제 jaw STL, 실측 Q0
+간격 `16.7 mm`, fixed-jaw `2.2 mm` 고무패드를 사용한다. fixed/moving jaw가 같은
+수건 입자를 실제로 접촉한 뒤에만 실물에서 확인한 “닫힌 동안 유지, Q0로 열면 해제”
+조건을 `nodal_kinematic_target`으로 적용한다. 근접 입자 fallback이나 임의
+vertex attachment는 최종 경로에서 사용하지 않는다.
+
+2026-09-03 최종 1차 접기는 아래 양끝을 집어 완전히 든 뒤, 자유단을 작업대에
+접촉시키고 36 mm 전진 표면 드래그로 펴며 L 형상을 만든 다음, 방향을 바꿔 윗단을
+덮는 경로다. 표면 드래그가 만든 약 30 mm 이동의 절반인 15 mm를 되접기 전에
+선보정한다. 최종 3회 독립 실행의 최대 layer 비율은 `51.609%`, paired-vertex
+p95 XY 오차는 `16.398 mm`, 높이는 `26.488 mm`, footprint 폭은
+`156.332 mm`였다. 모두 `55/45`, `30 mm`, `30 mm`, `180 mm` gate를
+통과했고 terminal Z/curl amplitude와 fraction은 모두 0이었다. Q0 개방 잔차는
+`1.30e-5 rad` 이하이고 해제 뒤 patch가 jaw를 따라가지 않았다. 독립 실행 간 전체
+1,024-node 최대 차이는 `0.0116 mm`로 `1 mm` 반복 gate를 통과했다. 11.3 mm
+미세보정은 비율 개선 없이 p95를 `18.523 mm`로 악화시켜 폐기했다.
+고정 요약은
+`artifacts/bimanual/planning/towel_first_fold_surface_drag_r2_s1_summary.json`이다.
+
+이 결과는 시뮬레이션 1차 접기 기준 성공본이다. 실제 로봇 motion은 여전히
+`motion_authorized=false`이며, 순수 마찰계수만으로 집기 유지가 검증됐다는 뜻도
+아니다. R2 추정 진행률은 `75%`다. 남은 핵심은 solver/material seed 반복 성공률,
+2차 접기, S2 material randomization과 S3 환경·정책 계약이다.
 
 ## 재사용 가능한 기반
 
@@ -42,7 +55,7 @@ motion-free로 검증해 완료했다.
 
 | 구성 | 현재 | 다음 승인 조건 |
 |---|---|---|
-| 태스크 범위 | 실측 304/296/304/296 mm, 면 100%, dry/unwashed, 최종 nominal 150×150 mm | 질량, 4겹 두께 5지점, 수건-작업대 가로/세로 마찰을 S1 self-contact 재실행 전 측정 |
+| 태스크 범위 | 실측 304/296/304/296 mm, 질량 평균 56.7 g, 4겹 두께 평균/중앙값 18.26/18.1 mm, 작업대 유효 마찰 0.701/0.737, 100.1 mm edge-release 평균 0.181 s, 45° overhang 평균 36.33 mm, 면 100%, dry/unwashed | 면내 인장 응답은 S1 완료 전 필수로 승격하지 않고 randomization 범위로 보존 |
 | cloth contact | 좌우 1겹·4겹 current-pose hold 2회와 가벼운 pull PASS | 자동 open/close-to-contact, 동적 slip·장력 승격 |
 | annotation 계약 | schema, validator, deterministic split와 실제 capture/episode manifest | R2 sim/real action-outcome episode에 동일 identity 계약 적용 |
 | 수건 데이터셋 | 개발 595장 중 검수 train 540장(기존 103 + assisted 승인 437, 제외 7) + held-out 38장 중 검수 35장·robot OOD 3장 + 실제 3-frame 5 episode/15장; split leakage 0 | R2 sim/real episode 계약 유지 |
@@ -51,12 +64,12 @@ motion-free로 검증해 완료했다.
 | temporal state | 실제 5 episode/15장 3-frame 상태 일치; 1차 IoU min 0.903769, 2차 min 0.859693 | 실제 primitive 전후 동일 계약 재사용 |
 | observation lifecycle | `OBSERVE_CLEAR→primitive→RETREAT_AND_SETTLE→REOBSERVE_CLEAR`, freshness·settle·identity·3-frame fail-closed gate 실데이터 PASS | R3 primitive runner와 연결 |
 | fold plan-only | r0g strict PASS: 1차 양팔 아래→위, correction 8개, 2차 오른팔 오른쪽→왼쪽; 846구간·12,552상태·미승인 접촉 0 | R3 무수건 dry-run; 실제 cloth/contact 승인은 별도 |
-| Isaac/학습 | 최신 canonical SHA/r0g/worktable 고정 S0 PASS. rigid proxy 8-env reset 오차 `7.45e-9 m`, 114-phase articulation `0 rad`, Top image/board margin `29.409 px`/`5.756 mm`, PhysX trajectory 3,383표본 금지 접촉 0. 최신 S1 1,024-node surface cloth의 양팔 9-node×2 attachment→1차 fold→place/release smoke PASS: snap `0.046 mm`, patch lift 최소 `20.933 mm`, 강체회전 포함 추종 오차 `0.426 mm`, release 뒤 jaw 거리 최소 `63.974 mm`, 최종 clearance/높이 `1.500/22.738 mm`. 8-env full-shape 차이 `31.648 mm`로 결정성 미통과. Self-contact 진단은 비이웃 간격 `3.007 mm`와 table clearance `1.500 mm`를 유지했지만 20초 뒤 최대 속도 `0.0294 m/s > 0.015`로 settle FAIL | 실측 물성으로 self-contact chatter 제거 후 full-shape 결정성 검증 |
+| Isaac/학습 | coupled VBD actual-contact gate, 실측 hold-until-Q0-open retention과 중력+표면 드래그 1차 접기 3회 PASS. 최악값: layer `51.609/48.391`, p95 `16.398 mm`, 높이 `26.488 mm`, 폭 `156.332 mm`, terminal Z/curl 0. R2 `75%` | seed/material 반복 성공률→2차 접기→S2 randomization→S3 환경·정책 계약 |
 | 조작 primitive | 미구현 | 개별 plan-only→supervised 제한 반복 |
 | 펼쳐진 수건 2회 접기 | 미구현 | R4 standalone fold gate 통과 |
 | 펼치기·평탄화 | 미구현 | R5/R6 단계 성공 기준 통과 |
 | 통합 복구 | offline 유한 상태기계 | 실제 실패 signature와 feedback 연결 |
-| hardware-free CI | 수건·YOLO·S0/S1 host/replay 계약과 ROS overlay 관련 현재 전체 회귀 873개 PASS | direct-link attachment·place/release 회귀 연결 |
+| hardware-free CI | 수건·YOLO·S0/S1 host/replay 계약과 ROS overlay 유지; 관련 정적 회귀 40개 PASS | cloth backend 결정 뒤 전체 회귀와 8환경 반복 재실행 |
 
 Top 카메라 R0-A 실기 확인에서 장치
 `/dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1.1:1.0-video-index0`, MJPEG
@@ -215,14 +228,8 @@ canonical 형식으로 이식했다.
 
 ## 바로 다음 작업 — R2
 
-1. 수건 질량, 4겹 두께 5지점, 책에 고정한 수건의 작업대 가로/세로 정지·동적
-   마찰을 방향별 3회 측정한다. 별도 추는 쓰지 않고 당김 저울로 책+수건 전체
-   무게와 수평 당김값을 함께 잰다.
-2. 실측값을 S1 material 후보에 고정하고 현재 `1/240 s` self-contact gate를
-   임계값 완화 없이 다시 실행한다.
-3. settle과 비이웃 vertex 간격을 통과한 뒤 8-env full-shape 결정성, 2차 접기,
-   correction, S2 material randomization 순으로 진행한다.
-4. 직접 늘어남·영률·포아송비와 수건-수건 마찰은 R2 선행조건에서 제외한다.
-   처짐과 낙하시간은 초기 보정이 부족할 때만 추가한다.
-5. left wrist는 실제 multi-view fusion의 실패 근거가 생길 때 staged metric 보정을
-   수행하며, 그 전에는 들림·다층 ambiguity를 `UNKNOWN`으로 유지한다.
+1. 현재 15 mm surface-drag 보정 성공본을 solver/material seed별 반복 실행해 성공률을 기록한다.
+2. 같은 실제 jaw/Q0/고무패드와 release gate로 2차 접기 full-FK와 Isaac 경로를 연결한다.
+3. 1·2차 scripted baseline을 고정한 뒤 S2 material randomization을 수행한다.
+4. S3의 observation/action/reward/termination 계약과 제한된 정책 학습을 시작한다.
+5. 실제 모터 실행은 별도의 R3 dry-run·supervised 승인 전까지 금지한다.

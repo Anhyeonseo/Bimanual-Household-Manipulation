@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "record_kind": "towel_first_fold_surface_drag_r2_s1_summary",
+  "status": "R2_S1_FIRST_FOLD_ACCEPTED_WITHIN_55_45",
+  "recorded_at": "2026-09-03",
+  "motion_authorized": false,
+  "automatic_execution_permitted": false,
+  "simulation_only": true,
+  "completed_runs": 3,
+  "trajectory": {
+    "strategy": "suspended_gravity_surface_drag_laydown",
+    "touchdown_forward_continuation_m": 0.036,
+    "surface_drag_half_fold_compensation_m": 0.015,
+    "mid_fold_camera_observation_used": false
+  },
+  "worst_case_metrics": {
+    "maximum_layer_fraction": 0.5160874732479899,
+    "maximum_layer_fraction_limit": 0.55,
+    "maximum_p95_paired_vertex_xy_error_m": 0.016397660598158836,
+    "maximum_p95_paired_vertex_xy_error_limit_m": 0.03,
+    "maximum_final_cloth_height_m": 0.026488259434700012,
+    "maximum_final_cloth_height_limit_m": 0.03,
+    "maximum_first_fold_footprint_width_m": 0.15633150935173035,
+    "maximum_first_fold_footprint_width_limit_m": 0.18,
+    "terminal_curl_amplitude_m": 0.0,
+    "terminal_curl_fraction": 0.0,
+    "maximum_gripper_opening_residual_rad": 0.000012993812561035156,
+    "maximum_repeat_node_distance_m": 0.000011581,
+    "maximum_repeat_p95_node_distance_m": 0.000009199,
+    "maximum_repeat_node_distance_limit_m": 0.001
+  },
+  "sources": {
+    "material_config_sha256": "c1deb5f6f27794623c89d01d422ea29e0f872d8e20f9ff528c7d950e14f66f12",
+    "gripper_config_sha256": "1d7601a725ac0079927692f21efc77473b2920b37a3abbeee1d0bbc8d16a6df0",
+    "vertical_contact_config_sha256": "ef5d35bbd5f61028cdd4c8c796284217db15eb9ad5da728c84da67d3aac1edc4",
+    "newton_urdf_sha256": "6ba59c0e909a259a0046a8961c9e726787d38cebe008e3975e44f9cf4d7209dc",
+    "full_fk_sha256": "d23658f16f5c2b394074d28f1b2c858835f154f0aed49b1645449132b2b7715c",
+    "headless_result_sha256": "6b1d4cf1649e455abb6d236dfff6a488c374dd3437564c091d8c4c7054909e21",
+    "gui_result_sha256": "8225ad5d9275b37bb3567331560cf8ae69baf1c2b7ab1a631631eedb2b349439",
+    "gui_replay_result_sha256": "f554b68bd2d619aecab07ac1966917afc059efc27bc628c74a276d8557bd3caa"
+  },
+  "rejected_refinement": {
+    "surface_drag_half_fold_compensation_m": 0.0113,
+    "maximum_layer_fraction": 0.5161097178317432,
+    "maximum_p95_paired_vertex_xy_error_m": 0.018522614613175392,
+    "reason": "no layer-ratio improvement and larger paired overlap error"
+  }
+}

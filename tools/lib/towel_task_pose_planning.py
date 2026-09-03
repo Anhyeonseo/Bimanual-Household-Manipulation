@@ -537,6 +537,8 @@ def solve_task_pose_branches(
     upper_rad: Sequence[float],
     preferred_positions_rad: Sequence[float],
     fallback_positions_rad: Sequence[float],
+    *,
+    random_seed_count: int = IK_RANDOM_SEED_COUNT,
 ) -> tuple[dict[str, object], ...]:
     """Solve deterministic task-pose branches and return passing ones only."""
     lower = np.asarray(_finite_vector(lower_rad, 5, "lower bounds"))
@@ -557,9 +559,13 @@ def solve_task_pose_branches(
     ).digest()
     rng = np.random.default_rng(int.from_bytes(digest[:8], "little"))
     seeds = [preferred, fallback, midpoint]
+    if not 0 <= random_seed_count <= IK_RANDOM_SEED_COUNT:
+        raise TowelPlanningError(
+            f"random_seed_count must be in [0, {IK_RANDOM_SEED_COUNT}]"
+        )
     seeds.extend(
         lower + (upper - lower) * rng.random(5)
-        for _ in range(IK_RANDOM_SEED_COUNT)
+        for _ in range(random_seed_count)
     )
     target = np.asarray(pose.xyz_m)
     span = upper - lower

@@ -408,7 +408,12 @@ class MoveItPlanOnlyGate:
         if self.exceptions_enabled:
             self.set_exceptions(False)
 
-    def endpoint_valid(self, positions: tuple[float, ...]) -> tuple[bool, str]:
+    def endpoint_valid(
+        self,
+        positions: tuple[float, ...],
+        *,
+        intended_table_contact: bool = False,
+    ) -> tuple[bool, str]:
         request = GetStateValidity.Request()
         request.group_name = "both_arms"
         request.robot_state = RobotState()
@@ -422,8 +427,30 @@ class MoveItPlanOnlyGate:
         if response.valid:
             return True, ""
         if response.contacts:
+            remaining_contacts = []
+            for contact in response.contacts:
+                pair_names = {
+                    contact.contact_body_1,
+                    contact.contact_body_2,
+                }
+                table_pair = (
+                    "validated_worktable_region" in pair_names
+                    and any(
+                        name.endswith("_moving_jaw_link")
+                        for name in pair_names
+                    )
+                )
+                depth = float(contact.depth)
+                if (
+                    intended_table_contact
+                    and table_pair
+                    and math.isfinite(depth)
+                    and depth <= MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M
+                ):
+                    continue
+                remaining_contacts.append(contact)
             try:
-                validate_contact_set(response.contacts)
+                validate_contact_set(remaining_contacts)
             except RuntimeError:
                 pass
             else:
@@ -596,6 +623,44 @@ class MoveItPlanOnlyGate:
             "trajectory_point_count": 2,
             "joint_goal_residual_rad": 0.0,
             "planning_method": "validated_single_joint_linear_interpolation",
+            "_trajectory": trajectory,
+        }
+
+    def deterministic_bimanual_segment(
+        self,
+        name: str,
+        start: tuple[float, ...],
+        target: tuple[float, ...],
+    ) -> dict[str, object]:
+        """Build an exact simultaneous two-arm chord for dense validation."""
+
+        names = tuple(planning.BOTH_ARM_JOINTS)
+        indices = tuple(CANONICAL_JOINTS.index(joint) for joint in names)
+        start_arms = tuple(float(start[index]) for index in indices)
+        target_arms = tuple(float(target[index]) for index in indices)
+        if not any(
+            abs(a - b) > 1.0e-12
+            for a, b in zip(start_arms, target_arms, strict=True)
+        ):
+            raise RuntimeError(f"{name}: deterministic bimanual segment has no motion")
+        trajectory = JointTrajectory()
+        trajectory.joint_names = list(names)
+        trajectory.points = [
+            JointTrajectoryPoint(positions=list(start_arms)),
+            JointTrajectoryPoint(positions=list(target_arms)),
+        ]
+        return {
+            "name": name,
+            "start_positions_rad": list(start),
+            "target_positions_rad": list(target),
+            "planning_group": "both_arms",
+            "moveit_error_code": int(MoveItErrorCodes.SUCCESS),
+            "planning_time_s": 0.0,
+            "trajectory_joint_names": list(names),
+            "trajectory_positions_rad": [list(start_arms), list(target_arms)],
+            "trajectory_point_count": 2,
+            "joint_goal_residual_rad": 0.0,
+            "planning_method": "dense_validated_bimanual_joint_interpolation",
             "_trajectory": trajectory,
         }
 
@@ -1338,7 +1403,21 @@ def solve_and_plan_phases(
             )
             if staged_right_departure:
                 gate.set_exceptions(True)
-            valid, contact_reason = gate.endpoint_valid(target_positions)
+            intended_table_contact = any(
+                target.semantic
+                in {
+                    "contact",
+                    "attached_lift",
+                    "attached_laydown",
+                    "attached_correction",
+                    "released_retreat",
+                }
+                for target in phase.targets
+            )
+            valid, contact_reason = gate.endpoint_valid(
+                target_positions,
+                intended_table_contact=intended_table_contact,
+            )
             if not valid:
                 failures.append(f"endpoint collision: {contact_reason}")
                 continue
@@ -1401,6 +1480,13 @@ def solve_and_plan_phases(
                     )
                 )
             )
+            deterministic_overcenter = phase.name.startswith(
+                "first_gravity_overcenter_"
+            )
+            deterministic_sideways_release = phase.name.startswith(
+                "first_gravity_release_sideways_"
+            )
+            deterministic_surface_exit = phase.name == "first_gravity_retreat"
             planning_start = current
             departure_prefix_records: list[dict[str, object]] = []
             if deterministic_departure:
@@ -1446,11 +1532,28 @@ def solve_and_plan_phases(
                     )
                     planning_start = rebranched_state
             attempt_count = (
-                1 if deterministic_departure else PLANNING_ATTEMPTS_PER_IK_BRANCH
+                1
+                if (
+                    deterministic_departure
+                    or deterministic_overcenter
+                    or deterministic_sideways_release
+                    or deterministic_surface_exit
+                )
+                else PLANNING_ATTEMPTS_PER_IK_BRANCH
             )
             for attempt in range(1, attempt_count + 1):
                 try:
-                    if deterministic_departure:
+                    if (
+                        deterministic_overcenter
+                        or deterministic_sideways_release
+                        or deterministic_surface_exit
+                    ):
+                        segment = gate.deterministic_bimanual_segment(
+                            phase.name,
+                            current,
+                            target_positions,
+                        )
+                    elif deterministic_departure:
                         segment = gate.deterministic_arm_segment(
                             phase.name,
                             planning_start,
@@ -1515,6 +1618,10 @@ def solve_and_plan_phases(
                     if gate.exceptions_enabled != previous_exceptions:
                         gate.set_exceptions(previous_exceptions)
                 segment["planning_attempt"] = attempt
+                if deterministic_overcenter:
+                    segment["gravity_overcenter_exact_chord"] = True
+                if deterministic_surface_exit:
+                    segment["gravity_surface_exit_exact_chord"] = True
                 selected = (
                     target_positions,
                     evaluations,

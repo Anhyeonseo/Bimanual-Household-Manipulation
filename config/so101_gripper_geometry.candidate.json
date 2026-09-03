@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "record_kind": "so101_gripper_geometry_candidate",
+  "status": "R2_Q0_GAP_STATIC_RETENTION_ANCHORED_CANDIDATE",
+  "simulation_only": true,
+  "motion_authorized": false,
+  "measurement_date": "2026-08-30",
+  "q0_measurement": {
+    "coordinate": "canonical_project_rad",
+    "canonical_project_q0_rad": 0.0,
+    "physical_reference": "raw_2048",
+    "measurement_location": "between opposing jaw faces, 6.2976 mm inward from the fixed-jaw distal tip at the registered gripper frame",
+    "left_gap_mm": 16.7,
+    "right_gap_mm": 16.7,
+    "estimated_uncertainty_mm": 0.5,
+    "measurement_condition": "2.2 mm rubber pad installed on each fixed jaw face",
+    "measurement_surface_reference": "fixed-jaw rubber-pad outer surface to opposing moving-jaw face",
+    "operator_report": "approximately 16.7 mm and approximately equal on both arms"
+  },
+  "geometry": {
+    "fixed_jaw_mesh": "ros2_ws/src/so101_description/meshes/wrist_cam_mount_32x32_uvc_module_so101.stl",
+    "moving_jaw_mesh": "ros2_ws/src/so101_description/meshes/moving_jaw_so101_v1.stl",
+    "registered_gripper_frame_translation_m": [-0.0079, -0.000218121, -0.0981274],
+    "measurement_insertion_depth_mm": 6.2976,
+    "fixed_jaw_rubber_pad": {
+      "installed_on_both_arms": true,
+      "thickness_mm": 2.2,
+      "moving_jaw_has_matching_pad": false,
+      "operator_report_date": "2026-09-02"
+    },
+    "detailed_stl_model_q_at_physical_q0_rad": 0.186588,
+    "detailed_stl_model_q_range_from_gap_uncertainty_rad": [0.179888, 0.1932944],
+    "model_positive_direction": "opens",
+    "project_positive_direction": "closes",
+    "mapping": "model_q_rad = detailed_stl_model_q_at_physical_q0_rad - canonical_project_rad"
+  },
+  "grasp_commands": {
+    "coordinate": "canonical_project_rad",
+    "measurement_condition": "retention checks performed with the same 2.2 mm fixed-jaw rubber pads installed",
+    "pad_condition_already_included_in_measured_commands": true,
+    "left": {
+      "one_layer": {
+        "validated_hold_anchor_rad": 0.246971,
+        "operational_candidate_rad": 0.251573,
+        "use_operational_candidate": true,
+        "operational_candidate_revalidated": false,
+        "selection_reason": "operator explicitly selected the three-raw-step tighter candidate for R2"
+      },
+      "four_layer": {
+        "validated_hold_anchor_rad": 0.210155,
+        "operational_candidate_rad": 0.210155,
+        "use_operational_candidate": true,
+        "operational_candidate_revalidated": true
+      }
+    },
+    "right": {
+      "one_layer": {
+        "validated_hold_anchor_rad": 0.18868,
+        "operational_candidate_rad": 0.18868,
+        "use_operational_candidate": true,
+        "operational_candidate_revalidated": true
+      },
+      "four_layer": {
+        "validated_hold_anchor_rad": 0.128854,
+        "operational_candidate_rad": 0.128854,
+        "use_operational_candidate": true,
+        "operational_candidate_revalidated": true
+      }
+    }
+  },
+  "operational_project_limits_rad": {
+    "source": "config/bimanual_operational_limits.json",
+    "left": [-1.854583, 0.269981],
+    "right": [-1.91901, 0.216291]
+  },
+  "release": {
+    "canonical_project_rad": 0.0,
+    "simulation_open_fraction_from_q0_to_max": 0.5,
+    "reason": "Q0 is retained as the measured 16.7 mm geometry anchor, while simulated cloth release opens each jaw halfway from Q0 toward its side-specific operational maximum so the towel is not asked to separate through a barely open gap"
+  },
+  "generic_rubber_cloth_material_candidate": {
+    "static_friction": 1.0,
+    "dynamic_friction": 0.8,
+    "restitution": 0.0,
+    "measured": false,
+    "purpose": "R2 contact candidate and later S2 randomization center, not a real friction claim"
+  },
+  "limitations": [
+    "Q0 gap was reported approximately and is not certified metrology",
+    "static retention anchors validate light manual pull retention, not maximum pull-out force",
+    "grasp commands after contact are actuator targets and must not be interpreted as collision-free empty-jaw angles",
+    "Isaac must apply the command through a joint drive and allow contact to determine the achieved jaw angle",
+    "The 2.2 mm rubber pad is installed only on each fixed jaw face; the moving jaw face has no matching added pad",
+    "Do not add a second command-angle or jaw-gap compensation for the pad because Q0 and retention commands were measured with it installed",
+    "this candidate does not authorize physical robot motion"
+  ]
+}
