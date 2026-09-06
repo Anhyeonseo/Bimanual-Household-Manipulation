@@ -209,8 +209,10 @@ def scene_config(source: dict[str, object]) -> InteractiveSceneCfg:
                         if args.self_contact
                         else None
                     ),
-                    contact_offset=CLOTH_CONTACT_OFFSET_M,
-                    rest_offset=CLOTH_REST_OFFSET_M,
+                    # Isaac Lab 19 removed contact/rest offsets from the
+                    # deformable-body config.  The concrete table and cloth
+                    # collision shapes receive the same pinned values in
+                    # apply_shape_contact_offsets() before simulation starts.
                     collision_pair_update_frequency=4,
                     collision_iteration_multiplier=2.0,
                 ),
