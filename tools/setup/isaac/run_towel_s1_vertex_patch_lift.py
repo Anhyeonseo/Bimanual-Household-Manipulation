@@ -1153,8 +1153,8 @@ def scene_config(source: dict[str, object]) -> InteractiveSceneCfg:
                             if args.self_contact
                             else None
                         ),
-                        contact_offset=CLOTH_CONTACT_OFFSET_M,
-                        rest_offset=CLOTH_REST_OFFSET_M,
+                        # Isaac Lab 1.9 authors deformable collision offsets on
+                        # the concrete PhysX shapes below.
                         collision_pair_update_frequency=4,
                         collision_iteration_multiplier=2.0,
                     )

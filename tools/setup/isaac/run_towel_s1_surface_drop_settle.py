@@ -130,8 +130,8 @@ def scene_config(source: dict[str, object]) -> InteractiveSceneCfg:
                     sleep_threshold=0.005,
                     max_depenetration_velocity=0.5,
                     self_collision=True,
-                    contact_offset=0.003,
-                    rest_offset=0.0015,
+                    # Isaac Lab 1.9 authors deformable collision offsets on
+                    # the concrete PhysX shapes below.
                     collision_pair_update_frequency=4,
                     collision_iteration_multiplier=2.0,
                 ),
