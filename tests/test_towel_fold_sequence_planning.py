@@ -11,6 +11,7 @@ from tools.lib.towel_task_pose_planning import (
     CORRECTION_DEPARTURE_FRACTIONS,
     MAXIMUM_APPROACH_TILT_RAD,
     MAXIMUM_ATTACHED_TRANSFER_TILT_RAD,
+    SECOND_LAYER_TCP_Z_OFFSET_M,
     TowelPlanningError,
     PhaseSpec,
     TaskPose,
@@ -21,8 +22,23 @@ from tools.lib.towel_task_pose_planning import (
     validate_phase_contract,
 )
 from tools.lib.towel_bimanual_then_single_planning import (
+    SECOND_BIMANUAL_LEFT_ARM_EDGE_INSET_M,
+    SECOND_BIMANUAL_LEFT_CONTACT_HEIGHT_ADDITION_M,
+    SECOND_BIMANUAL_MINIMUM_GRASP_SEPARATION_M,
+    SECOND_BIMANUAL_RIGHT_ARM_EDGE_INSET_M,
+    SECOND_BIMANUAL_RIGHT_CONTACT_HEIGHT_ADDITION_M,
+    SECOND_BIMANUAL_MAXIMUM_FINGER_TILT_RAD,
+    SECOND_BIMANUAL_RELEASE_HEIGHT_ADDITION_M,
+    SECOND_RELEASE_TCP_Z_OFFSET_M,
+    SECOND_SINGLE_ARM_CONTACT_TCP_Z_OFFSET_M,
+    SECOND_SINGLE_ARM_JAW_YAW_RAD,
+    build_bimanual_second_fold,
+    build_right_arm_second_fold_edge_handoff,
     build_bimanual_then_single_candidates,
+    build_right_arm_second_fold_correction,
+    build_right_arm_second_fold_stabilizer,
 )
+from tools.lib.towel_second_fold_correction import SecondFoldCorrectionPlan
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -117,6 +133,104 @@ def test_candidate_family_uses_bimanual_first_and_orthogonal_single_second():
         assert (right - left) * (top - bottom) == pytest.approx(0.0225)
 
 
+def test_second_fold_correction_is_bounded_lift_translate_laydown_then_reobserve():
+    plan = SecondFoldCorrectionPlan(
+        required=True,
+        status="SECOND_FOLD_UNDERFOLD_CORRECTION_REQUIRED",
+        arm="right",
+        signed_edge_residual_m=0.052,
+        correction_delta_y_m=-0.030,
+        correction_direction="toward_right",
+        grasp_xy_m=(0.31, -0.205),
+        target_xy_m=(0.31, -0.235),
+        contact_mode="top_bundle_edge_side_pinch",
+        requires_top_bundle_layer_separation=True,
+        step_limited=True,
+        expected_remaining_residual_m=0.022,
+        reobserve_after_step=True,
+    )
+    phases = build_right_arm_second_fold_correction(plan, -0.005)
+    validate_phase_contract(phases)
+    names = [phase.name for phase in phases]
+    departures = phases[:40]
+    assert [phase.name for phase in departures] == [
+        f"second_correction_departure_{index:02d}_right"
+        for index in range(1, 41)
+    ]
+    assert departures[19].targets[0].xyz_m == pytest.approx(
+        (0.2078333544, -0.2748407988, 0.0252464708)
+    )
+    assert departures[25].targets[0].xyz_m == pytest.approx(
+        (0.220, -0.2748407988, 0.080)
+    )
+    assert departures[31].targets[0].xyz_m == pytest.approx(
+        (0.31, -0.2909524466, 0.100)
+    )
+    assert departures[35].targets[0].xyz_m == pytest.approx((0.31, -0.205, 0.100))
+    assert departures[39].targets[0].xyz_m == pytest.approx((0.31, -0.205, 0.046))
+    assert names[-7] == "second_correction_pad_align"
+    assert names[-6:] == [
+        "second_correction_contact",
+        "second_correction_lift",
+        "second_correction_translate",
+        "second_correction_laydown",
+        "second_correction_retreat",
+        "second_correction_reobserve_clear",
+    ]
+    contact = phases[-6].targets[0]
+    lifted = phases[-5].targets[0]
+    translated = phases[-4].targets[0]
+    assert lifted.xyz_m[2] - contact.xyz_m[2] == pytest.approx(0.008)
+    assert translated.xyz_m[1] - lifted.xyz_m[1] == pytest.approx(-0.030)
+    assert phases[-1].clear_pose is True
+
+
+def test_second_fold_stabilizer_uses_right_arm_away_from_left_laydown():
+    phases = build_right_arm_second_fold_stabilizer(
+        (0.234, 0.390, -0.275, 0.029), -0.005
+    )
+    validate_phase_contract(phases)
+    assert phases[-3].name == "second_stabilizer_contact"
+    assert phases[-2].name == "second_stabilizer_retreat"
+    assert phases[-1].name == "second_stabilizer_reobserve_clear"
+    contact = phases[-3].targets[0]
+    assert contact.arm == "right"
+    assert contact.layer == "four_layer_bundle"
+    assert contact.xyz_m[1] > -0.260
+    assert contact.xyz_m[1] < -0.123
+    assert phases[-3].attachment_event == (
+        "attach_right_stabilizer_after_actual_contact_gate"
+    )
+    assert phases[-2].attachment_event == (
+        "release_right_stabilizer_after_left_clear_gate"
+    )
+
+
+def test_second_fold_edge_handoff_pinches_free_edge_away_from_left_grasp():
+    footprint = (0.234, 0.390, -0.275, 0.029)
+    phases = build_right_arm_second_fold_edge_handoff(footprint, -0.005)
+    validate_phase_contract(phases)
+    assert len(phases) == 45
+    assert phases[-5].name == "second_handoff_contact"
+    assert phases[-4].name == "second_handoff_hold"
+    assert phases[-3].name == "second_handoff_release"
+    assert phases[-2].name == "second_handoff_retreat"
+    assert phases[-1].name == "second_handoff_reobserve_clear"
+    contact = phases[-5].targets[0]
+    assert contact.arm == "right"
+    assert contact.layer == "upper_bundle_edge"
+    assert contact.xyz_m[0] == pytest.approx(0.352)
+    assert contact.xyz_m[1] == pytest.approx(-0.260)
+    # Current S2 left grasp is centre - 20 mm, leaving 60 mm TCP separation.
+    assert contact.xyz_m[0] - (0.5 * (footprint[0] + footprint[1]) - 0.020) == pytest.approx(0.060)
+    assert phases[-5].attachment_event == (
+        "attach_right_upper_edge_after_opposing_layer_contact_gate"
+    )
+    assert phases[-3].attachment_event == (
+        "release_right_upper_edge_after_left_clear_gate"
+    )
+
+
 def test_first_fold_is_bimanual_and_second_fold_is_one_midpoint():
     candidate = build_bimanual_then_single_candidates(
         (0.0, 0.3, -0.3, 0.0), -0.005
@@ -140,11 +254,127 @@ def test_first_fold_is_bimanual_and_second_fold_is_one_midpoint():
     )
     assert len(second_contact.targets) == 1
     assert second_contact.targets[0].arm == "right"
-    assert second_contact.targets[0].xyz_m[:2] == pytest.approx((0.225, -0.270))
+    assert second_contact.targets[0].xyz_m[:2] == pytest.approx((0.225, -0.285))
     assert candidate.second_fold_phases[-1].clear_arm == "right"
 
 
-def test_second_contact_stays_low_but_release_uses_reachable_height():
+def test_preferred_second_fold_uses_four_layer_u_pinches_with_both_arms():
+    footprint = (0.2335726, 0.3898962, -0.2750562, 0.0294853)
+    phases, final = build_bimanual_second_fold(
+        footprint, -0.005, direction="left_to_right"
+    )
+    validate_phase_contract(phases)
+
+    contact = next(
+        phase for phase in phases if phase.name == "second_bimanual_contact"
+    )
+    by_arm = {target.arm: target for target in contact.targets}
+    assert set(by_arm) == {"left", "right"}
+    assert by_arm["left"].xyz_m[:2] == pytest.approx(
+        (
+            footprint[0] + SECOND_BIMANUAL_LEFT_ARM_EDGE_INSET_M,
+            footprint[3] - 0.015,
+        )
+    )
+    assert by_arm["right"].xyz_m[:2] == pytest.approx(
+        (
+            footprint[1] - SECOND_BIMANUAL_RIGHT_ARM_EDGE_INSET_M,
+            footprint[3] - 0.015,
+        )
+    )
+    assert (
+        by_arm["right"].xyz_m[0] - by_arm["left"].xyz_m[0]
+        >= SECOND_BIMANUAL_MINIMUM_GRASP_SEPARATION_M
+    )
+    assert by_arm["left"].xyz_m[2] == pytest.approx(
+        -0.005
+        + SECOND_LAYER_TCP_Z_OFFSET_M
+        + SECOND_BIMANUAL_LEFT_CONTACT_HEIGHT_ADDITION_M
+    )
+    assert by_arm["right"].xyz_m[2] == pytest.approx(
+        -0.005
+        + SECOND_LAYER_TCP_Z_OFFSET_M
+        + SECOND_BIMANUAL_RIGHT_CONTACT_HEIGHT_ADDITION_M
+    )
+    assert by_arm["left"].jaw_yaw_rad == pytest.approx(math.pi / 2.0)
+    assert by_arm["right"].jaw_yaw_rad == pytest.approx(0.0)
+    assert all(
+        target.layer == "two_layer_bundle" for target in contact.targets
+    )
+    assert all(
+        target.maximum_finger_tilt_rad
+        == pytest.approx(SECOND_BIMANUAL_MAXIMUM_FINGER_TILT_RAD)
+        for target in contact.targets
+    )
+    assert contact.attachment_event == (
+        "attach_two_four_layer_u_pinches_after_dual_contact_gate"
+    )
+
+    laydown = next(
+        phase
+        for phase in phases
+        if phase.attachment_event
+        == "release_two_four_layer_u_pinches_after_dual_laydown_gate"
+    )
+    assert {target.arm for target in laydown.targets} == {"left", "right"}
+    assert [target.xyz_m[1] for target in laydown.targets] == pytest.approx(
+        [footprint[2] + 0.015, footprint[2] + 0.015]
+    )
+    assert [target.xyz_m[2] for target in laydown.targets] == pytest.approx(
+        [
+            -0.005
+            + SECOND_RELEASE_TCP_Z_OFFSET_M
+            + SECOND_BIMANUAL_RELEASE_HEIGHT_ADDITION_M
+        ]
+        * 2
+    )
+    assert phases[-2].name == "second_bimanual_retreat"
+    assert phases[-1].name == "second_bimanual_reobserve_clear"
+    assert phases[-1].clear_pose is True
+    assert phases[-1].clear_arm is None
+    assert final == pytest.approx(
+        (footprint[0], footprint[1], footprint[2], 0.5 * (footprint[2] + footprint[3]))
+    )
+
+
+def test_bimanual_second_fold_rejects_edge_too_short_for_safe_separation():
+    with pytest.raises(TowelPlanningError, match="too short"):
+        build_bimanual_second_fold(
+            (0.0, 0.120, -0.3, 0.0), -0.005, direction="left_to_right"
+        )
+
+
+def test_left_to_right_second_fold_uses_left_edge_midpoint_and_left_arm():
+    candidate = next(
+        item
+        for item in build_bimanual_then_single_candidates(
+            (0.0, 0.3, -0.3, 0.0), -0.005
+        )
+        if item.second_active_arm == "left"
+        and item.second_direction == "left_to_right"
+    )
+    contact = next(
+        phase
+        for phase in candidate.second_fold_phases
+        if phase.name == "second_contact"
+    ).targets[0]
+    laydown = next(
+        phase
+        for phase in candidate.second_fold_phases
+        if phase.attachment_event
+        == "release_midpoint_bundle_after_laydown_gate"
+    ).targets[0]
+
+    assert contact.arm == "left"
+    assert contact.xyz_m[:2] == pytest.approx((0.225, -0.015))
+    assert laydown.xyz_m[:2] == pytest.approx((0.225, -0.285))
+    assert candidate.final_expected_footprint_xyxy_m == pytest.approx(
+        (0.15, 0.3, -0.3, -0.15)
+    )
+    assert candidate.second_fold_phases[-1].clear_arm == "left"
+
+
+def test_second_contact_and_release_use_supported_two_layer_height():
     table_z = -0.005
     candidate = build_bimanual_then_single_candidates(
         (0.0, 0.3, -0.3, 0.0), table_z
@@ -155,18 +385,26 @@ def test_second_contact_stays_low_but_release_uses_reachable_height():
     ).targets[0]
     laydown = next(
         phase for phase in candidate.second_fold_phases
-        if phase.name == "second_fold_08"
+        if phase.attachment_event
+        == "release_midpoint_bundle_after_laydown_gate"
     ).targets[0]
     retreat = next(
         phase for phase in candidate.second_fold_phases
         if phase.name == "second_retreat"
     ).targets[0]
-    assert contact.xyz_m[2] == pytest.approx(table_z + 0.016)
-    assert laydown.xyz_m[2] == pytest.approx(table_z + 0.040)
-    assert retreat.xyz_m[2] == pytest.approx(table_z + 0.090)
+    assert contact.xyz_m[2] == pytest.approx(
+        table_z + SECOND_SINGLE_ARM_CONTACT_TCP_Z_OFFSET_M
+    )
+    assert laydown.xyz_m[2] == pytest.approx(table_z + 0.018)
+    assert retreat.xyz_m[2] == pytest.approx(table_z + 0.068)
     assert contact.maximum_approach_tilt_rad == pytest.approx(
         MAXIMUM_APPROACH_TILT_RAD
     )
+    assert contact.jaw_yaw_rad == pytest.approx(SECOND_SINGLE_ARM_JAW_YAW_RAD)
+    assert sum(
+        phase.name.startswith("second_precontact_")
+        for phase in candidate.second_fold_phases
+    ) == 9
     assert laydown.maximum_approach_tilt_rad == pytest.approx(
         MAXIMUM_ATTACHED_TRANSFER_TILT_RAD
     )
@@ -253,6 +491,49 @@ def test_registered_xml_declaration_urdf_loads_and_full_fk_is_checked():
     assert len(result["tcp_rotation_matrix"]) == 3
 
 
+def test_fixed_pad_normal_keeps_its_directed_opposing_face_assignment():
+    kinematics = GraspYawKinematics(
+        REGISTERED_URDF_WITH_XML_DECLARATION, prefix="right_"
+    )
+    q = (0.0022137155, 2.2643454984, 1.3548553085, 0.0806338801, 0.9223087051)
+    by_name = dict(zip(kinematics.arm_joints, q, strict=True))
+    _, xyz = kinematics.tcp_pose_in_root(by_name)
+    fixed_normal = kinematics.fixed_jaw_pad_normal_in_root(by_name)
+    fixed_normal_yaw = math.atan2(float(fixed_normal[1]), float(fixed_normal[0]))
+    lower = (-1.442, -0.290, -0.729, -0.598, -1.993)
+    upper = (1.454, 3.283, 2.686, 2.563, 1.414)
+    matching = TaskPose(
+        name="matching_fixed_pad_direction",
+        arm="right",
+        xyz_m=tuple(float(value) for value in xyz),
+        jaw_yaw_rad=0.0,
+        semantic="test",
+        layer="upper_bundle_edge",
+        enforce_finger_yaw=False,
+        fixed_pad_normal_yaw_rad=fixed_normal_yaw,
+    )
+    reversed_direction = TaskPose(
+        name="reversed_fixed_pad_direction",
+        arm="right",
+        xyz_m=matching.xyz_m,
+        jaw_yaw_rad=0.0,
+        semantic="test",
+        layer="upper_bundle_edge",
+        enforce_finger_yaw=False,
+        fixed_pad_normal_yaw_rad=fixed_normal_yaw + math.pi,
+    )
+    matching_result = evaluate_task_pose(
+        kinematics, matching, q, lower, upper
+    )
+    reversed_result = evaluate_task_pose(
+        kinematics, reversed_direction, q, lower, upper
+    )
+    assert matching_result["task_pose_pass"] is True
+    assert matching_result["fixed_pad_normal_yaw_error_rad"] == pytest.approx(0.0)
+    assert reversed_result["task_pose_pass"] is False
+    assert reversed_result["fixed_pad_normal_yaw_error_rad"] == pytest.approx(math.pi)
+
+
 def test_plan_only_tool_has_no_execution_or_resident_motion_client():
     source = PLAN_ONLY_TOOL.read_text(encoding="utf-8")
     assert "create_publisher" not in source
@@ -263,10 +544,19 @@ def test_plan_only_tool_has_no_execution_or_resident_motion_client():
     assert '"arbitrary_exact_6d_pose_claimed": False' in source
     assert 'request.group_name = collision_check_group' in source
     assert '"attached_lift"' in source
+    assert source.count('"attached_transfer"') >= 2
     assert '"released_retreat"' in source
     assert 'if "minimum_joint_limit_margin_rad" in evaluation' in source
     assert '"maximum_dense_tcp_path_deviation_m_by_arm"' in source
     assert "MAXIMUM_DENSE_TCP_PATH_DEVIATION_M = 0.004" in source
+    assert 'phase.name.startswith(\n                "second_bimanual_fold_"' in source
+    assert 'segment["bimanual_second_fold_exact_chord"] = True' in source
+    assert 'segment["bimanual_second_contact_exact_chord"] = True' in source
+    assert 'f"{phase_name}_route_right_arm", current, right_clear' in source
+    assert 'so101_gripper_s2_four_layer.candidate.json' in source
+    assert 'second_layer_gripper["four_layer_project_contact_target_rad"]' in source
+    assert 'modes["four_layer_contact"] = mixed("four_layer_contact")' in source
+    assert 'second_layer_gripper["two_layer_project_contact_target_rad"]' not in source
 
 
 def test_full_fk_diagnostic_is_explicitly_not_a_moveit_or_collision_pass():

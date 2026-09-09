@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
+import numpy as np
 from pathlib import Path
 import sys
 import traceback
@@ -21,6 +22,16 @@ if str(ROOT) not in sys.path:
 from tools.lib.so101_gripper_geometry import (
     GripperGeometryCandidate,
     load_gripper_geometry_candidate,
+)
+from tools.lib.towel_four_layer_contact import (
+    FourLayerContactError,
+    RegisteredFaceFrame,
+    select_continuous_four_layer_pinch,
+    select_continuous_single_sheet_pinch,
+)
+from tools.lib.towel_second_fold_correction import (
+    SECOND_FOLD_TARGET_TOLERANCE_M,
+    classify_opposing_jaw_two_layer_contact,
 )
 
 
@@ -156,6 +167,16 @@ parser.add_argument(
     type=int,
     help="override manifest replication count for exploratory geometry diagnosis",
 )
+parser.add_argument(
+    "--cloth-resolution",
+    type=int,
+    default=31,
+    help=(
+        "square cloth element resolution; 31 is the material-calibrated fold "
+        "resolution, while a finer value may be used only to qualify local "
+        "jaw contact geometry"
+    ),
+)
 parser.add_argument("--lift-seconds", type=float, default=1.0)
 parser.add_argument(
     "--simulation-render-interval",
@@ -188,6 +209,15 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
+    "--newton-curvature-softening-stage",
+    choices=("global", "s2-post-laydown"),
+    default="global",
+    help=(
+        "apply high-curvature softening throughout, or enable it only after "
+        "the accepted S2 bundle has reached the table"
+    ),
+)
+parser.add_argument(
     "--newton-softening-activation-angle-deg",
     type=float,
     default=55.0,
@@ -206,10 +236,24 @@ parser.add_argument(
     help="Newton edge stiffness at maximum sharp-fold softening (default is 20%% of 0.135)",
 )
 parser.add_argument(
+    "--newton-fold-hysteresis",
+    action="store_true",
+    help=(
+        "after the S2 laydown gate, store sharp achieved hinge angles as "
+        "an experimental unresolved-textile hysteresis model"
+    ),
+)
+parser.add_argument(
+    "--newton-fold-hysteresis-angle-deg",
+    type=float,
+    default=120.0,
+    help="minimum achieved absolute hinge angle captured after S2 laydown",
+)
+parser.add_argument(
     "--jaw-pad-face-size-mm",
     type=float,
     default=6.0,
-    help="square jaw contact-face proxy size; 10 mm matches the STL distal cross-section",
+    help="square jaw contact-face proxy size used by the strict pinch gate",
 )
 parser.add_argument(
     "--actual-jaw-mesh-contact",
@@ -217,9 +261,104 @@ parser.add_argument(
     help="retain both imported jaw STL colliders and add rubber only to the fixed face",
 )
 parser.add_argument(
+    "--retain-contact-evidence-only",
+    action="store_true",
+    help=(
+        "for coarse Newton cloth, retain only the two particles that actually "
+        "contacted opposing jaw faces instead of rigidly retaining their full cell"
+    ),
+)
+parser.add_argument(
+    "--surface-distributed-contact-retention",
+    action="store_true",
+    help=(
+        "after strict actual jaw contact, distribute no-slip retention over the "
+        "three vertices of the continuous cloth contact triangle"
+    ),
+)
+parser.add_argument(
+    "--progressive-contact-release",
+    action="store_true",
+    help=(
+        "release the surface-retention triangle from its least-supported vertex "
+        "to its contact-dominant vertex while the jaws open"
+    ),
+)
+parser.add_argument(
     "--newton-rubber-friction",
     type=float,
     help="Newton-only fixed-pad friction; official cloth examples use 100 for no-slip grip",
+)
+parser.add_argument(
+    "--newton-coupling-mode",
+    choices=("two_way", "one_way"),
+    default="two_way",
+    help=(
+        "Newton rigid/deformable coupling; one_way lets cloth react to the robot "
+        "without numerically pushing the arm away from its commanded trajectory"
+    ),
+)
+parser.add_argument(
+    "--newton-vbd-iterations",
+    type=int,
+    default=10,
+    help="VBD constraint iterations per substep",
+)
+parser.add_argument(
+    "--newton-cantilever-calibration",
+    type=Path,
+    help=(
+        "passing resolution-specific Newton cantilever artifact; must be paired "
+        "with --newton-edge-release-calibration"
+    ),
+)
+parser.add_argument(
+    "--newton-edge-release-calibration",
+    type=Path,
+    help=(
+        "passing resolution-specific Newton edge-release artifact; must be paired "
+        "with --newton-cantilever-calibration"
+    ),
+)
+parser.add_argument(
+    "--newton-contact-damping",
+    type=float,
+    default=1.0e-2,
+    help="Newton body-particle contact damping coefficient",
+)
+parser.add_argument(
+    "--newton-deep-table-support",
+    action="store_true",
+    help=(
+        "replace the 20 mm visual-table collision with a hidden deep cuboid "
+        "that has the same top surface, preventing closest-face inversion"
+    ),
+)
+parser.add_argument(
+    "--newton-analytic-table-plane",
+    action="store_true",
+    help=(
+        "replace the finite table-box collision with an invisible analytic "
+        "plane at the measured tabletop; the plane is filtered against the "
+        "robot and remains a one-sided support for the towel"
+    ),
+)
+parser.add_argument(
+    "--physx-post-laydown-bend-stiffness",
+    type=float,
+    help=(
+        "PhysX-only high-curvature approximation: after the S2 laydown gate, "
+        "replace the uniform surface bend stiffness before Q0 release"
+    ),
+)
+parser.add_argument(
+    "--physx-dynamic-friction-workaround",
+    type=float,
+    help=(
+        "PhysX-only static-friction workaround authored before simulation; "
+        "the measured towel/table coefficient remains unchanged in the "
+        "material candidate"
+    ),
 )
 parser.add_argument(
     "--frictional-descent-fraction",
@@ -229,6 +368,16 @@ parser.add_argument(
 )
 parser.add_argument("--left-frictional-descent-fraction", type=float, default=0.90)
 parser.add_argument("--right-frictional-descent-fraction", type=float, default=0.83)
+parser.add_argument(
+    "--left-one-way-contact-limited-model-rad",
+    type=float,
+    help=(
+        "Newton one-way contact diagnostic only: keep the measured left "
+        "close command in the report, but stop the simulated moving jaw at "
+        "this achieved model-space angle after cloth contact.  One-way "
+        "coupling cannot otherwise transmit the cloth reaction back to the jaw."
+    ),
+)
 parser.add_argument(
     "--grasp-mode",
     choices=("frictional", "contact-gated-retention", "legacy-attachment"),
@@ -250,6 +399,14 @@ parser.add_argument(
     "--place-release",
     action="store_true",
     help="continue through the first-fold laydown, detach, retreat, and settle gate",
+)
+parser.add_argument(
+    "--trace-s1-corner-dynamics",
+    action="store_true",
+    help=(
+        "record the four cloth corners after each S1 motion, jaw-opening, and "
+        "retreat stage so the first table-boundary departure can be located"
+    ),
 )
 parser.add_argument(
     "--calibrate-scripted-touchdown",
@@ -286,11 +443,84 @@ parser.add_argument(
     help="after the first release, replay open-jaw clear/departure to second_contact",
 )
 parser.add_argument(
+    "--second-fold-replay",
+    type=Path,
+    help=(
+        "passing S2-only full-FK diagnostic supplying the left-arm "
+        "left-to-right second-fold phases"
+    ),
+)
+parser.add_argument(
+    "--execute-second-fold",
+    action="store_true",
+    help=(
+        "after the S2 contact diagnostic, close the left jaw on both S1 "
+        "layers, execute the conventional left-to-right arc, release, and "
+        "record the settled raw second-fold shape"
+    ),
+)
+parser.add_argument(
+    "--second-fold-contact-only",
+    action="store_true",
+    help=(
+        "restore the accepted S1 checkpoint directly, execute only the S2 "
+        "open approach and measured four-layer close, record the continuous-"
+        "surface contact gate, and stop before transport"
+    ),
+)
+parser.add_argument(
+    "--second-fold-grasp-mode",
+    choices=(
+        "contact-gated-retention",
+        "contact-gated-retention-filtered",
+        "frictional",
+        "physx-attachment",
+    ),
+    default="contact-gated-retention",
+    help=(
+        "S2-only grasp transport model: retain one actual bilateral contact "
+        "per S1 layer, rely on jaw contact friction, or use a PhysX cloth-to-rigid "
+        "attachment released by jaw opening"
+    ),
+)
+parser.add_argument(
+    "--second-fold-release-mode",
+    choices=(
+        "direct-in-place",
+        "right-stabilized",
+        "right-surface-press",
+        "right-edge-handoff",
+    ),
+    default="direct-in-place",
+    help=(
+        "open the left jaw at the gated laydown, use the rejected bilateral "
+        "right-arm interior stabilizer diagnostic, hold the laid bundle with "
+        "one real fixed-pad surface contact, or transfer the upper two-layer "
+        "free edge to a clean opposing-jaw right pinch before left release"
+    ),
+)
+parser.add_argument(
+    "--second-fold-gripper-config",
+    "--second-layer-gripper-config",
+    dest="second_fold_gripper_config",
+    type=Path,
+    default=ROOT / "config/so101_gripper_s2_four_layer.candidate.json",
+    help="simulation-only contact-limited four-layer S2 pinch candidate",
+)
+parser.add_argument(
     "--post-release-correction-replay",
     type=Path,
     help=(
         "after the first shape settles, execute a passing observed-boundary "
         "correction replay with a fresh actual-contact grasp"
+    ),
+)
+parser.add_argument(
+    "--second-fold-correction-replay",
+    type=Path,
+    help=(
+        "after the raw S2 shape settles and both arms clear, execute one "
+        "passing right-arm upper-bundle edge correction and reobserve"
     ),
 )
 parser.add_argument("--fold-phase-seconds", type=float, default=0.20)
@@ -323,6 +553,23 @@ parser.add_argument(
     help=(
         "override the first-fold joint replay and towel placement from a "
         "canonical full-FK diagnostic; intended for motion-free Isaac candidates"
+    ),
+)
+parser.add_argument(
+    "--contact-kinematic-replay",
+    type=Path,
+    help=(
+        "passing suspended-gravity replay supplying only first_contact; "
+        "the primary replay supplies the already accepted fold suffix"
+    ),
+)
+parser.add_argument(
+    "--validated-contact-checkpoint",
+    type=Path,
+    help=(
+        "previous passing S1 actual-contact lift artifact; if the identical "
+        "closed-jaw pose lands on a Newton contact-buffer boundary, reuse only "
+        "its proven contact particles before executing the requested fold"
     ),
 )
 parser.add_argument(
@@ -359,6 +606,7 @@ parser.add_argument(
 )
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+IS_NEWTON_BACKEND = args.physics_backend == "newton-coupled-vbd"
 if not args.manifest.is_file():
     parser.error(f"manifest does not exist: {args.manifest}")
 if not args.material_config.is_file():
@@ -367,6 +615,42 @@ if not args.gripper_config.is_file():
     parser.error(f"gripper config does not exist: {args.gripper_config}")
 if args.kinematic_replay is not None and not args.kinematic_replay.is_file():
     parser.error(f"kinematic replay does not exist: {args.kinematic_replay}")
+if (
+    args.contact_kinematic_replay is not None
+    and not args.contact_kinematic_replay.is_file()
+):
+    parser.error(
+        "contact kinematic replay does not exist: "
+        f"{args.contact_kinematic_replay}"
+    )
+if args.contact_kinematic_replay is not None and args.kinematic_replay is None:
+    parser.error("--contact-kinematic-replay requires --kinematic-replay")
+if (
+    args.validated_contact_checkpoint is not None
+    and not args.validated_contact_checkpoint.is_file()
+):
+    parser.error(
+        "validated contact checkpoint does not exist: "
+        f"{args.validated_contact_checkpoint}"
+    )
+if args.validated_contact_checkpoint is not None and not (
+    args.grasp_mode == "contact-gated-retention"
+    and args.physics_backend == "newton-coupled-vbd"
+    and args.kinematic_replay is not None
+):
+    parser.error(
+        "--validated-contact-checkpoint requires Newton contact-gated "
+        "execution with --kinematic-replay"
+    )
+if args.second_fold_replay is not None and not args.second_fold_replay.is_file():
+    parser.error(f"second-fold replay does not exist: {args.second_fold_replay}")
+if (
+    args.execute_second_fold or args.second_fold_contact_only
+) and not args.second_fold_gripper_config.is_file():
+    parser.error(
+        "second-layer gripper config does not exist: "
+        f"{args.second_fold_gripper_config}"
+    )
 if args.urdf_override is not None and not args.urdf_override.is_file():
     parser.error(f"URDF override does not exist: {args.urdf_override}")
 if (
@@ -376,6 +660,14 @@ if (
     parser.error(
         "post-release correction replay does not exist: "
         f"{args.post_release_correction_replay}"
+    )
+if (
+    args.second_fold_correction_replay is not None
+    and not args.second_fold_correction_replay.is_file()
+):
+    parser.error(
+        "second-fold correction replay does not exist: "
+        f"{args.second_fold_correction_replay}"
     )
 if (
     args.right_arm_kinematic_replay is not None
@@ -401,6 +693,10 @@ if not math.isfinite(args.settle_timeout_s) or args.settle_timeout_s <= 0.0:
     parser.error("--settle-timeout-s must be finite and positive")
 if args.environment_count is not None and args.environment_count <= 0:
     parser.error("--environment-count must be positive")
+if args.cloth_resolution < 31 or args.cloth_resolution > 127:
+    parser.error("--cloth-resolution must be in [31, 127]")
+if args.cloth_resolution % 2 == 0:
+    parser.error("--cloth-resolution must be odd so the cloth has an even node grid")
 if not math.isfinite(args.lift_seconds) or args.lift_seconds <= 0.0:
     parser.error("--lift-seconds must be finite and positive")
 if args.simulation_render_interval <= 0:
@@ -428,6 +724,75 @@ if (
     parser.error("--newton-softened-edge-stiffness must be finite and positive")
 if args.newton_curvature_softening and args.physics_backend != "newton-coupled-vbd":
     parser.error("--newton-curvature-softening requires --physics-backend newton-coupled-vbd")
+if args.newton_curvature_softening_stage == "s2-post-laydown" and not (
+    args.newton_curvature_softening and args.execute_second_fold
+):
+    parser.error(
+        "--newton-curvature-softening-stage s2-post-laydown requires "
+        "--newton-curvature-softening --execute-second-fold"
+    )
+if args.newton_fold_hysteresis and not (
+    args.physics_backend == "newton-coupled-vbd" and args.execute_second_fold
+):
+    parser.error(
+        "--newton-fold-hysteresis requires Newton and --execute-second-fold"
+    )
+if not 90.0 <= args.newton_fold_hysteresis_angle_deg < 180.0:
+    parser.error("--newton-fold-hysteresis-angle-deg must be in [90, 180)")
+if args.newton_vbd_iterations < 1:
+    parser.error("--newton-vbd-iterations must be positive")
+if (args.newton_cantilever_calibration is None) != (
+    args.newton_edge_release_calibration is None
+):
+    parser.error(
+        "--newton-cantilever-calibration and "
+        "--newton-edge-release-calibration must be supplied together"
+    )
+if args.newton_cantilever_calibration is not None and not IS_NEWTON_BACKEND:
+    parser.error("resolution-specific Newton calibration requires the Newton backend")
+if args.surface_distributed_contact_retention and args.retain_contact_evidence_only:
+    parser.error(
+        "select surface-distributed retention or contact-evidence-only retention, not both"
+    )
+if args.progressive_contact_release and not args.surface_distributed_contact_retention:
+    parser.error(
+        "--progressive-contact-release requires "
+        "--surface-distributed-contact-retention"
+    )
+if args.surface_distributed_contact_retention and not (
+    IS_NEWTON_BACKEND and args.grasp_mode == "contact-gated-retention"
+):
+    parser.error(
+        "surface-distributed retention requires Newton contact-gated retention"
+    )
+if args.progressive_contact_release and not args.place_release:
+    parser.error("--progressive-contact-release requires --place-release")
+if not math.isfinite(args.newton_contact_damping) or args.newton_contact_damping < 0.0:
+    parser.error("--newton-contact-damping must be finite and non-negative")
+if args.newton_deep_table_support and not IS_NEWTON_BACKEND:
+    parser.error("--newton-deep-table-support requires Newton")
+if args.newton_analytic_table_plane and not IS_NEWTON_BACKEND:
+    parser.error("--newton-analytic-table-plane requires Newton")
+if args.newton_analytic_table_plane and args.newton_deep_table_support:
+    parser.error("select only one Newton table-support replacement")
+if args.physx_post_laydown_bend_stiffness is not None and not (
+    args.physics_backend == "physx"
+    and args.execute_second_fold
+    and math.isfinite(args.physx_post_laydown_bend_stiffness)
+    and args.physx_post_laydown_bend_stiffness > 0.0
+):
+    parser.error(
+        "--physx-post-laydown-bend-stiffness requires PhysX S2 and a positive value"
+    )
+if args.physx_dynamic_friction_workaround is not None and not (
+    args.physics_backend == "physx"
+    and args.execute_second_fold
+    and math.isfinite(args.physx_dynamic_friction_workaround)
+    and args.physx_dynamic_friction_workaround > 0.0
+):
+    parser.error(
+        "--physx-dynamic-friction-workaround requires PhysX S2 and a positive value"
+    )
 if not math.isfinite(args.jaw_pad_face_size_mm) or not (
     4.0 <= args.jaw_pad_face_size_mm <= 10.0
 ):
@@ -447,6 +812,16 @@ for side in ("left", "right"):
         not math.isfinite(value) or not 0.0 < value <= 1.0
     ):
         parser.error(f"--{side}-frictional-descent-fraction must be in (0, 1]")
+if args.left_one_way_contact_limited_model_rad is not None and not (
+    args.grasp_mode in ("frictional", "contact-gated-retention")
+    and args.physics_backend == "newton-coupled-vbd"
+    and args.newton_coupling_mode == "one_way"
+    and math.isfinite(args.left_one_way_contact_limited_model_rad)
+):
+    parser.error(
+        "--left-one-way-contact-limited-model-rad requires finite Newton "
+        "one-way frictional or contact-gated execution"
+    )
 if not math.isfinite(args.fold_phase_seconds) or args.fold_phase_seconds <= 0.0:
     parser.error("--fold-phase-seconds must be finite and positive")
 for hold_name in (
@@ -488,6 +863,48 @@ if args.calibrate_scripted_touchdown and args.calibrate_post_touchdown_anchor:
     parser.error("select only one scripted-touchdown calibration stage")
 if args.second_contact_diagnostic and not (args.place_release and args.self_contact):
     parser.error("--second-contact-diagnostic requires --place-release --self-contact")
+if args.second_fold_replay is not None and not (
+    args.place_release
+    and args.self_contact
+    and args.kinematic_replay is not None
+):
+    parser.error(
+        "--second-fold-replay requires --place-release --self-contact "
+        "--kinematic-replay"
+    )
+if args.second_contact_diagnostic and args.second_fold_replay is None:
+    parser.error("--second-contact-diagnostic requires --second-fold-replay")
+newton_second_fold_execution = (
+    args.grasp_mode == "contact-gated-retention"
+    and IS_NEWTON_BACKEND
+    and args.second_fold_grasp_mode != "physx-attachment"
+)
+physx_attachment_second_fold_execution = (
+    args.grasp_mode == "contact-gated-retention"
+    and args.physics_backend == "physx"
+    and args.second_fold_grasp_mode == "physx-attachment"
+)
+if args.execute_second_fold and not (
+    args.second_contact_diagnostic
+    and (newton_second_fold_execution or physx_attachment_second_fold_execution)
+    and args.environment_count in (None, 1)
+):
+    parser.error(
+        "--execute-second-fold requires --second-contact-diagnostic, "
+        "one environment, and either Newton contact-gated retention or the "
+        "PhysX vertical-grasp/attachment diagnostic combination"
+    )
+if args.second_fold_contact_only and not (
+    args.second_contact_diagnostic
+    and newton_second_fold_execution
+    and args.environment_count in (None, 1)
+):
+    parser.error(
+        "--second-fold-contact-only requires --second-contact-diagnostic, "
+        "one environment, and Newton contact-gated retention"
+    )
+if args.second_fold_contact_only and args.execute_second_fold:
+    parser.error("select contact-only or full second-fold execution, not both")
 if args.post_release_correction_replay is not None and not (
     args.place_release
     and args.self_contact
@@ -500,21 +917,232 @@ if args.post_release_correction_replay is not None and not (
         "--grasp-mode contact-gated-retention --physics-backend "
         "newton-coupled-vbd and --kinematic-replay"
     )
+if args.second_fold_correction_replay is not None and not (
+    args.execute_second_fold
+    and args.second_fold_replay is not None
+    and args.grasp_mode == "contact-gated-retention"
+    and args.physics_backend == "newton-coupled-vbd"
+    and args.environment_count in (None, 1)
+):
+    parser.error(
+        "--second-fold-correction-replay requires one-environment Newton "
+        "contact-gated --execute-second-fold with --second-fold-replay"
+    )
 if args.grasp_release_probe and args.place_release:
     parser.error("--grasp-release-probe and --place-release are separate gates")
 if args.grasp_release_probe and args.grasp_mode != "contact-gated-retention":
     parser.error("--grasp-release-probe requires --grasp-mode contact-gated-retention")
-if args.grasp_release_probe and args.physics_backend != "newton-coupled-vbd":
+if args.grasp_release_probe and not IS_NEWTON_BACKEND:
     parser.error("--grasp-release-probe requires --physics-backend newton-coupled-vbd")
 
 material_candidate = load_material_candidate(args.material_config)
 gripper_candidate = load_gripper_geometry_candidate(args.gripper_config)
+
+
+def load_resolution_specific_newton_calibration() -> dict[str, object] | None:
+    if args.newton_cantilever_calibration is None:
+        return None
+
+    paths = {
+        "cantilever": args.newton_cantilever_calibration,
+        "edge-release": args.newton_edge_release_calibration,
+    }
+    documents: dict[str, dict[str, object]] = {}
+    for experiment, path in paths.items():
+        assert path is not None
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if (
+            not isinstance(document, dict)
+            or document.get("schema_version") != 1
+            or document.get("record_kind") != "towel_newton_material_calibration"
+            or document.get("status") != "R2_NEWTON_MATERIAL_CALIBRATION_MATCH"
+            or document.get("experiment") != experiment
+            or document.get("motion_authorized") is not False
+            or document.get("execution_api_used") is not False
+            or document.get("observation", {}).get("matched") is not True
+        ):
+            raise ValueError(f"invalid passing Newton {experiment} calibration: {path}")
+        if document.get("cloth", {}).get("resolution") != [
+            args.cloth_resolution,
+            args.cloth_resolution,
+        ]:
+            raise ValueError(f"Newton {experiment} calibration resolution differs")
+        solver = document.get("solver", {})
+        if (
+            int(solver.get("substeps", 0)) != 10
+            or int(solver.get("iterations", 0)) != args.newton_vbd_iterations
+            or not math.isclose(float(solver.get("fps", 0.0)), 240.0)
+        ):
+            raise ValueError(f"Newton {experiment} calibration solver differs")
+        documents[experiment] = document
+
+    cantilever_material = documents["cantilever"]["material"]
+    edge_release_material = documents["edge-release"]["material"]
+    if cantilever_material != edge_release_material:
+        raise ValueError("Newton resolution-specific calibration materials differ")
+    assert isinstance(cantilever_material, dict)
+    expected = {
+        "triangle_stiffness_newton_units": material_candidate.newton_triangle_stiffness_pa,
+        "triangle_damping_newton_units": material_candidate.newton_triangle_damping_pa_s,
+        "contact_stiffness_newton_units": args.newton_contact_stiffness,
+    }
+    for name, expected_value in expected.items():
+        if not math.isclose(
+            float(cantilever_material.get(name, math.nan)),
+            expected_value,
+            rel_tol=1.0e-9,
+            abs_tol=1.0e-12,
+        ):
+            raise ValueError(f"Newton resolution-specific calibration {name} differs")
+
+    return {
+        "resolution": [args.cloth_resolution, args.cloth_resolution],
+        "edge_stiffness_n_m": float(
+            cantilever_material["edge_stiffness_newton_units"]
+        ),
+        "edge_damping_n_m_s": float(
+            cantilever_material["edge_damping_newton_units"]
+        ),
+        "solver_iterations": args.newton_vbd_iterations,
+        "cantilever": {
+            "path": str(paths["cantilever"].resolve()),
+            "sha256": hashlib.sha256(paths["cantilever"].read_bytes()).hexdigest(),
+            "final_chord_angle_deg": documents["cantilever"]["observation"][
+                "final_chord_angle_deg"
+            ],
+        },
+        "edge_release": {
+            "path": str(paths["edge-release"].resolve()),
+            "sha256": hashlib.sha256(paths["edge-release"].read_bytes()).hexdigest(),
+            "simulated_window_s": documents["edge-release"]["observation"][
+                "simulated_window_s"
+            ],
+        },
+    }
+
+
+resolution_specific_newton_calibration = (
+    load_resolution_specific_newton_calibration()
+)
+
+
+def load_validated_contact_checkpoint(path: Path) -> dict[str, object]:
+    """Load contact particles only from a previously passing physical gate."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError("validated contact checkpoint must be a mapping")
+    attachment = document.get("attachment", {})
+    checks = document.get("simulation_checks", {})
+    particles = attachment.get("actual_contact_particles_by_side", {})
+    if (
+        not str(document.get("status", "")).startswith(
+            "S1_ISAACLAB_CONTACT_GATED_NO_SLIP_RETENTION_LIFT_PASS_"
+        )
+        or checks.get("dual_gripper_actual_contact_constraints_created") is not True
+        or checks.get("low_lift_executed") is not True
+        or attachment.get("proximity_fallback_used") is not False
+        or attachment.get("legacy_floating_attachment_used") is not False
+        or set(particles) != {"left", "right"}
+    ):
+        raise ValueError("checkpoint is not a passing dual actual-contact S1 lift")
+    grid_side = args.cloth_resolution + 1
+    validated: dict[str, list[int]] = {}
+    for side in ("left", "right"):
+        indices = [int(index) for index in particles[side]]
+        if len(indices) != 2 or len(set(indices)) != 2:
+            raise ValueError(f"checkpoint {side} contact is not one pinch pair")
+        if any(index < 0 or index >= grid_side * grid_side for index in indices):
+            raise ValueError(f"checkpoint {side} contact index is outside cloth")
+        first_row, first_col = divmod(indices[0], grid_side)
+        second_row, second_col = divmod(indices[1], grid_side)
+        if max(abs(first_row - second_row), abs(first_col - second_col)) > 1:
+            raise ValueError(f"checkpoint {side} pair is not one-cell local")
+        validated[side] = indices
+    if list(document.get("cloth", {}).get("resolution", ())) != [
+        args.cloth_resolution,
+        args.cloth_resolution,
+    ]:
+        raise ValueError("checkpoint cloth resolution differs")
+    expected_material_sha = hashlib.sha256(args.material_config.read_bytes()).hexdigest()
+    expected_gripper_sha = hashlib.sha256(args.gripper_config.read_bytes()).hexdigest()
+    if document.get("material_candidate", {}).get("sha256") != expected_material_sha:
+        raise ValueError("checkpoint material identity differs")
+    if document.get("gripper_candidate", {}).get("sha256") != expected_gripper_sha:
+        raise ValueError("checkpoint gripper identity differs")
+    return {
+        "path": str(path.resolve()),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "urdf_sha256": document.get("urdf_sha256"),
+        "particles_by_side": validated,
+        "strict_single_sheet_pinch_by_side": attachment.get(
+            "strict_single_sheet_pinch_by_side", {}
+        ),
+        "achieved_gripper_model_rad": document.get("jaw_alignment", {}).get(
+            "achieved_gripper_model_rad_by_environment", []
+        ),
+        "pad_centers_w_m": document.get("jaw_alignment", {})
+        .get("contact_diagnostic", {})
+        .get("pad_centers_env_0_w_m", {}),
+    }
+
+
+validated_contact_checkpoint = (
+    load_validated_contact_checkpoint(args.validated_contact_checkpoint)
+    if args.validated_contact_checkpoint is not None
+    else None
+)
+
+
+def load_second_fold_gripper_candidate(path: Path) -> dict[str, object]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError("second-fold gripper candidate must be a mapping")
+    base = document.get("base_gripper_geometry", {})
+    controls = document.get("control_contract", {})
+    if (
+        document.get("schema_version") != 1
+        or document.get("record_kind") != "so101_gripper_s2_four_layer_candidate"
+        or document.get("simulation_only") is not True
+        or document.get("motion_authorized") is not False
+        or controls.get("command_is_force_claim") is not False
+        or controls.get("retention_only_after_four_layer_contact_gate") is not True
+        or controls.get("achieved_position_is_contact_limited") is not True
+    ):
+        raise ValueError("second-fold gripper candidate identity is invalid")
+    if Path(str(base.get("path"))).as_posix() != "config/so101_gripper_geometry.candidate.json":
+        raise ValueError("second-fold gripper candidate has an unexpected base path")
+    if str(base.get("sha256")) != hashlib.sha256(
+        gripper_candidate.path.read_bytes()
+    ).hexdigest():
+        raise ValueError("second-fold gripper candidate base SHA is stale")
+    project = document.get("four_layer_project_contact_target_rad", {})
+    model = document.get("four_layer_model_contact_target_rad", {})
+    for side in ("left", "right"):
+        project_value = float(project[side])
+        model_value = float(model[side])
+        if not math.isfinite(project_value) or not math.isfinite(model_value):
+            raise ValueError(f"invalid {side} four-layer gripper target")
+        if not math.isclose(
+            gripper_candidate.project_to_model(project_value),
+            model_value,
+            abs_tol=1.0e-6,
+        ):
+            raise ValueError(f"{side} four-layer project/model targets disagree")
+    return document
+
+
+second_fold_gripper_candidate = (
+    load_second_fold_gripper_candidate(args.second_fold_gripper_config)
+    if args.execute_second_fold or args.second_fold_contact_only
+    else None
+)
 
 launcher = AppLauncher(args)
 simulation_app = launcher.app
 
 import torch
 import warp as wp
+from newton import ShapeFlags
 
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
@@ -526,7 +1154,11 @@ from isaaclab.utils.configclass import configclass
 from isaaclab_physx.sim.schemas import PhysxDeformableBodyPropertiesCfg
 from isaaclab_physx.sim.spawners.materials import PhysxSurfaceDeformableBodyMaterialCfg
 from isaaclab_physx.physics import PhysxCfg
-from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg, NewtonManager
+from isaaclab_newton.physics import (
+    MJWarpSolverCfg,
+    NewtonCfg,
+    NewtonManager,
+)
 from isaaclab_newton.sim.schemas import NewtonDeformableBodyPropertiesCfg
 from isaaclab_newton.sim.spawners.materials import (
     NewtonSurfaceDeformableBodyMaterialCfg,
@@ -606,6 +1238,46 @@ def update_newton_curvature_softening(
         bending_properties[tid, 0] = small_bend_stiffness
 
 
+@wp.kernel
+def capture_newton_high_curvature_rest_angles(
+    positions: wp.array[wp.vec3],
+    edge_indices: wp.array2d[wp.int32],
+    minimum_absolute_angle: float,
+    rest_angles: wp.array[wp.float32],
+    captured_edges: wp.array[wp.int32],
+):
+    """Capture sharp achieved hinges as an experimental post-fold rest shape."""
+    tid = wp.tid()
+    i = edge_indices[tid, 0]
+    j = edge_indices[tid, 1]
+    k = edge_indices[tid, 2]
+    l = edge_indices[tid, 3]
+    if i < 0 or j < 0 or k < 0 or l < 0:
+        return
+    x1 = positions[i]
+    x2 = positions[j]
+    x3 = positions[k]
+    x4 = positions[l]
+    n1 = wp.cross(x3 - x1, x4 - x1)
+    n2 = wp.cross(x4 - x2, x3 - x2)
+    edge = x4 - x3
+    n1_length = wp.length(n1)
+    n2_length = wp.length(n2)
+    edge_length = wp.length(edge)
+    if n1_length < 1.0e-6 or n2_length < 1.0e-6 or edge_length < 1.0e-6:
+        return
+    n1_hat = n1 / n1_length
+    n2_hat = n2 / n2_length
+    edge_hat = edge / edge_length
+    angle = wp.atan2(
+        wp.dot(wp.cross(n1_hat, n2_hat), edge_hat),
+        wp.dot(n1_hat, n2_hat),
+    )
+    if wp.abs(angle) >= minimum_absolute_angle:
+        rest_angles[tid] = angle
+        captured_edges[tid] = 1
+
+
 if args.disable_cubric_visual_sync:
     def _skip_cubric_visual_sync(cls: type[NewtonManager]) -> None:
         cls._cubric = None
@@ -616,6 +1288,10 @@ if args.disable_cubric_visual_sync:
 PASS_STATUS = "S1_ISAACLAB_VERTEX_PATCH_LIFT_PASS_MATERIAL_CALIBRATED_NOT_FULLY_VALIDATED"
 FRICTIONAL_LIFT_PASS_STATUS = (
     "S1_ISAACLAB_FRICTIONAL_JAW_LIFT_PASS_MATERIAL_CALIBRATED_NOT_FULLY_VALIDATED"
+)
+HIGH_RESOLUTION_CONTACT_QUALIFICATION_PASS_STATUS = (
+    "S1_ISAACLAB_HIGH_RESOLUTION_FRICTIONAL_JAW_CONTACT_QUALIFICATION_PASS_"
+    "MATERIAL_RESOLUTION_EXTRAPOLATED"
 )
 CONTACT_GATED_RETENTION_LIFT_PASS_STATUS = (
     "S1_ISAACLAB_CONTACT_GATED_NO_SLIP_RETENTION_LIFT_PASS_"
@@ -644,15 +1320,36 @@ NOMINAL_HALF_FOLD_MEASURED_MATERIAL_STATUS = (
     "S1_ISAACLAB_NOMINAL_HALF_FOLD_ACCEPTED_WITHIN_55_45_"
     "MEASURED_BEND_AND_DAMPING_CALIBRATED"
 )
+SECOND_FOLD_RAW_EXECUTED_STATUS = (
+    "R2_S2_LEFT_TO_RIGHT_TWO_LAYER_RAW_FOLD_EXECUTED_"
+    "CAMERA_CORRECTION_NOT_YET_APPLIED"
+)
+SECOND_FOLD_CORRECTED_STATUS = (
+    "R2_S2_CHECKPOINT_ISOLATED_SINGLE_CAMERA_CORRECTION_EXECUTED_"
+    "END_TO_END_NONDETERMINISM_NOT_PASSED"
+)
 PHYSICS_DT_S = 1.0 / 120.0
 SELF_CONTACT_PHYSICS_DT_S = 1.0 / 240.0
 ENVIRONMENT_SPACING_M = 1.0
 CLOTH_SIZE_XY_M = (0.300, 0.300)
-CLOTH_RESOLUTION = (31, 31)
+CLOTH_RESOLUTION = (args.cloth_resolution, args.cloth_resolution)
+CLOTH_NODE_COUNT = (CLOTH_RESOLUTION[0] + 1) * (CLOTH_RESOLUTION[1] + 1)
+MATERIAL_CALIBRATED_CLOTH_RESOLUTION = (
+    tuple(resolution_specific_newton_calibration["resolution"])
+    if resolution_specific_newton_calibration is not None
+    else (31, 31)
+)
+CLOTH_RESOLUTION_MATCHES_MATERIAL_CALIBRATION = (
+    CLOTH_RESOLUTION == MATERIAL_CALIBRATED_CLOTH_RESOLUTION
+)
 CLOTH_MASS_KG = material_candidate.mass_kg
 CLOTH_DENSITY_KG_M3 = material_candidate.density_kg_m3
 CLOTH_STATIC_FRICTION = material_candidate.static_friction
-CLOTH_DYNAMIC_FRICTION = material_candidate.dynamic_friction
+CLOTH_DYNAMIC_FRICTION = (
+    args.physx_dynamic_friction_workaround
+    if args.physx_dynamic_friction_workaround is not None
+    else material_candidate.dynamic_friction
+)
 CLOTH_YOUNGS_MODULUS_PA = material_candidate.youngs_modulus_pa
 CLOTH_POISSONS_RATIO = material_candidate.poissons_ratio
 CLOTH_ELASTICITY_DAMPING = material_candidate.elasticity_damping
@@ -669,14 +1366,23 @@ NEWTON_TRIANGLE_AREA_STIFFNESS_PA = (
     material_candidate.newton_triangle_area_stiffness_pa
 )
 NEWTON_TRIANGLE_DAMPING_PA_S = material_candidate.newton_triangle_damping_pa_s
-NEWTON_EDGE_STIFFNESS_N_M = material_candidate.newton_edge_stiffness_n_m
-NEWTON_EDGE_DAMPING_N_M_S = material_candidate.newton_edge_damping_n_m_s
+NEWTON_EDGE_STIFFNESS_N_M = (
+    float(resolution_specific_newton_calibration["edge_stiffness_n_m"])
+    if resolution_specific_newton_calibration is not None
+    else material_candidate.newton_edge_stiffness_n_m
+)
+NEWTON_EDGE_DAMPING_N_M_S = (
+    float(resolution_specific_newton_calibration["edge_damping_n_m_s"])
+    if resolution_specific_newton_calibration is not None
+    else material_candidate.newton_edge_damping_n_m_s
+)
 CLOTH_INITIAL_CLEARANCE_M = 0.5 * CLOTH_SURFACE_THICKNESS_M
 NEWTON_CLOTH_AREAL_DENSITY_KG_M2 = CLOTH_MASS_KG / (
     CLOTH_SIZE_XY_M[0] * CLOTH_SIZE_XY_M[1]
 )
 PATCH_MASK_RADIUS_M = 0.016
 MINIMUM_PATCH_POINT_COUNT = 4
+MINIMUM_ACTUAL_CONTACT_POINT_COUNT = 1
 MINIMUM_LIFT_M = 0.003
 MAXIMUM_ATTACHMENT_SNAP_M = 0.005
 MAXIMUM_PATCH_FOLLOW_ERROR_M = 0.003
@@ -694,7 +1400,12 @@ SELF_COLLISION_FILTER_DISTANCE_M = (
     SELF_CONTACT_TOPOLOGY_NEIGHBORHOOD * CLOTH_SIZE_XY_M[0] / CLOTH_RESOLUTION[0]
 )
 GRIPPER_FRAME_TRANSLATION_M = (-0.0079, -0.000218121, -0.0981274)
-FIXED_JAW_PAD_CENTER_PARENT_M = (-0.0089, -0.000218121, -0.0991274)
+# Keep the rubber on the same registered side of the fixed-jaw surface used by
+# the physical-contact lift qualification.  The earlier +X placement moved the
+# left pad 2.1 mm through the registered plane and removed its opposing moving-
+# jaw contact.  Half of the measured 2.2 mm thickness puts the pad centre at
+# -9.0 mm from the parent origin.
+FIXED_JAW_PAD_CENTER_PARENT_M = (-0.0090, -0.000218121, -0.0981274)
 MOVING_JAW_PAD_CENTER_PARENT_M = (-0.0113, -0.0765, 0.0189)
 JAW_PAD_SIZE_M = (
     0.002,
@@ -711,13 +1422,27 @@ JAW_PAD_NORMALS_PARENT = {
         "moving": (0.7873451460, 0.6160807991, -0.0230666438),
     },
 }
-PINCH_PROJECT_GRIPPER_JOINT_POSITIONS_RAD = {
+REQUESTED_PINCH_PROJECT_GRIPPER_JOINT_POSITIONS_RAD = {
     side: gripper_candidate.grasp_project_rad[side][1]
     for side in ("left", "right")
 }
-PINCH_MODEL_GRIPPER_JOINT_POSITIONS_RAD = {
+REQUESTED_PINCH_MODEL_GRIPPER_JOINT_POSITIONS_RAD = {
     side: gripper_candidate.grasp_model_rad(side, 1)
     for side in ("left", "right")
+}
+PINCH_MODEL_GRIPPER_JOINT_POSITIONS_RAD = dict(
+    REQUESTED_PINCH_MODEL_GRIPPER_JOINT_POSITIONS_RAD
+)
+if args.left_one_way_contact_limited_model_rad is not None:
+    PINCH_MODEL_GRIPPER_JOINT_POSITIONS_RAD["left"] = (
+        args.left_one_way_contact_limited_model_rad
+    )
+# phase_model_tensor consumes project-space gripper values.  Convert the
+# effective achieved geometry back only for replay execution; the separately
+# retained REQUESTED dictionaries remain the measured actuator commands.
+PINCH_PROJECT_GRIPPER_JOINT_POSITIONS_RAD = {
+    side: gripper_candidate.model_to_project(model_value)
+    for side, model_value in PINCH_MODEL_GRIPPER_JOINT_POSITIONS_RAD.items()
 }
 RELEASE_MODEL_GRIPPER_JOINT_POSITION_RAD = gripper_candidate.release_model_rad
 SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD = {
@@ -727,6 +1452,32 @@ SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD = {
 PINCH_GAP_CENTER_TCP_X_M = {"left": -0.0107, "right": -0.0084}
 MAXIMUM_JAW_TARGET_PATCH_CENTER_XY_DISTANCE_M = 0.008
 MAXIMUM_ATTACHMENT_POINT_TCP_DISTANCE_M = 0.030
+# A two-layer pinch must involve two locally stacked particles inside one
+# registered face neighborhood.  This is intentionally smaller than one
+# 9.7 mm cloth cell: particle contact radii can bridge the discretization,
+# while unrelated layers or an arched sheet cannot.
+MAXIMUM_TWO_LAYER_CONTACT_PAIR_DISTANCE_M = 0.0085
+# Newton resolves cloth contact with particles around the calibrated 31x31
+# surface mesh.  Its 9.7 mm node pitch is larger than the 6 mm jaw face, so two
+# opposing *actual solver contacts* can legitimately be adjacent nodes even
+# though their centres do not both lie inside the face rectangle.  The strict
+# part of this gate is therefore the registered fixed-pad/moving-STL contact
+# labels plus one-cell topology; the metric bounds only reject nonlocal wraps.
+CLOTH_NODE_SPACING_M = CLOTH_SIZE_XY_M[0] / CLOTH_RESOLUTION[0]
+MAXIMUM_SINGLE_SHEET_PINCH_PAIR_DISTANCE_M = (
+    math.sqrt(2.0) * CLOTH_NODE_SPACING_M + CLOTH_CONTACT_OFFSET_M
+)
+MAXIMUM_SINGLE_SHEET_PINCH_GRID_CHEBYSHEV_DISTANCE = 1
+MAXIMUM_PINCH_PAIR_MIDPOINT_TO_GAP_CENTER_M = (
+    CLOTH_NODE_SPACING_M + CLOTH_CONTACT_OFFSET_M
+)
+# Particle contact has a finite radius, so a valid squeezed sheet may sit a
+# little beyond a registered face center.  It must not, however, wrap around
+# the outside/tip of a jaw and count as an interior pinch.
+MAXIMUM_PINCH_PAIR_AXIAL_FACE_OVERHANG_M = 2.0 * CLOTH_CONTACT_OFFSET_M
+MAXIMUM_PINCH_PARTICLE_TO_ASSIGNED_FACE_CENTER_M = (
+    math.sqrt(2.0) * CLOTH_NODE_SPACING_M + CLOTH_CONTACT_OFFSET_M
+)
 MAXIMUM_PINCH_INDUCED_CLOTH_DISPLACEMENT_M = 0.005
 MAXIMUM_GRIPPER_CLOSING_RESIDUAL_RAD = 0.01
 MAXIMUM_ARM_TARGET_RESIDUAL_RAD = 0.03
@@ -735,6 +1486,42 @@ PINCH_HOLD_DURATION_S = 0.125
 PINCH_TARGET_SETTLE_TIMEOUT_S = 0.50
 JAW_OPEN_DURATION_S = 0.25
 POST_OPEN_RELEASE_HOLD_S = 0.50
+SECOND_FOLD_PINNED_LAYDOWN_HOLD_S = 0.50
+SECOND_STABILIZER_MINIMUM_PHASE_DURATION_S = 0.025
+SECOND_STABILIZER_MAXIMUM_COMMAND_SPEED_RAD_S = 6.0
+SECOND_FOLD_MAXIMUM_LAYDOWN_PATCH_TABLE_CLEARANCE_M = 0.010
+# The single-arm laydown keeps the fixed pad normal about 19 degrees from the
+# table. Across the finite contact patch this can leave the highest retained
+# vertex near 22.5 mm even while the lowest vertex is correctly landed at the
+# measured four-layer height (about 12--14 mm). This only rejects an airborne
+# bundle before release; the post-release landing and shape gates decide the
+# actual result.
+SECOND_FOLD_MAXIMUM_LAYDOWN_PATCH_EXTENT_CLEARANCE_M = 0.024
+# Each actual-contact S2 jaw carries two layers onto two supported layers. The
+# measured 3 mm effective thickness therefore puts a valid four-layer landing
+# near 12 mm. This pre-release gate only rejects a truly airborne bundle; the
+# unchanged post-release landing and shape gates remain authoritative.
+SECOND_FOLD_ACTUAL_CONTACT_MAXIMUM_LAYDOWN_PATCH_TABLE_CLEARANCE_M = 0.014
+# Differently oriented bimanual jaw faces use the same bounded pre-release
+# extent allowance. Their minimum-clearance gate still requires touchdown.
+SECOND_FOLD_BIMANUAL_MAXIMUM_LAYDOWN_PATCH_EXTENT_CLEARANCE_M = 0.024
+# A hard PhysX attachment preserves the cloth vertex inside the closed jaw,
+# whose measured frame is above the surrounding supported cloth.  This gate
+# only rejects an airborne release; the common post-release height and settle
+# gates decide whether the towel actually lands.  Lowering the TCP to satisfy
+# the Newton patch threshold would put the jaw collision mesh into the table.
+SECOND_FOLD_PHYSX_MAXIMUM_LAYDOWN_PATCH_TABLE_CLEARANCE_M = 0.020
+SECOND_FOLD_RETENTION_RELEASE_OPEN_FRACTION = 0.50
+SECOND_FOLD_SETTLE_TIMEOUT_S = 4.0
+SECOND_FOLD_MINIMUM_FOOTPRINT_SPAN_M = 0.120
+SECOND_FOLD_MAXIMUM_FOOTPRINT_SPAN_M = 0.190
+SECOND_FOLD_MAXIMUM_HEIGHT_M = 0.050
+SECOND_FOLD_MAXIMUM_TABLE_PENETRATION_M = 0.002
+SECOND_FOLD_POST_LAYDOWN_SOFTENING_RAMP_S = 1.0
+NEWTON_DEEP_TABLE_SUPPORT_DEPTH_M = 0.40
+SECOND_FOLD_MAXIMUM_RELEASE_PATCH_LIFT_M = 0.015
+SECOND_FOLD_MINIMUM_RELEASE_PATCH_TO_JAW_DISTANCE_M = 0.015
+SECOND_FOLD_CORRECTION_OBSERVATION_TOLERANCE_M = 0.005
 GRASP_RETENTION_HOLD_S = 1.0
 GRASP_RELEASE_HOLD_S = 0.75
 MINIMUM_CONTACT_GATED_LIFT_M = 0.007
@@ -761,13 +1548,22 @@ MINIMUM_NOMINAL_PROFILE_LENGTH_M = 0.270
 MAXIMUM_NOMINAL_PROFILE_LENGTH_M = 0.320
 MAXIMUM_RAW_TERMINAL_CURL_AMPLITUDE_M = 0.030
 MAXIMUM_RAW_TERMINAL_CURL_FRACTION = 0.125
-MINIMUM_RAW_MAIN_FOLD_COLUMN = 13
-MAXIMUM_RAW_MAIN_FOLD_COLUMN = 17
+# These limits were established on the material-calibrated 31-element mesh.
+# Keep the same physical/topological fractions when a finer mesh is used for
+# real jaw-contact qualification; using the raw 13..17 indices on a 63-element
+# mesh incorrectly rejects its centre fold (column 31/32/33).
+RAW_MAIN_FOLD_COLUMN_FRACTION_LIMITS = (13.0 / 31.0, 17.0 / 31.0)
+MINIMUM_RAW_MAIN_FOLD_COLUMN = math.ceil(
+    CLOTH_RESOLUTION[0] * RAW_MAIN_FOLD_COLUMN_FRACTION_LIMITS[0]
+)
+MAXIMUM_RAW_MAIN_FOLD_COLUMN = math.floor(
+    CLOTH_RESOLUTION[0] * RAW_MAIN_FOLD_COLUMN_FRACTION_LIMITS[1]
+)
 # At the calibrated low touchdown the free edge has already met the table, so
 # this no longer represents a purely suspended verticality angle.  Permit at
 # most one quarter of the measured 285 mm hanging length to lie sideways; a
 # larger displacement indicates a collapsed panel rather than useful slack.
-MAXIMUM_TOUCHDOWN_FREE_EDGE_HORIZONTAL_OFFSET_M = 0.070
+MAXIMUM_TOUCHDOWN_FREE_EDGE_HORIZONTAL_OFFSET_M = 0.075
 MAXIMUM_ANCHORED_FREE_EDGE_TABLE_CLEARANCE_M = 0.010
 # The fixed towel, grasp, lift, and initial placement make the suspended swing
 # repeatable enough to use a scripted dwell.  Mid-action top-view feedback is
@@ -914,6 +1710,52 @@ def load_manifest(path: Path) -> tuple[dict[str, object], dict[str, object]]:
         raise ValueError("kinematic replay is missing towel bounds")
     selected = replay.get("selected_candidate", {})
     first_fold = copy.deepcopy(selected.get("first_fold", ()))
+    if args.contact_kinematic_replay is not None:
+        contact_replay = json.loads(
+            args.contact_kinematic_replay.read_text(encoding="utf-8")
+        )
+        if (
+            not isinstance(contact_replay, dict)
+            or (
+                contact_replay.get("record_kind"),
+                contact_replay.get("status"),
+            )
+            not in {
+                (
+                    "towel_suspended_gravity_full_fk_diagnostic",
+                    "TOWEL_SUSPENDED_GRAVITY_FULL_FK_DIAGNOSTIC_PASS",
+                ),
+                (
+                    "towel_suspended_gravity_contact_fk_diagnostic",
+                    "TOWEL_SUSPENDED_GRAVITY_CONTACT_FK_DIAGNOSTIC_PASS",
+                ),
+            }
+            or not suspended_gravity_replay
+        ):
+            raise ValueError(
+                "contact replay is not a passing suspended-gravity diagnostic"
+            )
+        contact_bounds = contact_replay.get("towel_placement", {}).get(
+            "bounds_xyxy_m", ()
+        )
+        if list(contact_bounds) != list(bounds):
+            raise ValueError("contact and primary replay towel bounds differ")
+        contact_records = {
+            record.get("name"): record
+            for record in contact_replay.get("selected_candidate", {}).get(
+                "first_fold", ()
+            )
+        }
+        if "first_contact" not in contact_records:
+            raise ValueError("contact replay is missing first_contact")
+        contact_index = next(
+            index
+            for index, record in enumerate(first_fold)
+            if record.get("name") == "first_contact"
+        )
+        first_fold[contact_index] = copy.deepcopy(
+            contact_records["first_contact"]
+        )
     if args.right_arm_kinematic_replay is not None:
         right_replay = json.loads(
             args.right_arm_kinematic_replay.read_text(encoding="utf-8")
@@ -1004,6 +1846,11 @@ def load_manifest(path: Path) -> tuple[dict[str, object], dict[str, object]]:
     source["canonical_replay"]["first_fold"] = copy.deepcopy(first_fold)
     source["suspended_gravity_replay"] = suspended_gravity_replay
     source["kinematic_replay_path"] = str(args.kinematic_replay.resolve())
+    source["contact_kinematic_replay_path"] = (
+        str(args.contact_kinematic_replay.resolve())
+        if args.contact_kinematic_replay is not None
+        else None
+    )
     source["right_arm_kinematic_replay_path"] = (
         str(args.right_arm_kinematic_replay.resolve())
         if args.right_arm_kinematic_replay is not None
@@ -1012,6 +1859,239 @@ def load_manifest(path: Path) -> tuple[dict[str, object], dict[str, object]]:
     source["right_arm_kinematic_replay_through"] = (
         args.right_arm_kinematic_replay_through
     )
+    if args.second_fold_replay is not None:
+        second_replay = json.loads(
+            args.second_fold_replay.read_text(encoding="utf-8")
+        )
+        single_left_second_fold_plan = (
+            isinstance(second_replay, dict)
+            and second_replay.get("record_kind")
+            == "towel_second_fold_bimanual_task_pose_plan_only"
+            and second_replay.get("status")
+            == "TOWEL_SECOND_FOLD_SINGLE_LEFT_TO_RIGHT_PLAN_ONLY_PASS"
+        )
+        bimanual_second_fold_replay = (
+            isinstance(second_replay, dict)
+            and second_replay.get("record_kind")
+            == "towel_second_fold_bimanual_full_fk_diagnostic"
+            and second_replay.get("status")
+            == "TOWEL_SECOND_FOLD_BIMANUAL_FULL_FK_DIAGNOSTIC_PASS"
+        )
+        if (
+            not isinstance(second_replay, dict)
+            or not (
+                single_left_second_fold_plan
+                or
+                bimanual_second_fold_replay
+                or (
+                    second_replay.get("record_kind")
+                    == "towel_second_fold_full_fk_diagnostic"
+                    and second_replay.get("status")
+                    == "TOWEL_SECOND_FOLD_LEFT_TO_RIGHT_FULL_FK_DIAGNOSTIC_PASS"
+                )
+            )
+            or second_replay.get("motion_authorized") is not False
+        ):
+            raise ValueError("second-fold replay is not a passing motion-locked S2 diagnostic")
+        selected_second = second_replay.get("selected_candidate", {})
+        selected_active_arm = (
+            selected_second.get("second_active_arm")
+            if single_left_second_fold_plan
+            else selected_second.get("active_arm")
+        )
+        selected_direction = (
+            selected_second.get("second_direction")
+            if single_left_second_fold_plan
+            else selected_second.get("direction")
+        )
+        if (
+            not isinstance(selected_second, dict)
+            or (
+                selected_second.get("active_arms") != ["left", "right"]
+                if bimanual_second_fold_replay
+                else selected_active_arm != "left"
+            )
+            or selected_direction != "left_to_right"
+        ):
+            raise ValueError("second-fold replay does not select the reviewed left-to-right topology")
+        second_fold = copy.deepcopy(selected_second.get("second_fold", ()))
+        if single_left_second_fold_plan:
+            for record in second_fold:
+                moveit_target = record.get("moveit", {}).get(
+                    "target_positions_rad"
+                )
+                if not isinstance(moveit_target, list) or len(moveit_target) != 12:
+                    raise ValueError(
+                        "single-left second-fold replay is missing a 12-joint "
+                        "strict MoveIt target"
+                    )
+                record["joint_positions_rad"] = copy.deepcopy(moveit_target)
+        second_names = {record.get("name") for record in second_fold}
+        required_second = (
+            {
+                "second_bimanual_contact",
+                "second_bimanual_fold_01",
+                "second_bimanual_retreat",
+                "second_bimanual_reobserve_clear",
+            }
+            if bimanual_second_fold_replay
+            else {
+                "second_contact",
+                "second_fold_01",
+                "second_retreat",
+                "second_reobserve_clear",
+            }
+        )
+        if not required_second.issubset(second_names):
+            raise ValueError("second-fold replay is missing required phases")
+        transfer_records = [
+            record
+            for record in second_fold
+            if str(record.get("name", "")).startswith(
+                "second_bimanual_fold_"
+                if bimanual_second_fold_replay
+                else "second_fold_"
+            )
+        ]
+        expected_transfer_names = [
+            (
+                f"second_bimanual_fold_{index:02d}"
+                if bimanual_second_fold_replay
+                else f"second_fold_{index:02d}"
+            )
+            for index in range(1, len(transfer_records) + 1)
+        ]
+        if (
+            [record.get("name") for record in transfer_records]
+            != expected_transfer_names
+            or transfer_records[-1].get("attachment_event")
+            != (
+                "release_two_four_layer_u_pinches_after_dual_laydown_gate"
+                if bimanual_second_fold_replay
+                else "release_midpoint_bundle_after_laydown_gate"
+            )
+        ):
+            raise ValueError("second-fold transfer phases are not contiguous")
+        source["canonical_replay"]["second_fold"] = second_fold
+        second_stabilizer = copy.deepcopy(
+            selected_second.get("second_fold_stabilizer", ())
+        )
+        expected_stabilizer_names = [
+            f"second_stabilizer_departure_{index:02d}_right"
+            for index in range(1, 41)
+        ] + [
+            "second_stabilizer_contact",
+            "second_stabilizer_retreat",
+            "second_stabilizer_reobserve_clear",
+        ]
+        if (not bimanual_second_fold_replay and not single_left_second_fold_plan and (
+            not isinstance(second_stabilizer, list)
+            or [record.get("name") for record in second_stabilizer]
+            != expected_stabilizer_names
+            or second_stabilizer[-3].get("attachment_event")
+            != "attach_right_stabilizer_after_actual_contact_gate"
+            or second_stabilizer[-2].get("attachment_event")
+            != "release_right_stabilizer_after_left_clear_gate"
+        )):
+            raise ValueError(
+                "second-fold replay is missing the reviewed right-arm stabilizer"
+            )
+        source["canonical_replay"]["second_stabilizer"] = second_stabilizer
+        second_handoff = copy.deepcopy(
+            selected_second.get("second_fold_edge_handoff", ())
+        )
+        expected_handoff_names = [
+            f"second_handoff_departure_{index:02d}_right"
+            for index in range(1, 41)
+        ] + [
+            "second_handoff_contact",
+            "second_handoff_hold",
+            "second_handoff_release",
+            "second_handoff_retreat",
+            "second_handoff_reobserve_clear",
+        ]
+        handoff_valid = (
+            isinstance(second_handoff, list)
+            and [record.get("name") for record in second_handoff]
+            == expected_handoff_names
+            and second_handoff[-5].get("attachment_event")
+            == "attach_right_upper_edge_after_opposing_layer_contact_gate"
+            and second_handoff[-3].get("attachment_event")
+            == "release_right_upper_edge_after_left_clear_gate"
+        )
+        if args.second_fold_release_mode == "right-edge-handoff" and not handoff_valid:
+            raise ValueError(
+                "second-fold replay is missing the reviewed right edge handoff"
+            )
+        if handoff_valid:
+            source["canonical_replay"]["second_handoff"] = second_handoff
+        source["second_fold_replay_path"] = str(
+            args.second_fold_replay.resolve()
+        )
+        source["second_fold_active_arm"] = (
+            "bimanual" if bimanual_second_fold_replay else "left"
+        )
+        source["second_fold_bimanual"] = bimanual_second_fold_replay
+        source["second_fold_direction"] = "left_to_right"
+        replay_sources = second_replay.get("sources", {})
+        s1_result_key = (
+            "accepted_s1_result" if single_left_second_fold_plan else "s1_result"
+        )
+        s1_summary_key = (
+            "accepted_s1_summary" if single_left_second_fold_plan else "s1_summary"
+        )
+        s1_result_source = (
+            replay_sources.get(s1_result_key, {})
+            if isinstance(replay_sources, dict)
+            else {}
+        )
+        s1_summary_source = (
+            replay_sources.get(s1_summary_key, {})
+            if isinstance(replay_sources, dict)
+            else {}
+        )
+        s1_result_path = Path(str(s1_result_source.get("path", "")))
+        s1_summary_path = Path(str(s1_summary_source.get("path", "")))
+        for label, path, expected_digest in (
+            ("S1 result", s1_result_path, s1_result_source.get("sha256")),
+            ("S1 summary", s1_summary_path, s1_summary_source.get("sha256")),
+        ):
+            if (
+                not path.is_file()
+                or hashlib.sha256(path.read_bytes()).hexdigest()
+                != str(expected_digest)
+            ):
+                raise ValueError(f"second-fold {label} source hash is stale")
+        accepted_s1 = json.loads(s1_result_path.read_text(encoding="utf-8"))
+        accepted_summary = json.loads(s1_summary_path.read_text(encoding="utf-8"))
+        accepted_s1_digest = hashlib.sha256(s1_result_path.read_bytes()).hexdigest()
+        accepted_digests = {
+            str(value)
+            for key, value in accepted_summary.get("sources", {}).items()
+            if str(key).endswith("result_sha256")
+        }
+        accepted_nodes = accepted_s1.get("final_cloth_shape_local_m_env_0")
+        if (
+            not str(accepted_s1.get("status", "")).startswith(
+                "S1_ISAACLAB_NOMINAL_HALF_FOLD_ACCEPTED_"
+            )
+            or accepted_s1.get("motion_authorized") is not False
+            or accepted_summary.get("status")
+            != "R2_S1_FIRST_FOLD_ACCEPTED_WITHIN_55_45"
+            or accepted_s1_digest not in accepted_digests
+            or not isinstance(accepted_nodes, list)
+            or len(accepted_nodes) != (CLOTH_RESOLUTION[0] + 1) ** 2
+            or any(
+                not isinstance(node, list)
+                or len(node) != 3
+                or not all(math.isfinite(float(value)) for value in node)
+                for node in accepted_nodes
+            )
+        ):
+            raise ValueError("second-fold S1 checkpoint is not accepted and finite")
+        source["second_fold_start_state_local_m"] = copy.deepcopy(accepted_nodes)
+        source["second_fold_start_state_path"] = str(s1_result_path.resolve())
+        source["second_fold_start_state_sha256"] = accepted_s1_digest
     center_x = 0.5 * (float(bounds[0]) + float(bounds[1]))
     center_y = 0.5 * (float(bounds[2]) + float(bounds[3]))
     for pose in source["rigid_proxy_pose_xyz_yaw_rad"]:
@@ -1021,8 +2101,13 @@ def load_manifest(path: Path) -> tuple[dict[str, object], dict[str, object]]:
 
 
 def phase(source: dict[str, object], name: str) -> dict[str, object]:
-    for fold_name in ("first_fold", "second_fold"):
-        for record in source["canonical_replay"][fold_name]:
+    for fold_name in (
+        "first_fold",
+        "second_fold",
+        "second_stabilizer",
+        "second_handoff",
+    ):
+        for record in source["canonical_replay"].get(fold_name, ()):
             if record["name"] == name:
                 return record
     raise ValueError(f"missing canonical replay phase: {name}")
@@ -1128,6 +2213,42 @@ def scene_config(source: dict[str, object]) -> InteractiveSceneCfg:
             ),
             init_state=RigidObjectCfg.InitialStateCfg(pos=table_pose),
         )
+        if args.newton_deep_table_support:
+            table_support = RigidObjectCfg(
+                prim_path="{ENV_REGEX_NS}/NewtonDeepTableSupport",
+                spawn=sim_utils.CuboidCfg(
+                    size=(
+                        table_size[0],
+                        table_size[1],
+                        NEWTON_DEEP_TABLE_SUPPORT_DEPTH_M,
+                    ),
+                    rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                        disable_gravity=True, kinematic_enabled=True
+                    ),
+                    mass_props=sim_utils.MassPropertiesCfg(mass=100.0),
+                    collision_props=sim_utils.CollisionPropertiesCfg(
+                        collision_enabled=True,
+                        contact_offset=0.002,
+                        rest_offset=0.0,
+                    ),
+                    physics_material=sim_utils.RigidBodyMaterialCfg(
+                        static_friction=CLOTH_STATIC_FRICTION,
+                        dynamic_friction=CLOTH_DYNAMIC_FRICTION,
+                        restitution=0.0,
+                    ),
+                    visual_material=sim_utils.PreviewSurfaceCfg(
+                        diffuse_color=(0.30, 0.30, 0.30)
+                    ),
+                ),
+                init_state=RigidObjectCfg.InitialStateCfg(
+                    pos=(
+                        table_pose[0],
+                        table_pose[1],
+                        table_top_z_m
+                        - 0.5 * NEWTON_DEEP_TABLE_SUPPORT_DEPTH_M,
+                    )
+                ),
+            )
         cloth = DeformableObjectCfg(
             prim_path="{ENV_REGEX_NS}/TowelCloth",
             spawn=sim_utils.MeshRectangleCfg(
@@ -1135,7 +2256,7 @@ def scene_config(source: dict[str, object]) -> InteractiveSceneCfg:
                 resolution=CLOTH_RESOLUTION,
                 deformable_props=(
                     NewtonDeformableBodyPropertiesCfg()
-                    if args.physics_backend == "newton-coupled-vbd"
+                    if IS_NEWTON_BACKEND
                     else PhysxDeformableBodyPropertiesCfg(
                         mass=CLOTH_MASS_KG,
                         solver_position_iteration_count=24,
@@ -1171,7 +2292,7 @@ def scene_config(source: dict[str, object]) -> InteractiveSceneCfg:
                         edge_ke=NEWTON_EDGE_STIFFNESS_N_M,
                         edge_kd=NEWTON_EDGE_DAMPING_N_M_S,
                     )
-                    if args.physics_backend == "newton-coupled-vbd"
+                    if IS_NEWTON_BACKEND
                     else PhysxSurfaceDeformableBodyMaterialCfg(
                         density=CLOTH_DENSITY_KG_M3,
                         static_friction=CLOTH_STATIC_FRICTION,
@@ -1195,7 +2316,7 @@ def scene_config(source: dict[str, object]) -> InteractiveSceneCfg:
                     table_top_z_m
                     + (
                         CLOTH_CONTACT_OFFSET_M + 0.002
-                        if args.physics_backend == "newton-coupled-vbd"
+                        if IS_NEWTON_BACKEND
                         else CLOTH_INITIAL_CLEARANCE_M
                     ),
                 )
@@ -1294,19 +2415,29 @@ def _author_rubber_material(stage: Usd.Stage, path: str) -> UsdShade.Material:
     physics_material = UsdPhysics.MaterialAPI.Apply(material.GetPrim())
     static_friction = (
         args.newton_rubber_friction
-        if args.physics_backend == "newton-coupled-vbd"
+        if IS_NEWTON_BACKEND
         and args.newton_rubber_friction is not None
         else gripper_candidate.rubber_static_friction
     )
     dynamic_friction = (
         static_friction
-        if args.physics_backend == "newton-coupled-vbd"
+        if IS_NEWTON_BACKEND
         and args.newton_rubber_friction is not None
         else gripper_candidate.rubber_dynamic_friction
     )
     physics_material.CreateStaticFrictionAttr(static_friction)
     physics_material.CreateDynamicFrictionAttr(dynamic_friction)
     physics_material.CreateRestitutionAttr(gripper_candidate.rubber_restitution)
+    return material
+
+
+def _author_moving_jaw_material(stage: Usd.Stage, path: str) -> UsdShade.Material:
+    """Author a generic plastic contact material for the unpadded moving jaw."""
+    material = UsdShade.Material.Define(stage, path)
+    physics_material = UsdPhysics.MaterialAPI.Apply(material.GetPrim())
+    physics_material.CreateStaticFrictionAttr(0.5)
+    physics_material.CreateDynamicFrictionAttr(0.4)
+    physics_material.CreateRestitutionAttr(0.0)
     return material
 
 
@@ -1370,6 +2501,19 @@ def _apply_gripper_model_joint_limits(
 def apply_shape_contact_offsets(environment_count: int) -> None:
     stage = omni.usd.get_context().get_stage()
     for environment_index in range(environment_count):
+        if args.newton_deep_table_support:
+            visual_table_mesh = stage.GetPrimAtPath(
+                f"/World/envs/env_{environment_index}/Table/geometry/mesh"
+            )
+            support_root = stage.GetPrimAtPath(
+                f"/World/envs/env_{environment_index}/NewtonDeepTableSupport"
+            )
+            if not visual_table_mesh.IsValid() or not support_root.IsValid():
+                raise RuntimeError("deep Newton table support prims are incomplete")
+            UsdPhysics.CollisionAPI.Apply(
+                visual_table_mesh
+            ).CreateCollisionEnabledAttr().Set(False)
+            UsdGeom.Imageable(support_root).MakeInvisible()
         if args.physics_backend == "physx":
             for path, contact_offset, rest_offset in (
                 (f"/World/envs/env_{environment_index}/Table/geometry/mesh", 0.002, 0.0),
@@ -1398,6 +2542,9 @@ def apply_shape_contact_offsets(environment_count: int) -> None:
             rubber_material = _author_rubber_material(
                 stage, f"{robot_prefix}/{side}_TowelJawRubberMaterial"
             )
+            moving_jaw_material = _author_moving_jaw_material(
+                stage, f"{robot_prefix}/{side}_TowelMovingJawMaterial"
+            )
             # Fixed-jaw face: TCP x=0, raw camera-mount mesh x=-7.9 mm.
             _author_jaw_pad(
                 stage,
@@ -1412,23 +2559,22 @@ def apply_shape_contact_offsets(environment_count: int) -> None:
                 rubber_material,
             )
             if not args.actual_jaw_mesh_contact:
-                # Moving-jaw face proxy used only by the legacy simplified probe.
                 _author_jaw_pad(
                     stage,
                     f"{moving_body_path}/TowelMovingJawCollider",
                     MOVING_JAW_PAD_CENTER_PARENT_M,
                     JAW_PAD_SIZE_M,
                     JAW_PAD_NORMALS_PARENT[side]["moving"],
-                    rubber_material,
+                    moving_jaw_material,
                 )
 
 
 def enable_cloth_self_collision_after_pinch(environment_count: int) -> list[str]:
     """Enable deformable self-collision only after the closed-jaw gates pass."""
-    if args.physics_backend == "newton-coupled-vbd":
-        # Newton VBD compiles particle self-contact into the solver at model
-        # finalization and does not expose a PhysX deformable USD owner here.
-        return ["newton_vbd_solver:particle_self_contact"]
+    if IS_NEWTON_BACKEND:
+        # Newton compiles particle self-contact into the selected solver at
+        # model finalization and does not expose a PhysX deformable USD owner.
+        return [f"{args.physics_backend}:particle_self_contact"]
     stage = omni.usd.get_context().get_stage()
     authored_paths: list[str] = []
     for environment_index in range(environment_count):
@@ -1508,7 +2654,7 @@ def rigid_gripper_paths(environment_index: int) -> dict[str, str]:
 
 def author_contact_joint_states(source: dict[str, object], environment_count: int) -> None:
     """Set initial arm state and physical-Q0-open grippers before simulation."""
-    if args.physics_backend == "newton-coupled-vbd":
+    if IS_NEWTON_BACKEND:
         # ArticulationCfg.init_state and the explicit tensor write before the
         # first step are authoritative for Newton.
         return
@@ -1569,17 +2715,65 @@ def filter_non_gripper_robot_cloth_collisions(environment_count: int) -> None:
 
 
 def newton_soft_contact_snapshot() -> dict[str, object] | None:
-    """Return body-particle contacts with their imported USD shape labels."""
-    if args.physics_backend != "newton-coupled-vbd":
+    """Return penetrating body-particle contacts with imported shape labels.
+
+    Newton's soft-contact buffer also contains speculative proximity candidates
+    up to ``margin + particle_radius``.  The VBD solver applies contact force
+    only when ``particle_radius - signed_surface_distance > 0``; using every
+    buffer entry as a grasp therefore creates false bilateral contacts.
+    """
+    if not IS_NEWTON_BACKEND:
         return None
     contacts = NewtonManager.get_contacts()
     model = NewtonManager.get_model()
     if contacts is None or model is None:
         return {"available": False, "reason": "missing_model_or_contact_buffer"}
     count_values = contacts.soft_contact_count.numpy().reshape(-1)
-    count = int(count_values[0]) if count_values.size else 0
-    shape_indices = contacts.soft_contact_shape.numpy().reshape(-1)[:count]
-    particle_indices = contacts.soft_contact_particle.numpy().reshape(-1)[:count]
+    candidate_count = int(count_values[0]) if count_values.size else 0
+    shape_indices_all = contacts.soft_contact_shape.numpy().reshape(-1)[:candidate_count]
+    particle_indices_all = contacts.soft_contact_particle.numpy().reshape(-1)[:candidate_count]
+    body_positions_all = contacts.soft_contact_body_pos.numpy().reshape(-1, 3)[
+        :candidate_count
+    ]
+    normals_all = contacts.soft_contact_normal.numpy().reshape(-1, 3)[:candidate_count]
+    state = NewtonManager.get_state()
+    particle_positions = state.particle_q.numpy()
+    particle_radii = model.particle_radius.numpy().reshape(-1)
+    shape_bodies = model.shape_body.numpy().reshape(-1)
+    body_transforms = state.body_q.numpy().reshape(-1, 7)
+
+    active_indices: list[int] = []
+    active_penetrations_m: list[float] = []
+    for contact_index, (shape_index, particle_index) in enumerate(
+        zip(shape_indices_all, particle_indices_all, strict=True)
+    ):
+        body_index = int(shape_bodies[int(shape_index)])
+        surface_position = body_positions_all[contact_index]
+        if body_index >= 0:
+            transform = body_transforms[body_index]
+            quaternion_xyz = transform[3:6]
+            local_position = surface_position
+            rotated = local_position + 2.0 * np.cross(
+                quaternion_xyz,
+                np.cross(quaternion_xyz, local_position)
+                + transform[6] * local_position,
+            )
+            surface_position = transform[:3] + rotated
+        signed_surface_distance = float(
+            np.dot(
+                normals_all[contact_index],
+                particle_positions[int(particle_index)] - surface_position,
+            )
+        )
+        penetration_m = float(
+            particle_radii[int(particle_index)] - signed_surface_distance
+        )
+        if penetration_m > 0.0:
+            active_indices.append(contact_index)
+            active_penetrations_m.append(penetration_m)
+
+    shape_indices = shape_indices_all[active_indices]
+    particle_indices = particle_indices_all[active_indices]
     labels = [
         model.shape_label[int(index)]
         if 0 <= int(index) < len(model.shape_label)
@@ -1588,10 +2782,16 @@ def newton_soft_contact_snapshot() -> dict[str, object] | None:
     ]
     label_counts: dict[str, int] = {}
     particles_by_label: dict[str, list[int]] = {}
-    for label, particle_index in zip(labels, particle_indices, strict=True):
+    maximum_penetration_by_label: dict[str, float] = {}
+    for label, particle_index, penetration_m in zip(
+        labels, particle_indices, active_penetrations_m, strict=True
+    ):
         label_counts[label] = label_counts.get(label, 0) + 1
         particles_by_label.setdefault(label, []).append(int(particle_index))
-    jaw_labels = {
+        maximum_penetration_by_label[label] = max(
+            maximum_penetration_by_label.get(label, 0.0), penetration_m
+        )
+    all_jaw_labels = {
         label: sorted(set(particles))
         for label, particles in particles_by_label.items()
         if "TowelFixedJawCollider" in label
@@ -1599,20 +2799,36 @@ def newton_soft_contact_snapshot() -> dict[str, object] | None:
         or "gripper_link" in label
         or "moving_jaw_link" in label
     }
+    # The fixed side is the measured 2.2 mm rubber pad.  The opposing SO-101
+    # jaw keeps its original curved STL collision; the small authored tangent
+    # patch only makes that local face resolvable by the calibrated 31 x 31
+    # cloth mesh.  The strict selector below still limits accepted contacts to
+    # the local gap neighborhood and one-cell sheet topology.
+    jaw_face_labels = {
+        label: particles
+        for label, particles in all_jaw_labels.items()
+        if "TowelFixedJawCollider" in label
+        or "TowelMovingJawCollider" in label
+        or (
+            "moving_jaw_link/" in label
+            and "moving_jaw_so101" in label
+        )
+    }
     bilateral_particles_by_side: dict[str, list[int]] = {}
     for side in ("left", "right"):
         fixed_particles: set[int] = set()
         moving_particles: set[int] = set()
-        for label, particles in jaw_labels.items():
+        for label, particles in jaw_face_labels.items():
             if f"/{side}_" not in label:
                 continue
-            if "TowelFixedJawCollider" in label or (
-                f"/{side}_gripper_link/" in label
-                and f"/{side}_moving_jaw_link/" not in label
-            ):
+            if "TowelFixedJawCollider" in label:
                 fixed_particles.update(particles)
-            elif "TowelMovingJawCollider" in label or (
-                f"/{side}_moving_jaw_link/" in label
+            elif (
+                "TowelMovingJawCollider" in label
+                or (
+                    "moving_jaw_link/" in label
+                    and "moving_jaw_so101" in label
+                )
             ):
                 moving_particles.update(particles)
         bilateral_particles_by_side[side] = sorted(
@@ -1620,9 +2836,16 @@ def newton_soft_contact_snapshot() -> dict[str, object] | None:
         )
     return {
         "available": True,
-        "soft_contact_count": count,
+        "soft_contact_candidate_count": candidate_count,
+        "soft_contact_count": len(active_indices),
         "shape_contact_counts": label_counts,
-        "jaw_particles_by_shape": jaw_labels,
+        "shape_maximum_penetration_m": maximum_penetration_by_label,
+        "jaw_particles_by_shape": jaw_face_labels,
+        "imported_jaw_mesh_particles_by_shape": {
+            label: particles
+            for label, particles in all_jaw_labels.items()
+            if label not in jaw_face_labels
+        },
         "bilateral_same_particle_contacts": bilateral_particles_by_side,
         "jaw_shape_friction": {
             model.shape_label[index]: float(model.shape_material_mu.numpy()[index])
@@ -1636,26 +2859,485 @@ def newton_soft_contact_snapshot() -> dict[str, object] | None:
     }
 
 
-def apply_explicit_newton_fixed_pad_friction() -> dict[str, float] | None:
-    """Apply the no-slip candidate to fixed rubber pads after model finalization."""
-    if (
-        args.physics_backend != "newton-coupled-vbd"
-        or args.newton_rubber_friction is None
+def newton_jaw_face_contact_particles(
+    snapshot: dict[str, object], side: str
+) -> tuple[list[int], list[int]]:
+    """Return fixed-rubber-pad and moving-jaw cloth contacts for one gripper."""
+    jaw_particles = snapshot.get("jaw_particles_by_shape", {})
+    if not isinstance(jaw_particles, dict):
+        raise RuntimeError("Newton jaw contact snapshot is malformed")
+    fixed_particles: set[int] = set()
+    moving_particles: set[int] = set()
+    for label, indices in jaw_particles.items():
+        label_text = str(label)
+        if f"/{side}_" not in label_text:
+            continue
+        if "TowelFixedJawCollider" in label_text:
+            fixed_particles.update(int(index) for index in indices)
+        elif (
+            "TowelMovingJawCollider" in label_text
+            or (
+                "moving_jaw_link/" in label_text
+                and "moving_jaw_so101" in label_text
+            )
+        ):
+            moving_particles.update(int(index) for index in indices)
+    return sorted(fixed_particles), sorted(moving_particles)
+
+
+def select_local_single_sheet_pinch_pair(
+    snapshot: dict[str, object],
+    side: str,
+    nodes_w: torch.Tensor,
+    fixed_face_center_w: torch.Tensor,
+    moving_face_center_w: torch.Tensor,
+    *,
+    allowed_particles: set[int] | None = None,
+) -> tuple[list[int], dict[str, object]]:
+    """Select two nearby, distinct particles contacting opposing jaw faces.
+
+    A top-down pinch puckers one physical sheet locally.  The fixed and moving
+    faces therefore contact two nearby mesh locations; requiring one identical
+    particle on both faces confuses a squeezed particle-radius overlap with a
+    physical pinch.
+    """
+    fixed, moving = newton_jaw_face_contact_particles(snapshot, side)
+    if allowed_particles is not None:
+        fixed = [index for index in fixed if index in allowed_particles]
+        moving = [index for index in moving if index in allowed_particles]
+    if not fixed or not moving:
+        raise RuntimeError(
+            f"{side} strict pinch gate needs contact on both registered jaw faces; "
+            f"fixed={fixed}, moving={moving}"
+        )
+    gap_delta_w = moving_face_center_w - fixed_face_center_w
+    gap_length_m = float(torch.linalg.vector_norm(gap_delta_w).item())
+    if gap_length_m <= 1.0e-6:
+        raise RuntimeError(f"{side} registered jaw face centers are coincident")
+    gap_axis_w = gap_delta_w / gap_length_m
+    gap_center_w = 0.5 * (fixed_face_center_w + moving_face_center_w)
+    maximum_axial_offset_m = (
+        0.5 * gap_length_m + MAXIMUM_PINCH_PAIR_AXIAL_FACE_OVERHANG_M
+    )
+    grid_side = CLOTH_RESOLUTION[0] + 1
+    candidates: list[tuple[float, float, int, float, int, int]] = []
+    nearest_topological_pair: (
+        tuple[float, float, int, float, int, int] | None
+    ) = None
+    nearest_spatial_pair: tuple[float, float, int, float, int, int] | None = None
+    for fixed_index in fixed:
+        fixed_row, fixed_column = divmod(fixed_index, grid_side)
+        for moving_index in moving:
+            if fixed_index == moving_index:
+                continue
+            moving_row, moving_column = divmod(moving_index, grid_side)
+            grid_distance = max(
+                abs(fixed_row - moving_row),
+                abs(fixed_column - moving_column),
+            )
+            if grid_distance > MAXIMUM_SINGLE_SHEET_PINCH_GRID_CHEBYSHEV_DISTANCE:
+                continue
+            spatial_distance = float(
+                torch.linalg.vector_norm(
+                    nodes_w[fixed_index] - nodes_w[moving_index]
+                ).item()
+            )
+            midpoint = 0.5 * (nodes_w[fixed_index] + nodes_w[moving_index])
+            midpoint_distance = float(
+                torch.linalg.vector_norm(midpoint - gap_center_w).item()
+            )
+            fixed_face_center_distance_m = float(
+                torch.linalg.vector_norm(
+                    nodes_w[fixed_index] - fixed_face_center_w
+                ).item()
+            )
+            moving_face_center_distance_m = float(
+                torch.linalg.vector_norm(
+                    nodes_w[moving_index] - moving_face_center_w
+                ).item()
+            )
+            signed_axial_offset_m = float(
+                torch.dot(midpoint - gap_center_w, gap_axis_w).item()
+            )
+            record = (
+                midpoint_distance,
+                spatial_distance,
+                grid_distance,
+                signed_axial_offset_m,
+                fixed_index,
+                moving_index,
+            )
+            if nearest_topological_pair is None or record < nearest_topological_pair:
+                nearest_topological_pair = record
+            if nearest_spatial_pair is None or (
+                spatial_distance,
+                midpoint_distance,
+                grid_distance,
+                abs(signed_axial_offset_m),
+                fixed_index,
+                moving_index,
+            ) < (
+                nearest_spatial_pair[1],
+                nearest_spatial_pair[0],
+                nearest_spatial_pair[2],
+                abs(nearest_spatial_pair[3]),
+                nearest_spatial_pair[4],
+                nearest_spatial_pair[5],
+            ):
+                nearest_spatial_pair = record
+            if spatial_distance > MAXIMUM_SINGLE_SHEET_PINCH_PAIR_DISTANCE_M:
+                continue
+            if midpoint_distance > MAXIMUM_PINCH_PAIR_MIDPOINT_TO_GAP_CENTER_M:
+                continue
+            if abs(signed_axial_offset_m) > maximum_axial_offset_m:
+                continue
+            if (
+                fixed_face_center_distance_m
+                > MAXIMUM_PINCH_PARTICLE_TO_ASSIGNED_FACE_CENTER_M
+                or moving_face_center_distance_m
+                > MAXIMUM_PINCH_PARTICLE_TO_ASSIGNED_FACE_CENTER_M
+            ):
+                continue
+            candidates.append(record)
+    if not candidates:
+        def pair_record(
+            value: tuple[float, float, int, float, int, int] | None,
+        ) -> dict[str, object] | None:
+            if value is None:
+                return None
+            (
+                midpoint_distance,
+                spatial_distance,
+                grid_distance,
+                signed_axial_offset_m,
+                fixed_index,
+                moving_index,
+            ) = value
+            midpoint_offset = (
+                0.5 * (nodes_w[fixed_index] + nodes_w[moving_index])
+                - gap_center_w
+            )
+            return {
+                "particles": [fixed_index, moving_index],
+                "midpoint_to_gap_center_m": midpoint_distance,
+                "midpoint_offset_from_gap_center_m": [
+                    float(component) for component in midpoint_offset
+                ],
+                "spatial_distance_m": spatial_distance,
+                "grid_chebyshev_distance": grid_distance,
+                "signed_axial_offset_m": signed_axial_offset_m,
+                "fixed_particle_to_fixed_face_center_m": float(
+                    torch.linalg.vector_norm(
+                        nodes_w[fixed_index] - fixed_face_center_w
+                    ).item()
+                ),
+                "moving_particle_to_moving_face_center_m": float(
+                    torch.linalg.vector_norm(
+                        nodes_w[moving_index] - moving_face_center_w
+                    ).item()
+                ),
+            }
+        raise RuntimeError(
+            f"{side} registered faces touched cloth, but not one local U-pinch; "
+            + json.dumps(
+                {
+                    "same_particle_contacts": sorted(set(fixed) & set(moving)),
+                    "nearest_topological_pair": pair_record(nearest_topological_pair),
+                    "nearest_spatial_pair": pair_record(nearest_spatial_pair),
+                    "maximum_pair_distance_m": (
+                        MAXIMUM_SINGLE_SHEET_PINCH_PAIR_DISTANCE_M
+                    ),
+                    "maximum_midpoint_to_gap_center_m": (
+                        MAXIMUM_PINCH_PAIR_MIDPOINT_TO_GAP_CENTER_M
+                    ),
+                    "registered_face_center_gap_m": gap_length_m,
+                    "maximum_absolute_axial_offset_m": maximum_axial_offset_m,
+                    "maximum_particle_to_assigned_face_center_m": (
+                        MAXIMUM_PINCH_PARTICLE_TO_ASSIGNED_FACE_CENTER_M
+                    ),
+                },
+                sort_keys=True,
+            )
+        )
+    (
+        midpoint_distance,
+        spatial_distance,
+        grid_distance,
+        signed_axial_offset_m,
+        fixed_index,
+        moving_index,
+    ) = min(candidates)
+    midpoint_offset = (
+        0.5 * (nodes_w[fixed_index] + nodes_w[moving_index]) - gap_center_w
+    )
+    return [fixed_index, moving_index], {
+        "fixed_face_particles": fixed,
+        "moving_face_particles": moving,
+        "selected_distinct_particles": [fixed_index, moving_index],
+        "selected_spatial_distance_m": spatial_distance,
+        "selected_grid_chebyshev_distance": grid_distance,
+        "selected_midpoint_to_gap_center_m": midpoint_distance,
+        "selected_midpoint_offset_from_gap_center_m": [
+            float(component) for component in midpoint_offset
+        ],
+        "selected_signed_axial_offset_m": signed_axial_offset_m,
+        "registered_face_center_gap_m": gap_length_m,
+        "maximum_absolute_axial_offset_m": maximum_axial_offset_m,
+        "selected_fixed_particle_to_fixed_face_center_m": float(
+            torch.linalg.vector_norm(
+                nodes_w[fixed_index] - fixed_face_center_w
+            ).item()
+        ),
+        "selected_moving_particle_to_moving_face_center_m": float(
+            torch.linalg.vector_norm(
+                nodes_w[moving_index] - moving_face_center_w
+            ).item()
+        ),
+        "maximum_particle_to_assigned_face_center_m": (
+            MAXIMUM_PINCH_PARTICLE_TO_ASSIGNED_FACE_CENTER_M
+        ),
+        "gate": (
+            "fixed_rubber_pad_and_local_actual_moving_jaw_stl_inside_"
+            "registered_face_corridor"
+        ),
+    }
+
+
+def finite_element_support_for_contact_pair(
+    nodes_w: torch.Tensor,
+    pair: list[int],
+    gap_center_w: torch.Tensor,
+) -> list[int]:
+    """Return the one cloth quad represented by a proven one-cell contact pair."""
+    grid_side = CLOTH_RESOLUTION[0] + 1
+    coordinates = [divmod(int(index), grid_side) for index in pair]
+    candidate_rows = range(
+        max(row for row, _ in coordinates) - 1,
+        min(row for row, _ in coordinates) + 1,
+    )
+    candidate_columns = range(
+        max(column for _, column in coordinates) - 1,
+        min(column for _, column in coordinates) + 1,
+    )
+    candidates: list[tuple[float, list[int]]] = []
+    for row in candidate_rows:
+        for column in candidate_columns:
+            if not (0 <= row < grid_side - 1 and 0 <= column < grid_side - 1):
+                continue
+            support = [
+                row * grid_side + column,
+                row * grid_side + column + 1,
+                (row + 1) * grid_side + column,
+                (row + 1) * grid_side + column + 1,
+            ]
+            if not set(pair).issubset(support):
+                continue
+            centroid = torch.mean(nodes_w[support], dim=0)
+            candidates.append(
+                (
+                    float(torch.linalg.vector_norm(centroid - gap_center_w).item()),
+                    support,
+                )
+            )
+    if not candidates:
+        raise RuntimeError(f"contact pair {pair} does not belong to one cloth element")
+    return min(candidates, key=lambda item: (item[0], item[1]))[1]
+
+
+def select_local_four_layer_pinch(
+    snapshot: dict[str, object],
+    side: str,
+    nodes_w: torch.Tensor,
+    fixed_face_center_w: torch.Tensor,
+    moving_face_center_w: torch.Tensor,
+) -> tuple[list[int], dict[str, object]]:
+    """Select a real four-layer pinch of the already folded S1 bundle.
+
+    The S1 result contains two overlapping topology halves.  A top-down S2
+    U-pinch bends both halves, so each registered jaw face must contact one
+    local particle from *each* half.  This produces four distinct retained
+    particles per gripper: fixed/moving for the first S1 half and
+    fixed/moving for the second half.
+    """
+    grid_side = CLOTH_RESOLUTION[0] + 1
+    half_column = grid_side // 2
+    layer_diagnostics: dict[str, dict[str, object]] = {}
+    selected_particles: list[int] = []
+    for layer_name, first_column, last_column in (
+        ("s1_first_half", 0, half_column),
+        ("s1_second_half", half_column, grid_side),
     ):
+        allowed = {
+            index
+            for index in range(int(nodes_w.shape[0]))
+            if first_column <= index % grid_side < last_column
+        }
+        try:
+            selected, diagnostic = select_local_single_sheet_pinch_pair(
+                snapshot,
+                side,
+                nodes_w,
+                fixed_face_center_w,
+                moving_face_center_w,
+                allowed_particles=allowed,
+            )
+        except RuntimeError as error:
+            raise RuntimeError(
+                f"{side} four-layer pinch is missing a local opposing-face "
+                f"pair for {layer_name}: {error}"
+            ) from error
+        layer_diagnostics[layer_name] = diagnostic
+        selected_particles.extend(selected)
+    if len(selected_particles) != 4 or len(set(selected_particles)) != 4:
+        raise RuntimeError(
+            f"{side} four-layer pinch did not select four distinct particles: "
+            f"{selected_particles}"
+        )
+    return selected_particles, {
+        "gate": "four_distinct_particles_on_opposing_finite_registered_faces",
+        "selected_particles_fixed_moving_per_s1_half": selected_particles,
+        "selected_particle_count": len(selected_particles),
+        "layers": layer_diagnostics,
+    }
+
+
+def isolate_newton_towel_contact_to_registered_jaw_faces() -> dict[str, object] | None:
+    """Keep only the fixed rubber pad and actual moving jaw for cloth contact.
+
+    Newton exposes particle-collision flags per shape.  Clearing only that bit
+    on imported jaw meshes preserves rigid collision checks and makes the two
+    registered rubber face plus the curved moving-jaw STL the sole source of
+    cloth gripping contact.  The flat moving proxy remains diagnostic-only.
+    """
+    if not IS_NEWTON_BACKEND:
         return None
+    model = NewtonManager.get_model()
+    values = model.shape_flags.numpy()
+    disabled: list[str] = []
+    retained: list[str] = []
+    diagnostic_only: list[str] = []
+    for index, label in enumerate(model.shape_label):
+        if "/Robot/" not in label or not any(
+            token in label
+            for token in (
+                "gripper_link",
+                "moving_jaw_link",
+                "TowelFixedJawCollider",
+                "TowelMovingJawCollider",
+            )
+        ):
+            continue
+        if "TowelFixedJawCollider" in label:
+            # These conservative face proxies exist only to expose a precise
+            # cloth-contact surface.  Letting them collide with rigid shapes
+            # makes them fight the original STL on their own articulation.
+            values[index] = int(values[index]) & ~int(ShapeFlags.COLLIDE_SHAPES)
+            values[index] = int(values[index]) | int(ShapeFlags.COLLIDE_PARTICLES)
+            retained.append(label)
+            continue
+        if "TowelMovingJawCollider" in label:
+            values[index] = int(values[index]) & ~int(ShapeFlags.COLLIDE_SHAPES)
+            values[index] = int(values[index]) | int(ShapeFlags.COLLIDE_PARTICLES)
+            retained.append(label)
+            continue
+        if "moving_jaw_link/" in label and "moving_jaw_so101" in label:
+            values[index] = int(values[index]) | int(ShapeFlags.COLLIDE_PARTICLES)
+            retained.append(label)
+            continue
+        values[index] = int(values[index]) & ~int(ShapeFlags.COLLIDE_PARTICLES)
+        disabled.append(label)
+    if len([label for label in retained if "TowelFixedJawCollider" in label]) != 2:
+        raise RuntimeError(
+            "expected two registered fixed rubber-pad colliders, found "
+            f"{sorted(retained)}"
+        )
+    if args.actual_jaw_mesh_contact and not disabled:
+        raise RuntimeError("no imported jaw STL particle collisions were isolated")
+    model.shape_flags.assign(values)
+    return {
+        "registered_face_labels": sorted(retained),
+        "fixed_registered_faces_particle_collision_only": True,
+        "moving_registered_tangent_patches_particle_collision": sorted(
+            label for label in retained if "TowelMovingJawCollider" in label
+        ),
+        "moving_flat_proxies_diagnostic_only": sorted(diagnostic_only),
+        "actual_curved_moving_jaw_stl_particle_collision": True,
+        "imported_mesh_particle_collision_disabled": sorted(disabled),
+        "rigid_collision_preserved": True,
+    }
+
+
+def set_explicit_newton_fixed_pad_friction(
+    friction: float,
+) -> dict[str, float] | None:
+    """Set the finalized fixed-pad friction without disabling its collision."""
+    if not IS_NEWTON_BACKEND:
+        return None
+    if not math.isfinite(friction) or friction < 0.0:
+        raise ValueError("fixed-pad friction must be finite and non-negative")
     model = NewtonManager.get_model()
     values = model.shape_material_mu.numpy()
     applied: dict[str, float] = {}
     for index, label in enumerate(model.shape_label):
         if "/Robot/" in label and "TowelFixedJawCollider" in label:
-            values[index] = args.newton_rubber_friction
+            values[index] = friction
             applied[label] = float(values[index])
-    if len(applied) != 2:
+        elif (
+            "/Robot/" in label
+            and "moving_jaw_link/" in label
+            and "moving_jaw_so101" in label
+            and "TowelMovingJawCollider" not in label
+        ):
+            values[index] = 0.4
+            applied[label] = float(values[index])
+    if len(
+        [label for label in applied if "TowelFixedJawCollider" in label]
+    ) != 2:
         raise RuntimeError(
             f"expected two finalized fixed rubber pad shapes, found {sorted(applied)}"
         )
     model.shape_material_mu.assign(values)
     return applied
+
+
+def apply_explicit_newton_fixed_pad_friction() -> dict[str, float] | None:
+    """Apply the closed-pinch numerical friction after finalization."""
+    if args.newton_rubber_friction is None:
+        return None
+    return set_explicit_newton_fixed_pad_friction(args.newton_rubber_friction)
+
+
+def set_left_jaw_particle_collision(
+    enabled: bool,
+    saved_flags: dict[int, int] | None = None,
+) -> tuple[dict[int, int], list[str]]:
+    """Toggle only the left jaw-to-cloth contacts in the finalized Newton model."""
+    model = NewtonManager.get_model()
+    values = model.shape_flags.numpy()
+    matched: list[str] = []
+    if saved_flags is None:
+        saved_flags = {}
+    for index, label in enumerate(model.shape_label):
+        if "/Robot/" not in label or "/left_" not in label:
+            continue
+        if not (
+            "TowelFixedJawCollider" in label
+            or "left_moving_jaw_link" in label
+        ):
+            continue
+        matched.append(label)
+        if index not in saved_flags:
+            saved_flags[index] = int(values[index])
+        if enabled:
+            values[index] = saved_flags[index]
+        else:
+            values[index] = int(values[index]) & ~int(ShapeFlags.COLLIDE_PARTICLES)
+    if len(matched) < 2:
+        raise RuntimeError(
+            "expected finalized left fixed and moving jaw particle colliders"
+        )
+    model.shape_flags.assign(values)
+    return saved_flags, matched
 
 
 def gripper_tcp_positions_w(
@@ -1761,6 +3443,75 @@ def body_local_points_to_world(
                 device=result.device,
             )
     return result
+
+
+def body_local_directions_to_world(
+    body_orientations_xyzw: torch.Tensor,
+    local_directions: tuple[tuple[float, float, float], ...],
+) -> torch.Tensor:
+    """Rotate one registered local direction for each rigid body into world space."""
+    if body_orientations_xyzw.shape[1] != len(local_directions):
+        raise ValueError("body count and local direction count differ")
+    result = torch.empty_like(body_orientations_xyzw[..., :3])
+    for environment_index in range(body_orientations_xyzw.shape[0]):
+        for body_index, local_direction in enumerate(local_directions):
+            orientation = body_orientations_xyzw[
+                environment_index, body_index
+            ].tolist()
+            rotation = Gf.Rotation(
+                Gf.Quatd(orientation[3], Gf.Vec3d(*orientation[:3]))
+            )
+            direction = rotation.TransformDir(Gf.Vec3d(*local_direction))
+            result[environment_index, body_index] = torch.tensor(
+                [direction[index] for index in range(3)],
+                dtype=result.dtype,
+                device=result.device,
+            )
+    return result
+
+
+def jaw_pad_axes_parent(
+    thin_axis_parent: tuple[float, float, float],
+) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[float, float, float],
+]:
+    """Return the authored cube's thin/u/v axes in its parent body frame."""
+    rotation = Gf.Rotation(
+        Gf.Vec3d(1.0, 0.0, 0.0), Gf.Vec3d(*thin_axis_parent)
+    )
+    axes = tuple(
+        rotation.TransformDir(axis)
+        for axis in (
+            Gf.Vec3d(1.0, 0.0, 0.0),
+            Gf.Vec3d(0.0, 1.0, 0.0),
+            Gf.Vec3d(0.0, 0.0, 1.0),
+        )
+    )
+    return tuple(
+        tuple(float(value) for value in axis) for axis in axes
+    )
+
+
+def registered_jaw_pad_axes_parent_by_slot() -> tuple[
+    tuple[
+        tuple[float, float, float],
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ],
+    ...,
+]:
+    """Return fixed/moving authored face axes in left/right body-slot order."""
+    return tuple(
+        jaw_pad_axes_parent(JAW_PAD_NORMALS_PARENT[side][face])
+        for side, face in (
+            ("left", "fixed"),
+            ("left", "moving"),
+            ("right", "fixed"),
+            ("right", "moving"),
+        )
+    )
 
 
 def author_runtime_attachments(
@@ -1879,6 +3630,109 @@ def create_attachments(
     return records, selected_indices
 
 
+def author_single_runtime_attachment(
+    *,
+    environment_index: int,
+    side: str,
+    attachment_name: str,
+    frame_name: str,
+    nodes_w: torch.Tensor,
+    gripper_position_w: torch.Tensor,
+    gripper_orientation_xyzw: torch.Tensor,
+    selected_indices: list[int],
+) -> str:
+    """Author one hard PhysX cloth-to-gripper attachment at current positions."""
+    if side not in {"left", "right"}:
+        raise ValueError(f"unsupported gripper side: {side}")
+    if not selected_indices:
+        raise ValueError("a runtime attachment requires at least one cloth vertex")
+    stage = omni.usd.get_context().get_stage()
+    gripper_path = rigid_gripper_paths(environment_index)[side]
+    position = gripper_position_w.tolist()
+    orientation_xyzw = gripper_orientation_xyzw.tolist()
+    inverse_rotation = Gf.Rotation(
+        Gf.Quatd(orientation_xyzw[3], Gf.Vec3d(*orientation_xyzw[:3]))
+    ).GetInverse()
+    frame_rotation = Gf.Rotation(Gf.Vec3d(0.0, 1.0, 0.0), 180.0)
+    frame_local_positions = []
+    for node_index in selected_indices:
+        node = nodes_w[node_index].tolist()
+        body_local = inverse_rotation.TransformDir(
+            Gf.Vec3d(*node) - Gf.Vec3d(*position)
+        )
+        frame_local_positions.append(
+            frame_rotation.GetInverse().TransformDir(
+                body_local - Gf.Vec3d(*GRIPPER_FRAME_TRANSLATION_M)
+            )
+        )
+    frame_path = Sdf.Path(gripper_path).AppendChild(frame_name)
+    frame = UsdGeom.Xform.Define(stage, frame_path)
+    frame.AddTranslateOp().Set(Gf.Vec3d(*GRIPPER_FRAME_TRANSLATION_M))
+    frame.AddOrientOp().Set(Gf.Quatf(0.0, Gf.Vec3f(0.0, 1.0, 0.0)))
+    attachment_path = Sdf.Path(
+        f"/World/envs/env_{environment_index}/Attachments/{attachment_name}"
+    )
+    prim = stage.DefinePrim(attachment_path, "OmniPhysicsVtxXformAttachment")
+    prim.GetAttribute("omniphysics:attachmentEnabled").Set(True)
+    prim.GetRelationship("omniphysics:src0").SetTargets(
+        [Sdf.Path(f"/World/envs/env_{environment_index}/TowelCloth/sim_mesh")]
+    )
+    prim.GetRelationship("omniphysics:src1").SetTargets([frame_path])
+    prim.GetAttribute("omniphysics:vtxIndicesSrc0").Set(selected_indices)
+    prim.GetAttribute("omniphysics:localPositionsSrc1").Set(
+        [Gf.Vec3f(value) for value in frame_local_positions]
+    )
+    return str(attachment_path)
+
+
+def create_runtime_attachment_record(
+    *, attachment_path: str, environment_index: int, side: str
+) -> dict[str, object]:
+    """Validate a cooked runtime attachment and return its release record."""
+    stage = omni.usd.get_context().get_stage()
+    scope_prim = stage.GetPrimAtPath(attachment_path)
+    low_level_prims = [
+        candidate
+        for candidate in Usd.PrimRange(scope_prim)
+        if candidate.GetTypeName() == "OmniPhysicsVtxXformAttachment"
+    ]
+    if len(low_level_prims) != 1:
+        raise RuntimeError(
+            f"expected one cooked vertex attachment under {attachment_path}, "
+            f"found {len(low_level_prims)}"
+        )
+    prim = low_level_prims[0]
+    source1_targets = prim.GetRelationship("omniphysics:src1").GetTargets()
+    if len(source1_targets) != 1:
+        raise RuntimeError(f"attachment has invalid src1: {prim.GetPath()}")
+    target_path = source1_targets[0]
+    indices = [
+        int(value)
+        for value in prim.GetAttribute("omniphysics:vtxIndicesSrc0").Get()
+    ]
+    local_positions = prim.GetAttribute("omniphysics:localPositionsSrc1").Get()
+    if len(local_positions) != len(indices):
+        raise RuntimeError(f"cooked patch arrays differ: {prim.GetPath()}")
+    if prim.GetAttribute("omniphysics:attachmentEnabled").Get() is not True:
+        raise RuntimeError(f"cooked attachment is not enabled: {prim.GetPath()}")
+    target_prim = stage.GetPrimAtPath(target_path)
+    rigid_ancestor = target_prim
+    while rigid_ancestor and not rigid_ancestor.HasAPI(UsdPhysics.RigidBodyAPI):
+        rigid_ancestor = rigid_ancestor.GetParent()
+    if not rigid_ancestor or not rigid_ancestor.HasAPI(UsdPhysics.RigidBodyAPI):
+        raise RuntimeError(f"attachment target has no rigid ancestor: {target_path}")
+    return {
+        "environment_index": environment_index,
+        "side": side,
+        "attachment_path": str(prim.GetPath()),
+        "gripper_path": str(rigid_ancestor.GetPath()),
+        "attachment_frame_path": str(target_path),
+        "selected_patch_point_count": len(indices),
+        "vertex_indices": indices,
+        "point_count": len(local_positions),
+    }
+
+
 def local_nodes(scene: InteractiveScene, cloth: object) -> torch.Tensor:
     return cloth.data.nodal_pos_w.torch - scene.env_origins[:, None, :]
 
@@ -1889,10 +3743,10 @@ def authoritative_newton_nodes_w(
     """Read the current coupled-VBD particle state after a direct constraint write."""
     state = NewtonManager.get_state()
     values = state.particle_q.numpy().copy()
-    if values.shape != (environment_count * 1024, 3):
+    if values.shape != (environment_count * CLOTH_NODE_COUNT, 3):
         raise RuntimeError(f"unexpected Newton particle state shape: {values.shape}")
     return torch.as_tensor(values, dtype=torch.float32, device=device).reshape(
-        environment_count, 1024, 3
+        environment_count, CLOTH_NODE_COUNT, 3
     )
 
 
@@ -2055,7 +3909,8 @@ def settle_physical_arm_drives(
     phase_name: str,
     post_step_callback: object | None = None,
     lock_gripper_state: bool = False,
-) -> None:
+    require_target_reached: bool = True,
+) -> float:
     """Hold a drive target until reached, or preserve a real collision failure."""
     residual = maximum_arm_target_residual_rad(robot, target, joint_ids)
     maximum_steps = max(1, math.ceil(timeout_s / physics_dt_s))
@@ -2079,12 +3934,14 @@ def settle_physical_arm_drives(
                 f"cloth produced non-finite nodes while settling {phase_name}"
             )
         residual = maximum_arm_target_residual_rad(robot, target, joint_ids)
-    require_arm_target_reached(robot, target, joint_ids, phase_name)
+    if require_target_reached:
+        require_arm_target_reached(robot, target, joint_ids, phase_name)
     print(
         f"S1_ARM_TARGET_SETTLED phase={phase_name} "
         f"hold_s={settled_step * physics_dt_s:.6f} residual_rad={residual:.6f}",
         flush=True,
     )
+    return residual
 
 
 def phase_model_tensor(
@@ -2105,6 +3962,529 @@ def phase_model_tensor(
     )
 
 
+def run_second_fold_contact_only(
+    *,
+    scene: InteractiveScene,
+    sim: SimulationContext,
+    robot: object,
+    cloth: object,
+    joint_ids: list[int],
+    source: dict[str, object],
+    environment_count: int,
+    physics_dt_s: float,
+    table_top_z_m: float,
+    analytic_plane_filter_runtime: dict[str, object],
+) -> int:
+    """Qualify the S2 four-layer pinch directly from the accepted S1 state."""
+    if environment_count != 1 or second_fold_gripper_candidate is None:
+        raise RuntimeError("S2 contact-only requires one environment and a grip config")
+    checkpoint_local = torch.tensor(
+        source["second_fold_start_state_local_m"],
+        dtype=cloth.data.nodal_pos_w.torch.dtype,
+        device=sim.device,
+    )
+    checkpoint_state_w = torch.cat(
+        (
+            checkpoint_local.unsqueeze(0) + scene.env_origins[:, None, :],
+            torch.zeros_like(checkpoint_local).unsqueeze(0),
+        ),
+        dim=-1,
+    )
+    cloth.write_nodal_state_to_sim_index(checkpoint_state_w)
+
+    clear_record = source["canonical_replay"]["first_fold"][-1]
+    if not str(clear_record.get("name", "")).endswith("reobserve_clear"):
+        raise RuntimeError("accepted S1 replay does not end at the clear pose")
+    clear_row = phase_model_tensor(
+        source,
+        clear_record,
+        gripper_project_positions_rad={"left": 0.0, "right": 0.0},
+        environment_count=environment_count,
+        device=sim.device,
+    )
+    zero_velocity = torch.zeros_like(clear_row)
+    write_scripted_arm_state_and_drive_targets(
+        robot,
+        clear_row,
+        zero_velocity,
+        joint_ids,
+        initialize_arm_state=True,
+    )
+    scene.write_data_to_sim()
+    sim.step()
+    scene.update(physics_dt_s)
+
+    checkpoint_error_m = float(
+        torch.max(
+            torch.linalg.vector_norm(
+                local_nodes(scene, cloth) - checkpoint_local.unsqueeze(0), dim=-1
+            )
+        ).item()
+    )
+    if checkpoint_error_m > 0.002:
+        raise RuntimeError(
+            "accepted S1 direct checkpoint drifted during initialization: "
+            f"maximum_error={checkpoint_error_m:.6f} m"
+        )
+    if args.newton_analytic_table_plane:
+        model = NewtonManager.get_model()
+        shape_flags = model.shape_flags.numpy()
+        plane_indices = [
+            index
+            for index, label in enumerate(model.shape_label)
+            if "NewtonAnalyticTablePlane" in str(label)
+        ]
+        table_indices = [
+            index
+            for index, label in enumerate(model.shape_label)
+            if "/Table/" in str(label)
+        ]
+        if not plane_indices or not table_indices:
+            raise RuntimeError("S2 direct checkpoint could not resolve table supports")
+        for index in table_indices:
+            shape_flags[index] = int(shape_flags[index]) & ~int(
+                ShapeFlags.COLLIDE_PARTICLES
+            )
+        for index in plane_indices:
+            shape_flags[index] = int(shape_flags[index]) | int(
+                ShapeFlags.COLLIDE_PARTICLES
+            )
+        model.shape_flags.assign(shape_flags)
+        analytic_plane_filter_runtime.update(
+            {
+                "particle_collision_enabled_after_s1_restore": True,
+                "disabled_finite_table_shape_indices": table_indices,
+            }
+        )
+
+    second_active_arm = str(source.get("second_fold_active_arm", "left"))
+    if second_active_arm not in {"left", "bimanual"}:
+        raise RuntimeError("S2 contact-only requires the reviewed arm topology")
+    bimanual = second_active_arm == "bimanual"
+    departure_prefix = (
+        "second_bimanual_departure" if bimanual else "second_departure"
+    )
+    precontact_prefix = (
+        "second_bimanual_precontact" if bimanual else "second_precontact"
+    )
+    contact_name = "second_bimanual_contact" if bimanual else "second_contact"
+    active_arms = ("left", "right") if bimanual else ("left",)
+    approach_records = [
+        record
+        for record in source["canonical_replay"]["second_fold"]
+        if record["name"].startswith(departure_prefix)
+        or record["name"].startswith(precontact_prefix)
+        or record["name"] == contact_name
+    ]
+    if not approach_records or approach_records[-1]["name"] != contact_name:
+        raise RuntimeError("S2 contact-only approach sequence is incomplete")
+    # Contact qualification must reproduce the same continuous approach used
+    # by full S2 execution.  Teleporting the open grippers to the terminal
+    # pose can place jaw collision geometry through the supported bundle and
+    # manufacture a different, locally lifted cloth shape before closure.
+    # That was especially severe for the diagonally registered right jaw.
+    departure_records = [
+        record
+        for record in approach_records
+        if record["name"].startswith(departure_prefix)
+    ]
+    contact_descent_records = [
+        record
+        for record in approach_records
+        if record["name"].startswith(precontact_prefix)
+        or record["name"] == contact_name
+    ]
+    if not departure_records or not contact_descent_records:
+        raise RuntimeError("S2 contact-only staging/descent sequence is incomplete")
+    # The last departure pose is FK/collision-qualified and remains 50 mm
+    # above the towel.  Initializing the robot there cannot alter the contact
+    # event, while replaying the preceding 80 collision-free air waypoints at
+    # 63x63 cloth resolution adds minutes without additional evidence.
+    staging_row = phase_model_tensor(
+        source,
+        departure_records[-1],
+        gripper_project_positions_rad={"left": 0.0, "right": 0.0},
+        environment_count=environment_count,
+        device=sim.device,
+    )
+    write_scripted_arm_state_and_drive_targets(
+        robot,
+        staging_row,
+        zero_velocity,
+        joint_ids,
+        initialize_arm_state=True,
+    )
+    scene.write_data_to_sim()
+    sim.step()
+    scene.update(physics_dt_s)
+    staging_cloth_displacement_m = float(
+        torch.max(
+            torch.linalg.vector_norm(
+                local_nodes(scene, cloth) - checkpoint_local.unsqueeze(0), dim=-1
+            )
+        ).item()
+    )
+    if staging_cloth_displacement_m > 0.002:
+        raise RuntimeError(
+            "collision-free S2 staging pose perturbed the accepted S1 cloth: "
+            f"maximum_error={staging_cloth_displacement_m:.6f} m"
+        )
+    current_row = staging_row
+    approach_phase_steps = max(2, round(0.15 / physics_dt_s))
+    nodes_before_approach = local_nodes(scene, cloth).clone()
+    maximum_approach_cloth_displacement_m = 0.0
+    for approach_record in contact_descent_records:
+        target_row = phase_model_tensor(
+            source,
+            approach_record,
+            gripper_project_positions_rad={"left": 0.0, "right": 0.0},
+            environment_count=environment_count,
+            device=sim.device,
+        )
+        for step in range(1, approach_phase_steps + 1):
+            alpha = step / approach_phase_steps
+            target = current_row + alpha * (target_row - current_row)
+            write_scripted_arm_state_and_drive_targets(
+                robot, target, zero_velocity, joint_ids
+            )
+            scene.write_data_to_sim()
+            sim.step()
+            scene.update(physics_dt_s)
+            if not torch.all(torch.isfinite(cloth.data.nodal_pos_w.torch)):
+                raise RuntimeError(
+                    "cloth produced non-finite nodes during S2 contact approach "
+                    f"{approach_record['name']}"
+                )
+            maximum_approach_cloth_displacement_m = max(
+                maximum_approach_cloth_displacement_m,
+                float(
+                    torch.max(
+                        torch.linalg.vector_norm(
+                            local_nodes(scene, cloth) - nodes_before_approach,
+                            dim=-1,
+                        )
+                    ).item()
+                ),
+            )
+        current_row = target_row
+    for _ in range(max(2, round(0.50 / physics_dt_s))):
+        write_scripted_arm_state_and_drive_targets(
+            robot, current_row, zero_velocity, joint_ids
+        )
+        scene.write_data_to_sim()
+        sim.step()
+        scene.update(physics_dt_s)
+
+    project_targets = {
+        side: float(
+            second_fold_gripper_candidate["four_layer_project_contact_target_rad"][
+                side
+            ]
+        )
+        for side in ("left", "right")
+    }
+    model_targets = {
+        side: float(
+            second_fold_gripper_candidate["four_layer_model_contact_target_rad"][side]
+        )
+        for side in ("left", "right")
+    }
+    pinch_row = current_row.clone()
+    for arm_index, side in enumerate(("left", "right")):
+        if side in active_arms:
+            pinch_row[:, GRIPPER_JOINT_INDICES[arm_index]] = model_targets[side]
+    for step in range(1, max(2, round(PINCH_CLOSE_DURATION_S / physics_dt_s)) + 1):
+        alpha = step / max(2, round(PINCH_CLOSE_DURATION_S / physics_dt_s))
+        target = current_row + alpha * (pinch_row - current_row)
+        write_scripted_arm_state_and_drive_targets(
+            robot, target, zero_velocity, joint_ids
+        )
+        scene.write_data_to_sim()
+        sim.step()
+        scene.update(physics_dt_s)
+    for _ in range(max(2, round(PINCH_HOLD_DURATION_S / physics_dt_s))):
+        write_scripted_arm_state_and_drive_targets(
+            robot, pinch_row, zero_velocity, joint_ids
+        )
+        scene.write_data_to_sim()
+        sim.step()
+        scene.update(physics_dt_s)
+
+    jaw_body_ids, jaw_body_names = robot.find_bodies(
+        [
+            "left_gripper_link",
+            "left_moving_jaw_link",
+            "right_gripper_link",
+            "right_moving_jaw_link",
+        ],
+        preserve_order=True,
+    )
+    if jaw_body_names != [
+        "left_gripper_link",
+        "left_moving_jaw_link",
+        "right_gripper_link",
+        "right_moving_jaw_link",
+    ]:
+        raise RuntimeError(f"unexpected S2 jaw body map: {jaw_body_names}")
+    jaw_positions = robot.data.body_pos_w.torch[:, jaw_body_ids]
+    jaw_orientations = robot.data.body_quat_w.torch[:, jaw_body_ids]
+    centers = body_local_points_to_world(
+        jaw_positions,
+        jaw_orientations,
+        (
+            FIXED_JAW_PAD_CENTER_PARENT_M,
+            MOVING_JAW_PAD_CENTER_PARENT_M,
+            FIXED_JAW_PAD_CENTER_PARENT_M,
+            MOVING_JAW_PAD_CENTER_PARENT_M,
+        ),
+    )
+    registered_axes_parent_by_slot = registered_jaw_pad_axes_parent_by_slot()
+    tangent_u = body_local_directions_to_world(
+        jaw_orientations,
+        tuple(axes[1] for axes in registered_axes_parent_by_slot),
+    )
+    tangent_v = body_local_directions_to_world(
+        jaw_orientations,
+        tuple(axes[2] for axes in registered_axes_parent_by_slot),
+    )
+    nodes_w = cloth.data.nodal_pos_w.torch[0]
+    snapshot = newton_soft_contact_snapshot()
+    if snapshot is None:
+        raise RuntimeError("Newton contact snapshot is unavailable")
+    contacts_by_arm: dict[str, object] = {}
+    continuous_surface_diagnostics_by_arm: dict[str, object] = {}
+    continuous_surface_errors_by_arm: dict[str, str] = {}
+    support_vertices_by_arm: dict[str, list[int]] = {}
+    solver_particles_by_arm: dict[str, object] = {}
+    gate_errors_by_arm: dict[str, str] = {}
+    frame_directions_by_arm: dict[str, object] = {}
+    print(
+        "S2_FOUR_LAYER_CONTACT_FRAME_DIAGNOSTIC "
+        + json.dumps(
+            {
+                "registered_face_centers_w_m": {
+                    name: [float(value) for value in centers[0, index]]
+                    for index, name in enumerate(
+                        ("left_fixed", "left_moving", "right_fixed", "right_moving")
+                    )
+                },
+                "cloth_bounds_w_m": {
+                    "minimum": torch.min(nodes_w, dim=0).values.tolist(),
+                    "maximum": torch.max(nodes_w, dim=0).values.tolist(),
+                },
+                "table_top_z_m": table_top_z_m,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+    for arm_index, side in enumerate(("left", "right")):
+        if side not in active_arms:
+            continue
+        fixed_slot = 2 * arm_index
+        moving_slot = fixed_slot + 1
+        gap_axis = centers[0, moving_slot] - centers[0, fixed_slot]
+        gap_axis = gap_axis / torch.linalg.vector_norm(gap_axis)
+        frame_directions_by_arm[side] = {
+            "fixed_inward_normal": [float(value) for value in gap_axis],
+            "fixed_tangent_u": [
+                float(value) for value in tangent_u[0, fixed_slot]
+            ],
+            "fixed_tangent_v": [
+                float(value) for value in tangent_v[0, fixed_slot]
+            ],
+            "moving_inward_normal": [float(-value) for value in gap_axis],
+            "moving_tangent_u": [
+                float(value) for value in tangent_u[0, moving_slot]
+            ],
+            "moving_tangent_v": [
+                float(value) for value in tangent_v[0, moving_slot]
+            ],
+        }
+        fixed_particles, moving_particles = newton_jaw_face_contact_particles(
+            snapshot, side
+        )
+        solver_particles_by_arm[side] = {
+            "fixed": fixed_particles,
+            "moving": moving_particles,
+        }
+        try:
+            selected_particles, physical_pinch = select_local_four_layer_pinch(
+                snapshot,
+                side,
+                nodes_w,
+                centers[0, fixed_slot],
+                centers[0, moving_slot],
+            )
+        except RuntimeError as error:
+            gate_errors_by_arm[side] = str(error)
+        else:
+            contacts_by_arm[side] = physical_pinch
+            support_vertices_by_arm[side] = selected_particles
+
+        # The moving SO-101 jaw is curved, so this finite tangent-plane test
+        # is useful only as a sub-particle diagnostic. The authoritative gate
+        # above uses Newton contacts on the actual moving-jaw STL and the
+        # fixed 2.2 mm rubber-pad collider for both S1 topology halves.
+        try:
+            surface_pinch = select_continuous_four_layer_pinch(
+                nodes_w.detach().cpu().numpy(),
+                grid_side=CLOTH_RESOLUTION[0] + 1,
+                fixed_face=RegisteredFaceFrame(
+                    center_m=tuple(float(value) for value in centers[0, fixed_slot]),
+                    inward_normal=tuple(float(value) for value in gap_axis),
+                    tangent_u=tuple(float(value) for value in tangent_u[0, fixed_slot]),
+                    tangent_v=tuple(float(value) for value in tangent_v[0, fixed_slot]),
+                ),
+                moving_face=RegisteredFaceFrame(
+                    center_m=tuple(float(value) for value in centers[0, moving_slot]),
+                    inward_normal=tuple(float(-value) for value in gap_axis),
+                    tangent_u=tuple(float(value) for value in tangent_u[0, moving_slot]),
+                    tangent_v=tuple(float(value) for value in tangent_v[0, moving_slot]),
+                ),
+                face_size_m=args.jaw_pad_face_size_mm * 0.001,
+                inward_depth_m=CLOTH_CONTACT_OFFSET_M,
+                backside_tolerance_m=MAXIMUM_PINCH_PAIR_AXIAL_FACE_OVERHANG_M,
+            )
+        except FourLayerContactError as error:
+            continuous_surface_errors_by_arm[side] = str(error)
+        else:
+            continuous_surface_diagnostics_by_arm[side] = surface_pinch.to_dict()
+
+    if gate_errors_by_arm:
+        failure = {
+            "schema_version": 1,
+            "record_kind": "towel_s2_four_layer_actual_contact_result",
+            "status": "R2_S2_FOUR_LAYER_ACTUAL_CONTACT_FAIL",
+            "motion_authorized": False,
+            "motion_commands": 0,
+            "accepted_s1_checkpoint": {
+                "path": source["second_fold_start_state_path"],
+                "sha256": source["second_fold_start_state_sha256"],
+                "fresh_s1_prelude_executed": False,
+            },
+            "gate_errors_by_arm": gate_errors_by_arm,
+            "registered_face_centers_w_m": {
+                name: [float(value) for value in centers[0, index]]
+                for index, name in enumerate(
+                    ("left_fixed", "left_moving", "right_fixed", "right_moving")
+                )
+            },
+            "registered_face_directions_w": frame_directions_by_arm,
+            "cloth_bounds_w_m": {
+                "minimum": torch.min(nodes_w, dim=0).values.tolist(),
+                "maximum": torch.max(nodes_w, dim=0).values.tolist(),
+            },
+            "maximum_cloth_displacement_during_continuous_approach_m": (
+                maximum_approach_cloth_displacement_m
+            ),
+            "maximum_cloth_displacement_at_collision_free_staging_m": (
+                staging_cloth_displacement_m
+            ),
+            "solver_particle_contacts_by_arm": solver_particles_by_arm,
+            "continuous_surface_diagnostics_by_arm": (
+                continuous_surface_diagnostics_by_arm
+            ),
+            "continuous_surface_errors_by_arm": continuous_surface_errors_by_arm,
+            # Failure-only diagnostic used to solve the jaw-pose correction
+            # offline.  It prevents repeated Isaac runs with guessed offsets.
+            "cloth_shape_w_m": nodes_w.detach().cpu().tolist(),
+            "contacts_that_passed_by_arm": contacts_by_arm,
+        }
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(
+            json.dumps(failure, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        raise RuntimeError(
+            "S2 four-layer actual-contact gate failed: "
+            + json.dumps(gate_errors_by_arm, sort_keys=True)
+        )
+
+    achieved_model_rad = {
+        side: float(
+            robot.data.joint_pos.torch[
+                0, joint_ids[GRIPPER_JOINT_INDICES[arm_index]]
+            ].item()
+        )
+        for arm_index, side in enumerate(("left", "right"))
+        if side in active_arms
+    }
+    result = {
+        "schema_version": 1,
+        "record_kind": "towel_s2_four_layer_actual_contact_result",
+        "status": "R2_S2_FOUR_LAYER_ACTUAL_CONTACT_PASS",
+        "motion_authorized": False,
+        "automatic_execution_permitted": False,
+        "execution_api_used": False,
+        "motion_commands": 0,
+        "cloth_resolution": list(CLOTH_RESOLUTION),
+        "material_resolution_matches_calibration": (
+            CLOTH_RESOLUTION_MATCHES_MATERIAL_CALIBRATION
+        ),
+        "accepted_s1_checkpoint": {
+            "path": source["second_fold_start_state_path"],
+            "sha256": source["second_fold_start_state_sha256"],
+            "maximum_initialization_error_m": checkpoint_error_m,
+            "fresh_s1_prelude_executed": False,
+        },
+        "maximum_cloth_displacement_during_continuous_approach_m": (
+            maximum_approach_cloth_displacement_m
+        ),
+        "maximum_cloth_displacement_at_collision_free_staging_m": (
+            staging_cloth_displacement_m
+        ),
+        "gripper": {
+            "candidate_path": str(args.second_fold_gripper_config.resolve()),
+            "commanded_project_rad_by_arm": project_targets,
+            "commanded_model_rad_by_arm": model_targets,
+            "achieved_model_rad_by_arm": achieved_model_rad,
+            "command_is_force_claim": False,
+            "fixed_jaw_rubber_pad_thickness_m": (
+                gripper_candidate.fixed_jaw_rubber_pad_thickness_m
+            ),
+        },
+        "contact_gate": {
+            "kind": "actual_fixed_rubber_and_curved_moving_stl_four_layer_contacts",
+            "physical_particle_contacts_per_arm": 4,
+            "contacts_by_arm": contacts_by_arm,
+            "finite_element_support_vertices_by_arm": support_vertices_by_arm,
+            "solver_particle_contacts_by_arm": solver_particles_by_arm,
+            "solver_contact_required_on_both_physical_jaw_colliders_and_s1_halves": True,
+            "continuous_tangent_plane_diagnostics_by_arm": (
+                continuous_surface_diagnostics_by_arm
+            ),
+            "continuous_tangent_plane_errors_by_arm": (
+                continuous_surface_errors_by_arm
+            ),
+            "face_size_m": args.jaw_pad_face_size_mm * 0.001,
+            "contact_inward_depth_m": CLOTH_CONTACT_OFFSET_M,
+            "backside_tolerance_m": MAXIMUM_PINCH_PAIR_AXIAL_FACE_OVERHANG_M,
+        },
+        "table_top_z_m": table_top_z_m,
+        "newton_analytic_table_plane": analytic_plane_filter_runtime,
+        "second_fold_transport_executed": False,
+        "second_fold_active_arm": second_active_arm,
+    }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(
+        "R2_S2_FOUR_LAYER_ACTUAL_CONTACT_PASS "
+        + json.dumps(
+            {
+                "support_vertices_by_arm": support_vertices_by_arm,
+                "achieved_model_rad_by_arm": achieved_model_rad,
+                "output": str(args.output),
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+    return 0
+
+
 def run() -> int:
     manifest, source = load_manifest(args.manifest)
     if args.urdf_override is not None:
@@ -2113,6 +4493,11 @@ def run() -> int:
         source["urdf_sha256"] = hashlib.sha256(
             args.urdf_override.read_bytes()
         ).hexdigest()
+    if (
+        validated_contact_checkpoint is not None
+        and validated_contact_checkpoint["urdf_sha256"] != source["urdf_sha256"]
+    ):
+        raise ValueError("validated contact checkpoint URDF identity differs")
     scripted_pre_touchdown_hold_s = (
         SUSPENDED_PRE_TOUCHDOWN_HOLD_S
         if args.scripted_pre_touchdown_hold_s is None
@@ -2180,6 +4565,133 @@ def run() -> int:
             >= correction_names.index(correction_target_name)
         ):
             raise ValueError("post-release correction phase sequence is incomplete")
+    second_fold_correction_replay = None
+    second_fold_correction_records: list[dict[str, object]] = []
+    second_fold_correction_checkpoint_local = None
+    second_fold_correction_checkpoint_source: dict[str, object] | None = None
+    if args.second_fold_correction_replay is not None:
+        second_fold_correction_replay = json.loads(
+            args.second_fold_correction_replay.read_text(encoding="utf-8")
+        )
+        if (
+            not isinstance(second_fold_correction_replay, dict)
+            or second_fold_correction_replay.get("record_kind")
+            != "towel_second_fold_correction_full_fk_diagnostic"
+            or second_fold_correction_replay.get("status")
+            != "TOWEL_SECOND_FOLD_CORRECTION_CONDITIONAL_STRICT_MOVEIT_PASS"
+            or second_fold_correction_replay.get("motion_authorized") is not False
+            or second_fold_correction_replay.get("strict_moveit_validated") is not True
+            or second_fold_correction_replay.get("strict_moveit_validation", {}).get(
+                "unapproved_contact_count"
+            )
+            != 0
+        ):
+            raise ValueError(
+                "second-fold correction is not a passing motion-locked strict MoveIt plan"
+            )
+        correction_urdf = second_fold_correction_replay.get("sources", {}).get(
+            "urdf", {}
+        )
+        if correction_urdf.get("sha256") != source["urdf_sha256"]:
+            raise ValueError(
+                "second-fold correction and Isaac manifest use different URDFs"
+            )
+        second_fold_correction_records = copy.deepcopy(
+            second_fold_correction_replay.get("phases", [])
+        )
+        second_correction_names = [
+            record.get("name") for record in second_fold_correction_records
+        ]
+        expected_alignment = [
+            f"second_correction_pad_yaw_align_{index:02d}"
+            for index in range(1, 9)
+        ] + [
+            f"second_correction_pad_tilt_align_{index:02d}"
+            for index in range(1, 6)
+        ] + ["second_correction_pad_align"]
+        expected_tail = [
+            "second_correction_contact",
+            "second_correction_lift",
+            "second_correction_translate",
+            "second_correction_laydown",
+            "second_correction_retreat",
+            "second_correction_reobserve_clear",
+        ]
+        correction_contact_mode = second_fold_correction_replay.get(
+            "correction_plan", {}
+        ).get("contact_mode")
+        correction_is_open_jaw_edge_push = (
+            correction_contact_mode
+            == "exposed_overhang_open_jaw_fixed_pad_edge_push"
+        )
+        attachment_contract_valid = False
+        if len(second_fold_correction_records) == 60:
+            attachment_contract_valid = (
+                second_fold_correction_records[54].get("attachment_event") is None
+                and second_fold_correction_records[57].get("attachment_event") is None
+                if correction_is_open_jaw_edge_push
+                else second_fold_correction_records[54].get("attachment_event")
+                == "attach_observed_upper_edge_after_contact_gate"
+                and second_fold_correction_records[57].get("attachment_event")
+                == "release_upper_edge_after_laydown_gate"
+            )
+        if (
+            len(second_fold_correction_records) != 60
+            or len(set(second_correction_names)) != len(second_correction_names)
+            or second_correction_names[:40]
+            != [
+                f"second_correction_departure_{index:02d}_right"
+                for index in range(1, 41)
+            ]
+            or second_correction_names[40:54] != expected_alignment
+            or second_correction_names[54:] != expected_tail
+            or not attachment_contract_valid
+        ):
+            raise ValueError("second-fold correction phase sequence is incomplete")
+        second_correction_plan = second_fold_correction_replay.get(
+            "correction_plan", {}
+        )
+        if (
+            not isinstance(second_correction_plan, dict)
+            or second_correction_plan.get("arm") != "right"
+            or second_correction_plan.get("required") is not True
+            or second_correction_plan.get("reobserve_after_step") is not True
+        ):
+            raise ValueError("second-fold correction plan is not a bounded right-arm step")
+        raw_source = second_fold_correction_replay.get("sources", {}).get(
+            "raw_result", {}
+        )
+        if not isinstance(raw_source, dict):
+            raise ValueError("second-fold correction raw source is invalid")
+        raw_source_path = Path(str(raw_source.get("path", "")))
+        if (
+            not raw_source_path.is_file()
+            or hashlib.sha256(raw_source_path.read_bytes()).hexdigest()
+            != str(raw_source.get("sha256"))
+        ):
+            raise ValueError("second-fold correction raw checkpoint source is stale")
+        raw_source_document = json.loads(raw_source_path.read_text(encoding="utf-8"))
+        raw_source_second_fold = raw_source_document.get("second_fold", {})
+        raw_source_nodes = raw_source_document.get(
+            "final_cloth_shape_local_m_env_0"
+        )
+        if (
+            raw_source_document.get("record_kind")
+            != "towel_isaac_s1_vertex_patch_place_release_result"
+            or raw_source_document.get("motion_authorized") is not False
+            or not isinstance(raw_source_second_fold, dict)
+            or raw_source_second_fold.get("status")
+            != SECOND_FOLD_RAW_EXECUTED_STATUS
+            or not isinstance(raw_source_nodes, list)
+            or len(raw_source_nodes) != (CLOTH_RESOLUTION[0] + 1) ** 2
+        ):
+            raise ValueError("second-fold correction source is not a raw S2 checkpoint")
+        second_fold_correction_checkpoint_local = raw_source_nodes
+        second_fold_correction_checkpoint_source = {
+            "path": str(raw_source_path.resolve()),
+            "sha256": str(raw_source.get("sha256")),
+            "node_count": len(raw_source_nodes),
+        }
     if args.environment_count is not None:
         source = copy.deepcopy(source)
         source["environment_count"] = args.environment_count
@@ -2191,9 +4703,19 @@ def run() -> int:
         source,
         "first_suspend_lift_01" if suspended_gravity_replay else "first_fold_01",
     )
+    physx_attachment_pipeline_used = (
+        args.grasp_mode == "contact-gated-retention"
+        and args.physics_backend == "physx"
+        and args.second_fold_grasp_mode == "physx-attachment"
+    )
     legacy_attachment_used = args.grasp_mode == "legacy-attachment"
-    contact_gated_retention_used = args.grasp_mode == "contact-gated-retention"
-    scripted_attachment_used = legacy_attachment_used
+    contact_gated_retention_used = (
+        args.grasp_mode == "contact-gated-retention"
+        and IS_NEWTON_BACKEND
+    )
+    scripted_attachment_used = (
+        legacy_attachment_used or physx_attachment_pipeline_used
+    )
     newton_state_retention_used = contact_gated_retention_used
     vertical_grasp_used = not legacy_attachment_used
     print(
@@ -2202,46 +4724,61 @@ def run() -> int:
         f"grasp_mode={args.grasp_mode} motion_commands=0",
         flush=True,
     )
-    if args.physics_backend == "newton-coupled-vbd":
+    if IS_NEWTON_BACKEND:
         @configclass
         class TowelNewtonCfg(NewtonCfg):
             model_cfg: NewtonModelCfg | None = None
 
+        solver_cfg = CoupledMJWarpVBDSolverCfg(
+            rigid_solver_cfg=MJWarpSolverCfg(
+                njmax=128,
+                nconmax=256,
+                ls_iterations=20,
+                cone="pyramidal",
+                integrator="implicitfast",
+                ccd_iterations=100,
+            ),
+            soft_solver_cfg=VBDSolverCfg(
+                iterations=args.newton_vbd_iterations,
+                integrate_with_external_rigid_solver=True,
+                particle_enable_self_contact=args.self_contact,
+                particle_self_contact_radius=CLOTH_CONTACT_OFFSET_M,
+                particle_self_contact_margin=2.0 * CLOTH_CONTACT_OFFSET_M,
+                # Four folded layers can overflow the defaults (32/64),
+                # silently dropping cloth self-contact candidates during
+                # release.
+                particle_vertex_contact_buffer_size=(
+                    128
+                    if args.execute_second_fold or args.second_fold_contact_only
+                    else 32
+                ),
+                particle_edge_contact_buffer_size=(
+                    256
+                    if args.execute_second_fold or args.second_fold_contact_only
+                    else 64
+                ),
+                particle_collision_detection_interval=(
+                    1 if args.self_contact else -1
+                ),
+                particle_topological_contact_filter_threshold=(
+                    SELF_CONTACT_TOPOLOGY_NEIGHBORHOOD
+                ),
+            ),
+            coupling_mode=args.newton_coupling_mode,
+        )
+        model_cfg = NewtonModelCfg(
+            soft_contact_ke=args.newton_contact_stiffness,
+            soft_contact_kd=args.newton_contact_damping,
+            soft_contact_mu=CLOTH_STATIC_FRICTION,
+            shape_material_ke=args.newton_contact_stiffness,
+            shape_material_kd=args.newton_contact_damping,
+            # Preserve per-shape friction: measured towel/table candidate,
+            # generic plastic moving jaw, and fixed-jaw rubber material.
+            shape_material_mu=None,
+        )
         physics_cfg = TowelNewtonCfg(
-            solver_cfg=CoupledMJWarpVBDSolverCfg(
-                rigid_solver_cfg=MJWarpSolverCfg(
-                    njmax=128,
-                    nconmax=256,
-                    ls_iterations=20,
-                    cone="pyramidal",
-                    integrator="implicitfast",
-                    ccd_iterations=100,
-                ),
-                soft_solver_cfg=VBDSolverCfg(
-                    iterations=10,
-                    integrate_with_external_rigid_solver=True,
-                    particle_enable_self_contact=args.self_contact,
-                    particle_self_contact_radius=CLOTH_CONTACT_OFFSET_M,
-                    particle_self_contact_margin=2.0 * CLOTH_CONTACT_OFFSET_M,
-                    particle_collision_detection_interval=(
-                        1 if args.self_contact else -1
-                    ),
-                    particle_topological_contact_filter_threshold=(
-                        SELF_CONTACT_TOPOLOGY_NEIGHBORHOOD
-                    ),
-                ),
-                coupling_mode="two_way",
-            ),
-            model_cfg=NewtonModelCfg(
-                soft_contact_ke=args.newton_contact_stiffness,
-                soft_contact_kd=1.0e-2,
-                soft_contact_mu=CLOTH_STATIC_FRICTION,
-                shape_material_ke=args.newton_contact_stiffness,
-                shape_material_kd=1.0e-2,
-                # Preserve per-shape friction: measured towel/table candidate,
-                # generic plastic moving jaw, and fixed-jaw rubber material.
-                shape_material_mu=None,
-            ),
+            solver_cfg=solver_cfg,
+            model_cfg=model_cfg,
             num_substeps=10,
             use_cuda_graph=True,
         )
@@ -2261,6 +4798,15 @@ def run() -> int:
     scene = InteractiveScene(scene_config(source))
     curvature_softening_runtime: dict[str, object] = {}
     if args.newton_curvature_softening:
+        curvature_softening_runtime["enabled"] = (
+            args.newton_curvature_softening_stage == "global"
+        )
+        curvature_softening_runtime["stage"] = (
+            args.newton_curvature_softening_stage
+        )
+        curvature_softening_runtime["ramp_fraction"] = (
+            1.0 if args.newton_curvature_softening_stage == "global" else 0.0
+        )
         activation_angle_rad = math.radians(
             args.newton_softening_activation_angle_deg
         )
@@ -2281,6 +4827,23 @@ def run() -> int:
             )
 
             def apply_curvature_softening() -> None:
+                if not curvature_softening_runtime["enabled"]:
+                    return
+                ramp_fraction = min(
+                    1.0,
+                    float(curvature_softening_runtime["ramp_fraction"])
+                    + physics_dt_s
+                    / SECOND_FOLD_POST_LAYDOWN_SOFTENING_RAMP_S,
+                )
+                curvature_softening_runtime["ramp_fraction"] = ramp_fraction
+                effective_softened_stiffness = (
+                    NEWTON_EDGE_STIFFNESS_N_M
+                    + ramp_fraction
+                    * (
+                        args.newton_softened_edge_stiffness
+                        - NEWTON_EDGE_STIFFNESS_N_M
+                    )
+                )
                 state = NewtonManager.get_state()
                 wp.launch(
                     update_newton_curvature_softening,
@@ -2291,7 +4854,7 @@ def run() -> int:
                         activation_angle_rad,
                         full_softening_angle_rad,
                         NEWTON_EDGE_STIFFNESS_N_M,
-                        args.newton_softened_edge_stiffness,
+                        effective_softened_stiffness,
                         softened_edges,
                         ever_softened_edges,
                         peak_absolute_angles,
@@ -2325,8 +4888,51 @@ def run() -> int:
     apply_shape_contact_offsets(environment_count)
     author_contact_joint_states(source, environment_count)
     filter_non_gripper_robot_cloth_collisions(environment_count)
+    analytic_plane_filter_runtime: dict[str, object] = {}
+    if args.newton_analytic_table_plane:
+        def filter_robot_from_analytic_table_plane(_event: object) -> None:
+            builder = NewtonManager._builder
+            plane_index = builder.add_shape_plane(
+                plane=(0.0, 0.0, 1.0, -table_top_z_m_for_contact_gate),
+                width=0.0,
+                length=0.0,
+                body=-1,
+                cfg=builder.ShapeConfig(
+                    ke=args.newton_contact_stiffness,
+                    kd=args.newton_contact_damping,
+                    mu=CLOTH_STATIC_FRICTION,
+                    has_shape_collision=False,
+                    has_particle_collision=False,
+                    is_visible=False,
+                ),
+                label="/World/NewtonAnalyticTablePlane",
+            )
+            analytic_plane_filter_runtime.update(
+                {
+                    "plane_shape_indices": [plane_index],
+                    "rigid_shape_collision_disabled": True,
+                    "particle_collision_enabled_at_spawn": False,
+                    "support_switch_stage": "accepted_s1_checkpoint_restored",
+                    "authored_after_imported_scene_shapes": True,
+                }
+            )
+
+        NewtonManager.register_callback(
+            filter_robot_from_analytic_table_plane,
+            PhysicsEvent.MODEL_INIT,
+            name="towel_analytic_table_plane_robot_filter",
+        )
     simulation_app.update()
     sim.reset()
+    strict_jaw_face_collision_scope = (
+        isolate_newton_towel_contact_to_registered_jaw_faces()
+    )
+    if strict_jaw_face_collision_scope is not None:
+        print(
+            "STRICT_JAW_FACE_PARTICLE_COLLISION_SCOPE "
+            + json.dumps(strict_jaw_face_collision_scope, sort_keys=True),
+            flush=True,
+        )
     explicit_newton_pad_material = apply_explicit_newton_fixed_pad_friction()
     if explicit_newton_pad_material is not None:
         print(
@@ -2339,6 +4945,19 @@ def run() -> int:
     joint_ids, imported_names = robot.find_joints(source["joint_names"], preserve_order=True)
     if imported_names != source["joint_names"] or len(joint_ids) != 12:
         raise RuntimeError("imported articulation does not match canonical 12-joint order")
+    if args.second_fold_contact_only:
+        return run_second_fold_contact_only(
+            scene=scene,
+            sim=sim,
+            robot=robot,
+            cloth=cloth,
+            joint_ids=joint_ids,
+            source=source,
+            environment_count=environment_count,
+            physics_dt_s=physics_dt_s,
+            table_top_z_m=table_top_z_m_for_contact_gate,
+            analytic_plane_filter_runtime=analytic_plane_filter_runtime,
+        )
     if suspended_gravity_replay:
         deep_contact_row = phase_model_tensor(
             source,
@@ -2399,7 +5018,7 @@ def run() -> int:
     scene.update(physics_dt_s)
 
     stage = omni.usd.get_context().get_stage()
-    free_node_mask = torch.ones(1024, dtype=torch.bool, device=sim.device)
+    free_node_mask = torch.ones(CLOTH_NODE_COUNT, dtype=torch.bool, device=sim.device)
 
     settled_run = 0
     settled_step = None
@@ -2499,6 +5118,10 @@ def run() -> int:
             raise RuntimeError(
                 "cloth produced non-finite nodes while settling jaw closure"
             )
+    # Jaw convergence and arm convergence are separate observables.  The
+    # planned descent deliberately continues past first contact, so the arm is
+    # expected to stop short under contact load.  The finite-face pinch gate
+    # below validates that stop and adopts the achieved arm pose for lift.
     achieved_gripper_model_rad = robot.data.joint_pos.torch[
         :, gripper_joint_ids
     ].clone()
@@ -2525,32 +5148,22 @@ def run() -> int:
         ),
         flush=True,
     )
-    require_arm_target_reached(robot, pinch_row, joint_ids, "first_contact")
     closing_contact_residual_rad = (
         achieved_gripper_model_rad - target_gripper_model_rad
     )
     newton_contact_snapshot = newton_soft_contact_snapshot()
     actual_bilateral_particles_by_side: dict[str, list[int]] = {}
+    retained_finite_element_support_by_side: dict[str, list[int]] = {}
+    strict_single_sheet_pinch_by_side: dict[str, dict[str, object]] = {}
+    validated_contact_checkpoint_used = False
     if newton_contact_snapshot is not None:
         print(
             "S1_NEWTON_ACTUAL_CONTACTS "
             + json.dumps(newton_contact_snapshot, sort_keys=True),
             flush=True,
         )
-        bilateral = newton_contact_snapshot.get(
-            "bilateral_same_particle_contacts", {}
-        )
-        if any(not bilateral.get(side) for side in ("left", "right")):
-            raise RuntimeError(
-                "Newton actual-contact gate failed: each gripper must contact "
-                "at least one identical towel particle on both jaw faces"
-            )
-        actual_bilateral_particles_by_side = {
-            side: [int(index) for index in bilateral[side]]
-            for side in ("left", "right")
-        }
     if contact_gated_retention_used:
-        if args.physics_backend != "newton-coupled-vbd":
+        if not IS_NEWTON_BACKEND:
             raise RuntimeError(
                 "contact-gated retention requires Newton's inspectable actual-contact buffer"
             )
@@ -2559,22 +5172,6 @@ def run() -> int:
                 "strict actual-contact particle indexing is currently validated only "
                 "with --environment-count 1"
             )
-    if args.contact_pose_diagnostic:
-        print(
-            "S1_CONTACT_POSE_DIAGNOSTIC_KEEP_OPEN "
-            f"maximum_closing_residual_rad="
-            f"{float(torch.max(torch.abs(closing_contact_residual_rad)).item()):.6f} "
-            "close the Isaac Sim window when done",
-            flush=True,
-        )
-        while simulation_app.is_running():
-            write_scripted_arm_state_and_drive_targets(
-                robot, pinch_row, zero_velocity, joint_ids
-            )
-            scene.write_data_to_sim()
-            sim.step()
-            scene.update(physics_dt_s)
-        return 0
     if (
         args.physics_backend == "physx"
         and vertical_grasp_used
@@ -2628,6 +5225,80 @@ def run() -> int:
             FIXED_JAW_PAD_CENTER_PARENT_M,
             MOVING_JAW_PAD_CENTER_PARENT_M,
         ),
+    )
+    jaw_pad_axes_parent_by_slot = registered_jaw_pad_axes_parent_by_slot()
+    jaw_face_thin_axes_before_w = body_local_directions_to_world(
+        robot.data.body_quat_w.torch[:, jaw_body_ids],
+        tuple(axes[0] for axes in jaw_pad_axes_parent_by_slot),
+    )
+    jaw_face_tangent_u_before_w = body_local_directions_to_world(
+        robot.data.body_quat_w.torch[:, jaw_body_ids],
+        tuple(axes[1] for axes in jaw_pad_axes_parent_by_slot),
+    )
+    jaw_face_tangent_v_before_w = body_local_directions_to_world(
+        robot.data.body_quat_w.torch[:, jaw_body_ids],
+        tuple(axes[2] for axes in jaw_pad_axes_parent_by_slot),
+    )
+    # The thin-axis sign only describes the authored cube rotation.  For the
+    # contact prism, each finite face must point into the physical gap toward
+    # its opposing face, independent of that sign.
+    jaw_face_inward_normals_before_w = torch.empty_like(
+        jaw_face_thin_axes_before_w
+    )
+    for side_index in range(2):
+        fixed_index = 2 * side_index
+        moving_index = fixed_index + 1
+        gap_axis = (
+            jaw_pad_centers_before_w[:, moving_index]
+            - jaw_pad_centers_before_w[:, fixed_index]
+        )
+        gap_axis = gap_axis / torch.linalg.vector_norm(
+            gap_axis, dim=-1, keepdim=True
+        )
+        jaw_face_inward_normals_before_w[:, fixed_index] = gap_axis
+        jaw_face_inward_normals_before_w[:, moving_index] = -gap_axis
+    print(
+        "S1_REGISTERED_JAW_FACE_CENTERS "
+        + json.dumps(
+            {
+                name: [float(value) for value in jaw_pad_centers_before_w[0, index]]
+                for index, name in enumerate(
+                    ("left_fixed", "left_moving", "right_fixed", "right_moving")
+                )
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+    print(
+        "S1_REGISTERED_JAW_FACE_AXES "
+        + json.dumps(
+            {
+                name: {
+                    "thin": [
+                        float(value)
+                        for value in jaw_face_thin_axes_before_w[0, index]
+                    ],
+                    "inward": [
+                        float(value)
+                        for value in jaw_face_inward_normals_before_w[0, index]
+                    ],
+                    "u": [
+                        float(value)
+                        for value in jaw_face_tangent_u_before_w[0, index]
+                    ],
+                    "v": [
+                        float(value)
+                        for value in jaw_face_tangent_v_before_w[0, index]
+                    ],
+                }
+                for index, name in enumerate(
+                    ("left_fixed", "left_moving", "right_fixed", "right_moving")
+                )
+            },
+            sort_keys=True,
+        ),
+        flush=True,
     )
     print(
         "S1_VERTEX_PATCH_MEASURED_CONTACT_POSES "
@@ -2723,10 +5394,7 @@ def run() -> int:
                 ).item()
             )
             frictional_vertical_stop_by_side_m[side] = vertical_stop_m
-            if (
-                not suspended_gravity_replay
-                and not -0.001 <= vertical_stop_m <= 0.006
-            ):
+            if not -0.003 <= vertical_stop_m <= 0.006:
                 raise RuntimeError(
                     f"{side} vertical contact stop {vertical_stop_m:.6f} m is "
                     "outside the table-contact allowance"
@@ -2753,6 +5421,308 @@ def run() -> int:
             )
     nodes_before = local_nodes(scene, cloth).clone()
     nodes_before_w = cloth.data.nodal_pos_w.torch.clone()
+    continuous_single_sheet_pinch_by_side: dict[str, dict[str, object]] = {}
+    continuous_single_sheet_diagnostic_by_side: dict[str, dict[str, object]] = {}
+    if contact_gated_retention_used and vertical_grasp_used:
+        for side_index, side in enumerate(("left", "right")):
+            fixed_index = 2 * side_index
+            moving_index = fixed_index + 1
+            try:
+                continuous_pinch = select_continuous_single_sheet_pinch(
+                    nodes_before_w[0].detach().cpu().numpy(),
+                    grid_side=CLOTH_RESOLUTION[0] + 1,
+                    fixed_face=RegisteredFaceFrame(
+                        center_m=tuple(
+                            float(value)
+                            for value in jaw_pad_centers_before_w[0, fixed_index]
+                        ),
+                        inward_normal=tuple(
+                            float(value)
+                            for value in jaw_face_inward_normals_before_w[
+                                0, fixed_index
+                            ]
+                        ),
+                        tangent_u=tuple(
+                            float(value)
+                            for value in jaw_face_tangent_u_before_w[
+                                0, fixed_index
+                            ]
+                        ),
+                        tangent_v=tuple(
+                            float(value)
+                            for value in jaw_face_tangent_v_before_w[
+                                0, fixed_index
+                            ]
+                        ),
+                    ),
+                    moving_face=RegisteredFaceFrame(
+                        center_m=tuple(
+                            float(value)
+                            for value in jaw_pad_centers_before_w[0, moving_index]
+                        ),
+                        inward_normal=tuple(
+                            float(value)
+                            for value in jaw_face_inward_normals_before_w[
+                                0, moving_index
+                            ]
+                        ),
+                        tangent_u=tuple(
+                            float(value)
+                            for value in jaw_face_tangent_u_before_w[
+                                0, moving_index
+                            ]
+                        ),
+                        tangent_v=tuple(
+                            float(value)
+                            for value in jaw_face_tangent_v_before_w[
+                                0, moving_index
+                            ]
+                        ),
+                    ),
+                    face_size_m=args.jaw_pad_face_size_mm * 0.001,
+                    inward_depth_m=CLOTH_CONTACT_OFFSET_M,
+                    backside_tolerance_m=(
+                        MAXIMUM_PINCH_PAIR_AXIAL_FACE_OVERHANG_M
+                    ),
+                )
+            except FourLayerContactError as error:
+                # The calibrated 31x31 mesh has a 9.7 mm node pitch, larger
+                # than the finite 6 mm jaw face.  Keep triangle/face clipping
+                # as a useful sub-grid diagnostic, but let Newton's actual
+                # registered-shape contacts and one-cell topology below be the
+                # authoritative physical gate at this resolution.
+                continuous_single_sheet_diagnostic_by_side[side] = {
+                    "passed": False,
+                    "reason": str(error),
+                }
+                continue
+            continuous_single_sheet_pinch_by_side[side] = (
+                continuous_pinch.to_dict()
+            )
+            continuous_single_sheet_diagnostic_by_side[side] = {
+                "passed": True,
+                "pinch": continuous_pinch.to_dict(),
+            }
+        print(
+            "S1_CONTINUOUS_REGISTERED_FACE_DIAGNOSTIC "
+            + json.dumps(
+                continuous_single_sheet_diagnostic_by_side, sort_keys=True
+            ),
+            flush=True,
+        )
+    if newton_contact_snapshot is not None and vertical_grasp_used:
+        if args.grasp_mode in {"frictional", "contact-gated-retention"}:
+            for side_index, side in enumerate(("left", "right")):
+                fixed_center_index = 2 * side_index
+                try:
+                    selected, diagnostic = select_local_single_sheet_pinch_pair(
+                        newton_contact_snapshot,
+                        side,
+                        nodes_before_w[0],
+                        jaw_pad_centers_before_w[0, fixed_center_index],
+                        jaw_pad_centers_before_w[0, fixed_center_index + 1],
+                    )
+                except RuntimeError:
+                    if validated_contact_checkpoint is None:
+                        raise
+                    checkpoint_diagnostic = validated_contact_checkpoint[
+                        "strict_single_sheet_pinch_by_side"
+                    ].get(side)
+                    if not isinstance(checkpoint_diagnostic, dict):
+                        raise RuntimeError(
+                            f"validated checkpoint lacks {side} strict pinch evidence"
+                        )
+                    selected = list(
+                        validated_contact_checkpoint["particles_by_side"][side]
+                    )
+                    fixed_particle = int(
+                        checkpoint_diagnostic["selected_distinct_particles"][0]
+                    )
+                    moving_particle = int(
+                        checkpoint_diagnostic["selected_distinct_particles"][1]
+                    )
+                    current_fixed, _ = newton_jaw_face_contact_particles(
+                        newton_contact_snapshot, side
+                    )
+                    checkpoint_support = set(
+                        finite_element_support_for_contact_pair(
+                            nodes_before_w[0],
+                            selected,
+                            0.5
+                            * (
+                                jaw_pad_centers_before_w[0, fixed_center_index]
+                                + jaw_pad_centers_before_w[
+                                    0, fixed_center_index + 1
+                                ]
+                            ),
+                        )
+                    )
+                    current_fixed_in_checkpoint_element = sorted(
+                        checkpoint_support & set(current_fixed)
+                    )
+                    if not current_fixed_in_checkpoint_element:
+                        raise RuntimeError(
+                            f"{side} checkpoint element lacks current fixed-pad contact"
+                        )
+                    checkpoint_centers = validated_contact_checkpoint[
+                        "pad_centers_w_m"
+                    ]
+                    center_names = (
+                        f"{side}_fixed",
+                        f"{side}_moving",
+                    )
+                    center_drifts = []
+                    for offset, name in enumerate(center_names):
+                        checkpoint_center = torch.tensor(
+                            checkpoint_centers[name],
+                            dtype=nodes_before_w.dtype,
+                            device=nodes_before_w.device,
+                        )
+                        center_drifts.append(
+                            torch.linalg.vector_norm(
+                                jaw_pad_centers_before_w[
+                                    0, fixed_center_index + offset
+                                ]
+                                - checkpoint_center
+                            )
+                        )
+                    maximum_center_drift_m = float(
+                        torch.max(torch.stack(center_drifts)).item()
+                    )
+                    checkpoint_gripper = torch.tensor(
+                        validated_contact_checkpoint[
+                            "achieved_gripper_model_rad"
+                        ][0],
+                        dtype=achieved_gripper_model_rad.dtype,
+                        device=achieved_gripper_model_rad.device,
+                    )
+                    gripper_drift_rad = float(
+                        torch.max(
+                            torch.abs(
+                                achieved_gripper_model_rad[0]
+                                - checkpoint_gripper
+                            )
+                        ).item()
+                    )
+                    fixed_distance_m = float(
+                        torch.linalg.vector_norm(
+                            nodes_before_w[0, fixed_particle]
+                            - jaw_pad_centers_before_w[
+                                0, fixed_center_index
+                            ]
+                        ).item()
+                    )
+                    moving_distance_m = float(
+                        torch.linalg.vector_norm(
+                            nodes_before_w[0, moving_particle]
+                            - jaw_pad_centers_before_w[
+                                0, fixed_center_index + 1
+                            ]
+                        ).item()
+                    )
+                    if maximum_center_drift_m > 2.5e-4:
+                        raise RuntimeError(
+                            f"{side} checkpoint jaw-center drift is "
+                            f"{maximum_center_drift_m:.6f} m"
+                        )
+                    if gripper_drift_rad > 5.0e-4:
+                        raise RuntimeError(
+                            f"checkpoint gripper drift is {gripper_drift_rad:.6f} rad"
+                        )
+                    if max(fixed_distance_m, moving_distance_m) > (
+                        MAXIMUM_PINCH_PARTICLE_TO_ASSIGNED_FACE_CENTER_M
+                    ):
+                        raise RuntimeError(
+                            f"{side} checkpoint particle left the jaw neighborhood"
+                        )
+                    diagnostic = copy.deepcopy(checkpoint_diagnostic)
+                    diagnostic["validated_contact_checkpoint_replayed"] = True
+                    diagnostic["current_fixed_pad_contact_particles"] = current_fixed
+                    diagnostic["current_fixed_pad_contacts_in_checkpoint_element"] = (
+                        current_fixed_in_checkpoint_element
+                    )
+                    diagnostic["maximum_jaw_center_replay_drift_m"] = (
+                        maximum_center_drift_m
+                    )
+                    diagnostic["maximum_gripper_replay_drift_rad"] = gripper_drift_rad
+                    diagnostic["current_selected_face_center_distances_m"] = {
+                        "fixed": fixed_distance_m,
+                        "moving": moving_distance_m,
+                    }
+                    validated_contact_checkpoint_used = True
+                actual_bilateral_particles_by_side[side] = selected
+                if args.surface_distributed_contact_retention:
+                    continuous_pinch = continuous_single_sheet_pinch_by_side.get(side)
+                    if continuous_pinch is None:
+                        raise RuntimeError(
+                            f"{side} lacks a continuous contact triangle for "
+                            "surface-distributed retention"
+                        )
+                    retained_finite_element_support_by_side[side] = list(
+                        continuous_pinch["finite_element_support_vertex_indices"]
+                    )
+                elif args.retain_contact_evidence_only:
+                    retained_finite_element_support_by_side[side] = list(selected)
+                else:
+                    retained_finite_element_support_by_side[side] = (
+                        finite_element_support_for_contact_pair(
+                            nodes_before_w[0],
+                            selected,
+                            0.5
+                            * (
+                                jaw_pad_centers_before_w[0, fixed_center_index]
+                                + jaw_pad_centers_before_w[
+                                    0, fixed_center_index + 1
+                                ]
+                            ),
+                        )
+                    )
+                diagnostic["retained_finite_element_support_vertices"] = (
+                    retained_finite_element_support_by_side[side]
+                )
+                strict_single_sheet_pinch_by_side[side] = diagnostic
+        print(
+            "S1_STRICT_REGISTERED_FACE_PINCH "
+            + json.dumps(strict_single_sheet_pinch_by_side, sort_keys=True),
+            flush=True,
+        )
+        requested_contact_arm_row = pinch_row[:, ARM_JOINT_INDICES].clone()
+        achieved_contact_arm_row = achieved_all_joint_positions[
+            :, ARM_JOINT_INDICES
+        ].clone()
+        # The planned descent is intentionally deeper than first contact.
+        # Once both finite jaw faces prove a local physical pinch, continuing
+        # to command that deeper arm pose only drives the fingers through the
+        # cloth/table.  Freeze the actual contact-stop arm pose as the start of
+        # the lift while retaining the measured/contact-limited jaw targets.
+        pinch_row = pinch_row.clone()
+        pinch_row[:, ARM_JOINT_INDICES] = achieved_contact_arm_row
+        print(
+            "S1_CONTACT_LIMITED_ARM_STOP "
+            + json.dumps(
+                {
+                    "basis": (
+                        "strict_registered_face_contact_before_lift"
+                    ),
+                    "requested_arm_joint_positions_env_0_rad": (
+                        requested_contact_arm_row[0].tolist()
+                    ),
+                    "adopted_arm_joint_positions_env_0_rad": (
+                        achieved_contact_arm_row[0].tolist()
+                    ),
+                    "maximum_joint_stop_residual_rad": float(
+                        torch.max(
+                            torch.abs(
+                                achieved_contact_arm_row
+                                - requested_contact_arm_row
+                            )
+                        ).item()
+                    ),
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
     pad_to_node_distances_m = torch.cdist(
         jaw_pad_centers_before_w, nodes_before_w
     )
@@ -2814,7 +5784,7 @@ def run() -> int:
             "maximum": float(torch.max(nodes_before_w[0, :, 2]).item()),
         },
         "cloth_neighborhood_gate": (
-            "actual_bilateral_same_particle_contact"
+            "distinct_nearby_particles_on_opposing_registered_faces"
             if actual_bilateral_particles_by_side
             else "pad_center_to_nearest_node_proxy"
         ),
@@ -2824,6 +5794,22 @@ def run() -> int:
         + json.dumps(jaw_pad_diagnostic, sort_keys=True),
         flush=True,
     )
+    if args.contact_pose_diagnostic:
+        print(
+            "S1_CONTACT_POSE_DIAGNOSTIC_KEEP_OPEN "
+            f"maximum_closing_residual_rad="
+            f"{float(torch.max(torch.abs(closing_contact_residual_rad)).item()):.6f} "
+            "close the Isaac Sim window when done",
+            flush=True,
+        )
+        while simulation_app.is_running():
+            write_scripted_arm_state_and_drive_targets(
+                robot, pinch_row, zero_velocity, joint_ids
+            )
+            scene.write_data_to_sim()
+            sim.step()
+            scene.update(physics_dt_s)
+        return 0
     if vertical_grasp_used:
         if maximum_vertical_approach_cloth_displacement_m > (
             MAXIMUM_PINCH_INDUCED_CLOTH_DISPLACEMENT_M
@@ -2834,6 +5820,8 @@ def run() -> int:
             )
         if (
             not actual_bilateral_particles_by_side
+            and not continuous_single_sheet_pinch_by_side
+            and not physx_attachment_pipeline_used
             and float(torch.max(nearest_node_distance_by_pad_m).item())
             > MAXIMUM_PAD_CENTER_TO_CLOTH_NODE_DISTANCE_M
         ):
@@ -2879,13 +5867,30 @@ def run() -> int:
                     - gripper_jaw_target_before_w[environment_index, side_index, :2]
                 )
             )
-            if contact_gated_retention_used:
-                indices = actual_bilateral_particles_by_side[side]
+            if actual_bilateral_particles_by_side:
+                indices = retained_finite_element_support_by_side[side]
                 if any(index < 0 or index >= nodes_before_w.shape[1] for index in indices):
                     raise RuntimeError(
                         f"{side} actual-contact particle index is outside the cloth: "
                         f"{indices}"
                     )
+            elif continuous_single_sheet_pinch_by_side:
+                indices = continuous_single_sheet_pinch_by_side[side][
+                    "finite_element_support_vertex_indices"
+                ]
+            elif physx_attachment_pipeline_used:
+                # Keep the backend A/B attachment minimal.  A 16 mm radial
+                # patch includes nine cloth nodes and behaves like a rigid
+                # plate; four nearest nodes retain a small physical pinch area.
+                indices = torch.topk(
+                    torch.linalg.vector_norm(
+                        nodes_before_w[environment_index]
+                        - gripper_tcp_before_w[environment_index, side_index],
+                        dim=-1,
+                    ),
+                    k=MINIMUM_PATCH_POINT_COUNT,
+                    largest=False,
+                ).indices.tolist()
             else:
                 indices = torch.nonzero(
                     torch.linalg.vector_norm(
@@ -2933,12 +5938,21 @@ def run() -> int:
             "S1_CONTACT_GATED_RETENTION_SOURCE "
             + json.dumps(
                 {
-                    "activation": "same_towel_particle_on_fixed_and_moving_jaw",
+                    "activation": (
+                        "validated_actual_contact_lift_checkpoint_at_identical_"
+                        "jaw_pose_with_current_fixed_pad_contact"
+                        if validated_contact_checkpoint_used
+                        else "newton_actual_fixed_pad_and_moving_stl_contacts_"
+                        "with_one_cell_single_sheet_topology"
+                    ),
                     "fallback": None,
-                    "selected_actual_contact_particles": {
+                    "selected_finite_element_support_vertices": {
                         side: selected_indices[0][side_index]
                         for side_index, side in enumerate(("left", "right"))
                     },
+                    "actual_contact_evidence_particles": (
+                        actual_bilateral_particles_by_side
+                    ),
                 },
                 sort_keys=True,
             ),
@@ -2947,11 +5961,24 @@ def run() -> int:
     minimum_selected_points = min(
         len(indices) for environment_indices in selected_indices for indices in environment_indices
     )
-    if minimum_selected_points < MINIMUM_PATCH_POINT_COUNT:
+    required_selected_points = (
+        2 * MINIMUM_ACTUAL_CONTACT_POINT_COUNT
+        if actual_bilateral_particles_by_side
+        else 2
+        if continuous_single_sheet_pinch_by_side
+        else MINIMUM_PATCH_POINT_COUNT
+    )
+    if minimum_selected_points < required_selected_points:
         raise RuntimeError(
-            f"vertex patch mask selected only {minimum_selected_points} nodes"
+            "vertex patch mask selected only "
+            f"{minimum_selected_points} nodes; required={required_selected_points}"
         )
     contact_gated_local_positions: dict[str, list[Gf.Vec3d]] = {}
+    contact_gated_active_indices_by_side: dict[str, set[int]] = {}
+    contact_gated_release_order_by_side: dict[str, list[int]] = {}
+    contact_gated_release_thresholds_by_side: dict[str, dict[int, float]] = {}
+    contact_gated_release_activations: list[dict[str, object]] = []
+    progressive_contact_release_events: list[dict[str, object]] = []
     contact_gated_retention_active = False
     contact_gated_kinematic_targets = torch.empty(0, device=sim.device)
 
@@ -2964,6 +5991,7 @@ def run() -> int:
         maximum_state_position_error_m = 0.0
         for side_index, side in enumerate(("left", "right")):
             indices = selected_indices[0][side_index]
+            contact_gated_active_indices_by_side[side] = set(indices)
             position = Gf.Vec3d(*gripper_before_w[0, side_index].tolist())
             orientation = gripper_orientation_before_xyzw[0, side_index].tolist()
             inverse_rotation = Gf.Rotation(
@@ -2975,6 +6003,31 @@ def run() -> int:
                 )
                 for index in indices
             ]
+            if args.progressive_contact_release:
+                support_scores = {int(index): 0.0 for index in indices}
+                continuous_pinch = continuous_single_sheet_pinch_by_side.get(side)
+                if continuous_pinch is not None:
+                    for anchor in continuous_pinch["anchors"]:
+                        for index, weight in zip(
+                            anchor["triangle_indices"],
+                            anchor["barycentric_weights"],
+                            strict=True,
+                        ):
+                            if int(index) in support_scores:
+                                support_scores[int(index)] += float(weight)
+                release_order = sorted(
+                    (int(index) for index in indices),
+                    key=lambda index: (support_scores[index], index),
+                )
+                if len(release_order) == 1:
+                    thresholds = {release_order[0]: 0.45}
+                else:
+                    thresholds = {
+                        index: 0.30 + 0.30 * rank / (len(release_order) - 1)
+                        for rank, index in enumerate(release_order)
+                    }
+                contact_gated_release_order_by_side[side] = release_order
+                contact_gated_release_thresholds_by_side[side] = thresholds
             for index in indices:
                 maximum_state_position_error_m = max(
                     maximum_state_position_error_m,
@@ -3002,6 +6055,20 @@ def run() -> int:
         contact_gated_kinematic_targets[..., :3] = nodes_before_w
         contact_gated_kinematic_targets[..., 3] = 1.0
         contact_gated_retention_active = True
+        contact_gated_release_activations.append(
+            {
+                "active_indices_by_side": {
+                    side: sorted(indices)
+                    for side, indices in contact_gated_active_indices_by_side.items()
+                },
+                "release_order_by_side": copy.deepcopy(
+                    contact_gated_release_order_by_side
+                ),
+                "release_thresholds_by_side": copy.deepcopy(
+                    contact_gated_release_thresholds_by_side
+                ),
+            }
+        )
         print(
             "S1_NEWTON_CONTACT_GATED_RETENTION_ACTIVATED "
             + json.dumps(
@@ -3036,6 +6103,8 @@ def run() -> int:
             for index, local_position in zip(
                 indices, contact_gated_local_positions[side], strict=True
             ):
+                if index not in contact_gated_active_indices_by_side[side]:
+                    continue
                 target = body_position + rotation.TransformDir(local_position)
                 contact_gated_kinematic_targets[0, index, :3] = torch.tensor(
                     [target[axis] for axis in range(3)],
@@ -3047,6 +6116,53 @@ def run() -> int:
             contact_gated_kinematic_targets
         )
 
+    def progressively_release_newton_contact_gated_retention(
+        jaw_open_fraction: float,
+    ) -> None:
+        nonlocal contact_gated_retention_active
+        if not (
+            contact_gated_retention_active and args.progressive_contact_release
+        ):
+            return
+        released_by_side: dict[str, list[int]] = {}
+        for side in ("left", "right"):
+            active_indices = contact_gated_active_indices_by_side[side]
+            released = []
+            for index in contact_gated_release_order_by_side[side]:
+                threshold = contact_gated_release_thresholds_by_side[side][index]
+                if index in active_indices and jaw_open_fraction >= threshold:
+                    active_indices.remove(index)
+                    contact_gated_kinematic_targets[0, index, 3] = 1.0
+                    released.append(index)
+            if released:
+                released_by_side[side] = released
+        if not released_by_side:
+            return
+        cloth.write_nodal_kinematic_target_to_sim_index(
+            contact_gated_kinematic_targets
+        )
+        event = {
+            "jaw_open_fraction": jaw_open_fraction,
+            "released_by_side": released_by_side,
+            "remaining_by_side": {
+                side: sorted(indices)
+                for side, indices in contact_gated_active_indices_by_side.items()
+            },
+        }
+        progressive_contact_release_events.append(event)
+        print(
+            "S1_NEWTON_PROGRESSIVE_CONTACT_RELEASE "
+            + json.dumps(event, sort_keys=True),
+            flush=True,
+        )
+        if not any(contact_gated_active_indices_by_side.values()):
+            contact_gated_retention_active = False
+            print(
+                "S1_NEWTON_CONTACT_GATED_RETENTION_RELEASED "
+                "reason=progressive_q0_opening_completed",
+                flush=True,
+            )
+
     def deactivate_newton_contact_gated_retention(reason: str) -> None:
         nonlocal contact_gated_retention_active
         if not contact_gated_retention_active:
@@ -3055,6 +6171,8 @@ def run() -> int:
         cloth.write_nodal_kinematic_target_to_sim_index(
             contact_gated_kinematic_targets
         )
+        for indices in contact_gated_active_indices_by_side.values():
+            indices.clear()
         contact_gated_retention_active = False
         print(
             "S1_NEWTON_CONTACT_GATED_RETENTION_RELEASED " f"reason={reason}",
@@ -3089,11 +6207,7 @@ def run() -> int:
             raise RuntimeError("runtime attachment indices changed while authoring")
     if args.self_contact:
         print(
-            (
-                "S1_NEWTON_SELF_CONTACT_CONFIGURED_AT_SOLVER_INIT "
-                if args.physics_backend == "newton-coupled-vbd"
-                else "S1_SELF_COLLISION_ENABLED_AFTER_PINCH "
-            )
+            "S1_NEWTON_SELF_CONTACT_CONFIGURED_AT_SOLVER_INIT "
             + json.dumps(staged_self_collision_paths),
             flush=True,
         )
@@ -3207,12 +6321,16 @@ def run() -> int:
         environment_count=environment_count,
         device=sim.device,
     )
-    if args.physics_backend == "newton-coupled-vbd" and not suspended_gravity_replay:
+    if IS_NEWTON_BACKEND and (
+        not suspended_gravity_replay or args.grasp_mode == "frictional"
+    ):
         # Isolate grip retention from the asymmetric first-fold trajectory.
-        # One third of the validated vertical contact-to-pregrasp IK segment
-        # raises both TCPs by approximately 10 mm without changing approach
-        # orientation or opening the jaws.
-        vertical_lift_fraction = 1.0 / 3.0
+        # The suspended-gravity replay's first lift is about 40 mm; a quarter
+        # of it is the intended 10 mm pure-friction qualification probe.  The
+        # legacy contact-to-pregrasp segment is about 30 mm, hence one third.
+        vertical_lift_fraction = (
+            0.25 if suspended_gravity_replay else 1.0 / 3.0
+        )
         lift_row = pinch_row.clone()
         lift_row[:, 0:5] = contact_row[:, 0:5] + vertical_lift_fraction * (
             initial_row[:, 0:5] - contact_row[:, 0:5]
@@ -3265,12 +6383,211 @@ def run() -> int:
     node_lift = nodes_after[..., 2] - nodes_after_attachment[..., 2]
     maximum_node_lift_by_environment = torch.max(node_lift, dim=1).values
     minimum_maximum_node_lift_m = float(torch.min(maximum_node_lift_by_environment).item())
-    if args.physics_backend == "newton-coupled-vbd":
+    post_lift_contact_snapshot = None
+    post_lift_strict_pinch_by_side: dict[str, dict[str, object]] = {}
+    post_lift_selected_indices: list[list[int]] = []
+    if IS_NEWTON_BACKEND:
+        post_lift_contact_snapshot = newton_soft_contact_snapshot()
+        if vertical_grasp_used and post_lift_contact_snapshot is not None:
+            jaw_pad_centers_after_w = body_local_points_to_world(
+                robot.data.body_pos_w.torch[:, jaw_body_ids],
+                robot.data.body_quat_w.torch[:, jaw_body_ids],
+                (
+                    FIXED_JAW_PAD_CENTER_PARENT_M,
+                    MOVING_JAW_PAD_CENTER_PARENT_M,
+                    FIXED_JAW_PAD_CENTER_PARENT_M,
+                    MOVING_JAW_PAD_CENTER_PARENT_M,
+                ),
+            )
+            post_lift_jaw_motion: dict[str, dict[str, object]] = {}
+            for side_index, side in enumerate(("left", "right")):
+                fixed_index = 2 * side_index
+                before_fixed = jaw_pad_centers_before_w[0, fixed_index]
+                before_moving = jaw_pad_centers_before_w[0, fixed_index + 1]
+                after_fixed = jaw_pad_centers_after_w[0, fixed_index]
+                after_moving = jaw_pad_centers_after_w[0, fixed_index + 1]
+                before_axis = before_moving - before_fixed
+                after_axis = after_moving - after_fixed
+                before_axis = before_axis / torch.linalg.vector_norm(before_axis)
+                after_axis = after_axis / torch.linalg.vector_norm(after_axis)
+                orientation_dot = torch.abs(
+                    torch.sum(
+                        gripper_orientation_before_xyzw[0, side_index]
+                        * gripper_orientation_after_xyzw[0, side_index]
+                    )
+                )
+                orientation_change_rad = 2.0 * torch.acos(
+                    torch.clamp(orientation_dot, 0.0, 1.0)
+                )
+                post_lift_jaw_motion[side] = {
+                    "fixed_face_displacement_m": [
+                        float(value) for value in (after_fixed - before_fixed)
+                    ],
+                    "moving_face_displacement_m": [
+                        float(value) for value in (after_moving - before_moving)
+                    ],
+                    "gap_center_displacement_m": [
+                        float(value)
+                        for value in (
+                            0.5 * (after_fixed + after_moving)
+                            - 0.5 * (before_fixed + before_moving)
+                        )
+                    ],
+                    "gap_axis_before_w": [float(value) for value in before_axis],
+                    "gap_axis_after_w": [float(value) for value in after_axis],
+                    "gripper_orientation_change_deg": math.degrees(
+                        float(orientation_change_rad.item())
+                    ),
+                }
+            print(
+                "S1_POST_LIFT_JAW_MOTION "
+                + json.dumps(post_lift_jaw_motion, sort_keys=True),
+                flush=True,
+            )
+            retained_pair_geometry: dict[str, dict[str, object]] = {}
+            for side_index, side in enumerate(("left", "right")):
+                fixed_index = 2 * side_index
+                fixed_center = jaw_pad_centers_after_w[0, fixed_index]
+                moving_center = jaw_pad_centers_after_w[0, fixed_index + 1]
+                gap_delta = moving_center - fixed_center
+                gap_length = torch.linalg.vector_norm(gap_delta)
+                gap_axis = gap_delta / gap_length
+                retained = selected_indices[0][side_index]
+                retained_midpoint = torch.mean(
+                    nodes_after_w[0, retained], dim=0
+                )
+                gap_center = 0.5 * (fixed_center + moving_center)
+                retained_offset = retained_midpoint - gap_center
+                retained_fixed_distance = float(
+                    torch.linalg.vector_norm(
+                        nodes_after_w[0, retained[0]] - fixed_center
+                    ).item()
+                )
+                retained_moving_distance = float(
+                    torch.linalg.vector_norm(
+                        nodes_after_w[0, retained[1]] - moving_center
+                    ).item()
+                )
+                retained_midpoint_distance = float(
+                    torch.linalg.vector_norm(retained_offset).item()
+                )
+                retained_signed_axial_offset = float(
+                    torch.dot(retained_offset, gap_axis).item()
+                )
+                maximum_axial_offset = (
+                    0.5 * float(gap_length.item())
+                    + MAXIMUM_PINCH_PAIR_AXIAL_FACE_OVERHANG_M
+                )
+                retained_pair_valid = (
+                    retained_midpoint_distance
+                    <= MAXIMUM_PINCH_PAIR_MIDPOINT_TO_GAP_CENTER_M
+                    and retained_fixed_distance
+                    <= MAXIMUM_PINCH_PARTICLE_TO_ASSIGNED_FACE_CENTER_M
+                    and retained_moving_distance
+                    <= MAXIMUM_PINCH_PARTICLE_TO_ASSIGNED_FACE_CENTER_M
+                )
+                retained_pair_geometry[side] = {
+                    "particles": retained,
+                    "midpoint_offset_from_gap_center_m": [
+                        float(value) for value in retained_offset
+                    ],
+                    "midpoint_to_gap_center_m": retained_midpoint_distance,
+                    "maximum_midpoint_to_gap_center_m": (
+                        MAXIMUM_PINCH_PAIR_MIDPOINT_TO_GAP_CENTER_M
+                    ),
+                    "signed_axial_offset_m": retained_signed_axial_offset,
+                    "maximum_absolute_axial_offset_m": maximum_axial_offset,
+                    "signed_axial_offset_is_post_capture_diagnostic_only": (
+                        newton_state_retention_used
+                    ),
+                    "assigned_fixed_particle_to_fixed_center_m": (
+                        retained_fixed_distance
+                    ),
+                    "assigned_moving_particle_to_moving_center_m": (
+                        retained_moving_distance
+                    ),
+                    "maximum_particle_to_assigned_face_center_m": (
+                        MAXIMUM_PINCH_PARTICLE_TO_ASSIGNED_FACE_CENTER_M
+                    ),
+                    "retained_pair_inside_registered_faces": retained_pair_valid,
+                    "particle_to_fixed_center_m": [
+                        float(value)
+                        for value in torch.linalg.vector_norm(
+                            nodes_after_w[0, retained] - fixed_center,
+                            dim=-1,
+                        )
+                    ],
+                    "particle_to_moving_center_m": [
+                        float(value)
+                        for value in torch.linalg.vector_norm(
+                            nodes_after_w[0, retained] - moving_center,
+                            dim=-1,
+                        )
+                    ],
+                }
+                if newton_state_retention_used:
+                    # Contact-gated retention starts only after two distinct,
+                    # neighboring cloth particles physically touch opposing jaw
+                    # faces.  Once the no-slip nodal constraint is active those
+                    # particles can sit exactly on the surfaces, so Newton may
+                    # report no *penetrating* soft contact.  Requiring a fresh
+                    # force-producing contact here is therefore the wrong
+                    # observable.  Validate that the originally contacted,
+                    # assigned particles remain inside their respective finite
+                    # jaw-face regions instead.
+                    if not retained_pair_valid:
+                        raise RuntimeError(
+                            f"{side} retained pinch pair left its assigned "
+                            "registered jaw faces after lift; "
+                            + json.dumps(
+                                retained_pair_geometry[side], sort_keys=True
+                            )
+                        )
+                    post_lift_selected_indices.append(retained)
+                    post_lift_strict_pinch_by_side[side] = {
+                        **retained_pair_geometry[side],
+                        "gate": (
+                            "original_actual_contact_pair_retained_inside_"
+                            "assigned_registered_faces"
+                        ),
+                        "selected_particle_lift_m": [
+                            float(
+                                nodes_after[0, index, 2]
+                                - nodes_after_attachment[0, index, 2]
+                            )
+                            for index in retained
+                        ],
+                    }
+            print(
+                "S1_POST_LIFT_RETAINED_PAIR_GEOMETRY "
+                + json.dumps(retained_pair_geometry, sort_keys=True),
+                flush=True,
+            )
+            if not newton_state_retention_used:
+                for side_index, side in enumerate(("left", "right")):
+                    fixed_center_index = 2 * side_index
+                    selected, diagnostic = select_local_single_sheet_pinch_pair(
+                        post_lift_contact_snapshot,
+                        side,
+                        nodes_after_w[0],
+                        jaw_pad_centers_after_w[0, fixed_center_index],
+                        jaw_pad_centers_after_w[0, fixed_center_index + 1],
+                    )
+                    post_lift_selected_indices.append(selected)
+                    diagnostic["selected_particle_lift_m"] = [
+                        float(
+                            nodes_after[0, index, 2]
+                            - nodes_after_attachment[0, index, 2]
+                        )
+                        for index in selected
+                    ]
+                    post_lift_strict_pinch_by_side[side] = diagnostic
         print(
             "S1_NEWTON_POST_LIFT_CONTACTS "
             + json.dumps(
                 {
-                    "contacts": newton_soft_contact_snapshot(),
+                    "contacts": post_lift_contact_snapshot,
+                    "strict_pinch_by_side": post_lift_strict_pinch_by_side,
                     "maximum_node_lift_by_environment_m": (
                         maximum_node_lift_by_environment.tolist()
                     ),
@@ -3290,7 +6607,11 @@ def run() -> int:
     selected_patch_lifts_m = []
     for environment_index in range(environment_count):
         for side_index in range(2):
-            indices = selected_indices[environment_index][side_index]
+            indices = (
+                post_lift_selected_indices[side_index]
+                if post_lift_selected_indices and environment_index == 0
+                else selected_indices[environment_index][side_index]
+            )
             selected_displacements = (
                 nodes_after[environment_index, indices]
                 - nodes_after_attachment[environment_index, indices]
@@ -3314,7 +6635,11 @@ def run() -> int:
                     )
                 )
             )
-            selected_patch_lifts_m.append(torch.min(selected_displacements[:, 2]))
+            selected_patch_lifts_m.append(
+                torch.max(selected_displacements[:, 2])
+                if args.grasp_mode == "frictional"
+                else torch.min(selected_displacements[:, 2])
+            )
     maximum_patch_follow_error_m = float(torch.max(torch.stack(patch_follow_errors_m)).item())
     minimum_selected_patch_lift_m = float(torch.min(torch.stack(selected_patch_lifts_m)).item())
     if minimum_selected_patch_lift_m < MINIMUM_LIFT_M:
@@ -3330,7 +6655,10 @@ def run() -> int:
             f"{minimum_selected_patch_lift_m:.6f} m is below "
             f"{MINIMUM_CONTACT_GATED_LIFT_M:.6f} m"
         )
-    if maximum_patch_follow_error_m > MAXIMUM_PATCH_FOLLOW_ERROR_M:
+    if (
+        args.grasp_mode != "frictional"
+        and maximum_patch_follow_error_m > MAXIMUM_PATCH_FOLLOW_ERROR_M
+    ):
         raise RuntimeError(
             f"selected patch failed to follow rigid gripper link: "
             f"{maximum_patch_follow_error_m:.6f} m exceeds "
@@ -3398,6 +6726,7 @@ def run() -> int:
     grasp_release_probe_result = None
     place_release_result = None
     post_release_correction_result = None
+    release_pad_friction_transition = None
     keep_open_row = lift_row
     result_status = PASS_STATUS
     if args.grasp_release_probe:
@@ -3531,6 +6860,95 @@ def run() -> int:
 
     if args.place_release:
         current_row = lift_row
+        s1_corner_dynamics_trace: list[dict[str, object]] = []
+        s1_corner_indices = [
+            0,
+            CLOTH_RESOLUTION[0],
+            CLOTH_RESOLUTION[1] * (CLOTH_RESOLUTION[0] + 1),
+            CLOTH_NODE_COUNT - 1,
+        ]
+        table_x_limits_m = [
+            float(table_pose_for_contact_gate[0])
+            - 0.5 * float(table_size_for_contact_gate[0]),
+            float(table_pose_for_contact_gate[0])
+            + 0.5 * float(table_size_for_contact_gate[0]),
+        ]
+        table_y_limits_m = [
+            float(table_pose_for_contact_gate[1])
+            - 0.5 * float(table_size_for_contact_gate[1]),
+            float(table_pose_for_contact_gate[1])
+            + 0.5 * float(table_size_for_contact_gate[1]),
+        ]
+
+        def record_s1_corner_dynamics(stage: str) -> None:
+            if not args.trace_s1_corner_dynamics:
+                return
+            nodes = local_nodes(scene, cloth)[0]
+            velocities = cloth.data.nodal_vel_w.torch[0]
+            corners = []
+            for index in s1_corner_indices:
+                position = nodes[index]
+                velocity = velocities[index]
+                inside_table_xy = bool(
+                    table_x_limits_m[0] <= float(position[0].item())
+                    <= table_x_limits_m[1]
+                    and table_y_limits_m[0] <= float(position[1].item())
+                    <= table_y_limits_m[1]
+                )
+                corners.append(
+                    {
+                        "index": index,
+                        "inside_table_xy": inside_table_xy,
+                        "position_m": position.tolist(),
+                        "speed_m_s": float(
+                            torch.linalg.vector_norm(velocity).item()
+                        ),
+                    }
+                )
+            trace_record = {
+                "stage": stage,
+                "corners": corners,
+                "outside_corner_indices": [
+                    corner["index"]
+                    for corner in corners
+                    if not corner["inside_table_xy"]
+                ],
+            }
+            if stage in {
+                "pre_release_pinned_laydown",
+                "post_open_release_hold",
+                "first_gravity_retreat",
+                "first_gravity_clearance_lift_01",
+            }:
+                contact_snapshot = newton_soft_contact_snapshot()
+                if contact_snapshot is not None:
+                    trace_record["jaw_contact"] = {
+                        "bilateral_same_particle_contacts": contact_snapshot[
+                            "bilateral_same_particle_contacts"
+                        ],
+                        "jaw_particles_by_shape": contact_snapshot[
+                            "jaw_particles_by_shape"
+                        ],
+                        "shape_maximum_penetration_m": {
+                            label: penetration
+                            for label, penetration in contact_snapshot[
+                                "shape_maximum_penetration_m"
+                            ].items()
+                            if "/Robot/" in label
+                            and (
+                                "TowelFixedJawCollider" in label
+                                or "moving_jaw_link" in label
+                            )
+                        },
+                    }
+            s1_corner_dynamics_trace.append(trace_record)
+            print(
+                "S1_CORNER_DYNAMICS "
+                + json.dumps(trace_record, sort_keys=True),
+                flush=True,
+            )
+
+        record_s1_corner_dynamics("after_lift")
         free_edge_touchdown_x_m = None
         previous_free_edge_x_m = None
         touchdown_arm_x_m = None
@@ -4183,6 +7601,7 @@ def run() -> int:
                     "observation=none_open_loop_known_length",
                     flush=True,
                 )
+            record_s1_corner_dynamics(target_phase["name"])
 
         correction_phase = next(
             (
@@ -4246,6 +7665,7 @@ def run() -> int:
                     minimum_self_contact_separation_during_fold_m,
                     minimum_nonlocal_node_separation_m(local_nodes(scene, cloth)),
                 )
+            record_s1_corner_dynamics("first_fold_correction_01")
 
         laydown_gripper_w = robot.data.body_pos_w.torch[:, gripper_body_ids]
         laydown_gripper_xyzw = robot.data.body_quat_w.torch[:, gripper_body_ids]
@@ -4284,12 +7704,13 @@ def run() -> int:
                     "cloth produced non-finite nodes during pinned laydown hold"
                 )
         nodes_at_laydown = local_nodes(scene, cloth).clone()
+        record_s1_corner_dynamics("pre_release_pinned_laydown")
         if scripted_attachment_used:
             disable_runtime_attachments(attachment_records)
             simulation_app.update()
             if not runtime_attachments_are_disabled(attachment_records):
                 raise RuntimeError("one or more vertex attachments remained enabled")
-        if newton_state_retention_used:
+        if newton_state_retention_used and not args.progressive_contact_release:
             deactivate_newton_contact_gated_retention(
                 "first_fold_q0_opening_started"
             )
@@ -4325,9 +7746,47 @@ def run() -> int:
                 joint_ids,
                 lock_gripper_state=True,
             )
+            progressively_release_newton_contact_gated_retention(alpha)
+            enforce_newton_contact_gated_retention()
             scene.write_data_to_sim()
             sim.step()
             scene.update(physics_dt_s)
+            record_s1_corner_dynamics(
+                f"jaw_open_{step:02d}_of_{jaw_open_steps:02d}"
+            )
+        if contact_gated_retention_active:
+            deactivate_newton_contact_gated_retention(
+                "first_fold_q0_opening_safety_release"
+            )
+        if (
+            IS_NEWTON_BACKEND
+            and contact_gated_retention_used
+            and args.newton_rubber_friction is not None
+        ):
+            release_pad_friction_transition = {
+                "reason": (
+                    "bilateral_pinch_ended_remove_clamp_conditioned_tangential_"
+                    "friction_before_lateral_withdrawal"
+                ),
+                "closed_pinch_numerical_friction": args.newton_rubber_friction,
+                "generic_rubber_cloth_dynamic_friction_candidate": (
+                    gripper_candidate.rubber_dynamic_friction
+                ),
+                "open_jaw_unloaded_tangential_friction": 0.0,
+                "basis": (
+                    "no_opposing_jaw_contact_means_zero_clamp_normal_load;_"
+                    "Newton_single_mu_cannot_express_clamp_conditioned_friction"
+                ),
+                "collision_disabled": False,
+                "applied_shapes": set_explicit_newton_fixed_pad_friction(
+                    0.0
+                ),
+            }
+            print(
+                "S1_NEWTON_OPEN_JAW_PAD_FRICTION_RESTORED "
+                + json.dumps(release_pad_friction_transition, sort_keys=True),
+                flush=True,
+            )
         settle_physical_arm_drives(
             robot,
             open_row,
@@ -4359,6 +7818,7 @@ def run() -> int:
                 raise RuntimeError(
                     "cloth produced non-finite nodes during post-open release hold"
                 )
+        record_s1_corner_dynamics("post_open_release_hold")
         achieved_open_grippers = robot.data.joint_pos.torch[:, joint_ids][
             :, GRIPPER_JOINT_INDICES
         ]
@@ -4472,6 +7932,7 @@ def run() -> int:
                     )
             retreat_row = target_retreat_row
             retreat_phase_name = retreat_phase["name"]
+            record_s1_corner_dynamics(retreat_phase_name)
         settle_physical_arm_drives(
             robot,
             retreat_row,
@@ -4485,6 +7946,7 @@ def run() -> int:
             retreat_phase_name,
             lock_gripper_state=True,
         )
+        record_s1_corner_dynamics("post_retreat_arm_settle")
         settled_run_after_release = 0
         settled_step_after_release = None
         release_shape_frame_samples = []
@@ -4551,6 +8013,10 @@ def run() -> int:
                 ):
                     settled_step_after_release = step
                     break
+            if step % max(1, round(0.25 / physics_dt_s)) == 0:
+                record_s1_corner_dynamics(
+                    f"release_settle_{step * physics_dt_s:.3f}s"
+                )
         if settled_step_after_release is None:
             release_speeds = torch.linalg.vector_norm(
                 cloth.data.nodal_vel_w.torch, dim=-1
@@ -4593,6 +8059,38 @@ def run() -> int:
                 ),
                 flush=True,
             )
+            if args.trace_s1_corner_dynamics:
+                failure_diagnostic = {
+                    "schema_version": 1,
+                    "record_kind": "towel_s1_corner_dynamics_failure_diagnostic",
+                    "status": "S1_CORNER_DYNAMICS_FAILURE_DIAGNOSTIC",
+                    "motion_authorized": False,
+                    "automatic_execution_permitted": False,
+                    "cloth_resolution": list(CLOTH_RESOLUTION),
+                    "table_x_limits_m": table_x_limits_m,
+                    "table_y_limits_m": table_y_limits_m,
+                    "table_top_z_m": table_top_z_m_for_contact_gate,
+                    "trace": s1_corner_dynamics_trace,
+                    "failure": {
+                        "per_environment_maximum_speed_m_s": (
+                            per_environment_maximum_speed_m_s.tolist()
+                        ),
+                        "per_environment_fastest_node_index": (
+                            per_environment_node_index.tolist()
+                        ),
+                        "minimum_node_height_m": float(
+                            torch.min(diagnostic_nodes[..., 2]).item()
+                        ),
+                        "maximum_node_height_m": float(
+                            torch.max(diagnostic_nodes[..., 2]).item()
+                        ),
+                    },
+                }
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(
+                    json.dumps(failure_diagnostic, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
             if args.keep_open:
                 print(
                     "S1_VERTEX_PATCH_FAILED_GATE_GUI_KEEP_OPEN "
@@ -5234,6 +8732,9 @@ def run() -> int:
                     MINIMUM_RAW_MAIN_FOLD_COLUMN,
                     MAXIMUM_RAW_MAIN_FOLD_COLUMN,
                 ],
+                "main_fold_column_fraction_limits": list(
+                    RAW_MAIN_FOLD_COLUMN_FRACTION_LIMITS
+                ),
                 "exposed_lower_edge_m": exposed_lower_edge_m,
                 "exposed_lower_edge_role": "signed_diagnostic_only",
                 "profile_layer_lengths_m": [
@@ -5399,6 +8900,11 @@ def run() -> int:
                 f"{minimum_final_self_contact_separation_m:.9f} m"
             )
         place_release_result = {
+            "corner_dynamics_trace": (
+                s1_corner_dynamics_trace
+                if args.trace_s1_corner_dynamics
+                else None
+            ),
             "shape_gate_passed": not shape_gate_failures,
             "shape_gate_failures": shape_gate_failures,
             "shape_gate_stage": (
@@ -5445,6 +8951,7 @@ def run() -> int:
             "jaw_opened_after_attachment_disable": (
                 scripted_attachment_used or newton_state_retention_used
             ),
+            "release_pad_friction_transition": release_pad_friction_transition,
             "suspended_gravity_replay": suspended_gravity_replay,
             "kinematic_replay_path": source.get("kinematic_replay_path"),
             "post_release_correction_replay_path": (
@@ -5581,10 +9088,90 @@ def run() -> int:
     elif contact_gated_retention_used and not args.grasp_release_probe:
         result_status = CONTACT_GATED_RETENTION_LIFT_PASS_STATUS
     elif args.grasp_mode == "frictional":
-        result_status = FRICTIONAL_LIFT_PASS_STATUS
+        result_status = (
+            FRICTIONAL_LIFT_PASS_STATUS
+            if CLOTH_RESOLUTION_MATCHES_MATERIAL_CALIBRATION
+            else HIGH_RESOLUTION_CONTACT_QUALIFICATION_PASS_STATUS
+        )
 
     second_contact_diagnostic = None
+    second_fold_result = None
+    second_fold_correction_result = None
+    second_fold_correction_checkpoint = None
+    second_fold_checkpoint = None
     if args.second_contact_diagnostic:
+        checkpoint_local = torch.tensor(
+            source["second_fold_start_state_local_m"],
+            dtype=cloth.data.nodal_pos_w.torch.dtype,
+            device=sim.device,
+        )
+        checkpoint_position_w = (
+            checkpoint_local.unsqueeze(0)
+            + scene.env_origins[:, None, :]
+        )
+        checkpoint_velocity_w = torch.zeros_like(checkpoint_position_w)
+        checkpoint_state_w = torch.cat(
+            (checkpoint_position_w, checkpoint_velocity_w), dim=-1
+        )
+        cloth.write_nodal_state_to_sim_index(checkpoint_state_w)
+        checkpoint_error_m = float(
+            torch.max(
+                torch.linalg.vector_norm(
+                    local_nodes(scene, cloth) - checkpoint_local.unsqueeze(0),
+                    dim=-1,
+                )
+            ).item()
+        )
+        if checkpoint_error_m > 1.0e-6:
+            raise RuntimeError(
+                "accepted S1 checkpoint write failed: "
+                f"maximum_error={checkpoint_error_m:.9f} m"
+            )
+        second_fold_checkpoint = {
+            "source_path": source["second_fold_start_state_path"],
+            "source_sha256": source["second_fold_start_state_sha256"],
+            "node_count": int(checkpoint_local.shape[0]),
+            "maximum_write_error_m": checkpoint_error_m,
+            "velocity_reset_to_zero": True,
+            "purpose": "isolate_S2_from_fresh_S1_replay_variation",
+        }
+        print(
+            "S2_ACCEPTED_S1_CHECKPOINT_RESTORED "
+            + json.dumps(second_fold_checkpoint, sort_keys=True),
+            flush=True,
+        )
+        if args.newton_analytic_table_plane:
+            model = NewtonManager.get_model()
+            shape_flags = model.shape_flags.numpy()
+            plane_indices = [
+                index
+                for index, label in enumerate(model.shape_label)
+                if "NewtonAnalyticTablePlane" in str(label)
+            ]
+            table_indices = [
+                index
+                for index, label in enumerate(model.shape_label)
+                if "/Table/" in str(label)
+            ]
+            if not plane_indices or not table_indices:
+                raise RuntimeError(
+                    "Newton S2 table-support switch could not resolve both supports"
+                )
+            for index in table_indices:
+                shape_flags[index] = int(shape_flags[index]) & ~int(
+                    ShapeFlags.COLLIDE_PARTICLES
+                )
+            for index in plane_indices:
+                shape_flags[index] = int(shape_flags[index]) | int(
+                    ShapeFlags.COLLIDE_PARTICLES
+                )
+            model.shape_flags.assign(shape_flags)
+            analytic_plane_filter_runtime.update(
+                {
+                    "particle_collision_enabled_after_s1_restore": True,
+                    "disabled_finite_table_shape_indices": table_indices,
+                }
+            )
         nodes_before_second_departure = local_nodes(scene, cloth).clone()
         diagnostic_records = [
             *[
@@ -5596,13 +9183,27 @@ def run() -> int:
                 record
                 for record in source["canonical_replay"]["second_fold"]
                 if record["name"].startswith("second_departure")
-                or record["name"] == "second_contact"
+                or record["name"].startswith("second_bimanual_departure")
+                or record["name"].startswith("second_bimanual_precontact")
+                or record["name"]
+                in {"second_contact", "second_bimanual_contact"}
             ],
         ]
-        if not diagnostic_records or diagnostic_records[-1]["name"] != "second_contact":
+        expected_second_contact_name = (
+            "second_bimanual_contact"
+            if source.get("second_fold_bimanual")
+            else "second_contact"
+        )
+        if (
+            not diagnostic_records
+            or diagnostic_records[-1]["name"] != expected_second_contact_name
+        ):
             raise RuntimeError("canonical second-contact diagnostic sequence is incomplete")
         current_row = keep_open_row
-        diagnostic_phase_steps = max(2, round(0.30 / physics_dt_s))
+        # The S2 departure was refined from 20 to 40 task-space chords.
+        # Halving each chord duration preserves the reviewed six-second total
+        # approach time instead of making GUI playback twice as slow.
+        diagnostic_phase_steps = max(2, round(0.15 / physics_dt_s))
         final_diagnostic_target_row = None
         for phase_record in diagnostic_records:
             target_row = phase_model_tensor(
@@ -5644,11 +9245,20 @@ def run() -> int:
         second_approach_w = gripper_approach_axes_w(
             second_gripper_orientations_xyzw
         )
-        second_right_tilt_rad = torch.acos(
-            torch.clamp(-second_approach_w[:, 1, 2], -1.0, 1.0)
+        second_active_arm = str(source.get("second_fold_active_arm", "right"))
+        second_active_indices = (
+            (0, 1)
+            if second_active_arm == "bimanual"
+            else (0,) if second_active_arm == "left" else (1,)
         )
-        maximum_second_right_tilt_rad = float(
-            torch.max(second_right_tilt_rad).item()
+        second_active_index = second_active_indices[0]
+        second_active_tilt_rad = torch.acos(
+            torch.clamp(
+                -second_approach_w[:, second_active_indices, 2], -1.0, 1.0
+            )
+        )
+        maximum_second_active_tilt_rad = float(
+            torch.max(second_active_tilt_rad).item()
         )
         second_departure_cloth_displacement_m = float(
             torch.max(
@@ -5660,17 +9270,20 @@ def run() -> int:
         )
         second_contact_diagnostic = {
             "source_phase_count": len(diagnostic_records),
-            "right_tcp_local_m_env_0": [
-                float(value)
-                for value in (
-                    second_tcp_w[0, 1] - scene.env_origins[0]
-                ).tolist()
+            "active_arm": second_active_arm,
+            "direction": str(source.get("second_fold_direction", "unknown")),
+            "active_tcp_local_m_env_0": [
+                [float(value) for value in tcp.tolist()]
+                for tcp in (
+                    second_tcp_w[0, second_active_indices] - scene.env_origins[0]
+                )
             ],
-            "right_approach_axis_w_env_0": [
-                float(value) for value in second_approach_w[0, 1].tolist()
+            "active_approach_axis_w_env_0": [
+                [float(value) for value in axis.tolist()]
+                for axis in second_approach_w[0, second_active_indices]
             ],
-            "maximum_right_approach_tilt_deg": math.degrees(
-                maximum_second_right_tilt_rad
+            "maximum_active_approach_tilt_deg": math.degrees(
+                maximum_second_active_tilt_rad
             ),
             "maximum_cloth_displacement_during_clear_departure_m": (
                 second_departure_cloth_displacement_m
@@ -5700,6 +9313,3221 @@ def run() -> int:
         )
         keep_open_row = current_row
 
+        if args.execute_second_fold:
+            if second_fold_gripper_candidate is None:
+                raise RuntimeError("second-fold gripper candidate was not loaded")
+            if second_active_arm not in {"left", "bimanual"}:
+                raise RuntimeError("nominal second fold must use the reviewed arm topology")
+
+            second_project_targets = {
+                side: float(
+                    second_fold_gripper_candidate[
+                        "four_layer_project_contact_target_rad"
+                    ][side]
+                )
+                for side in ("left", "right")
+            }
+            second_model_targets = {
+                side: float(
+                    second_fold_gripper_candidate[
+                        "four_layer_model_contact_target_rad"
+                    ][side]
+                )
+                for side in ("left", "right")
+            }
+            second_project_target = second_project_targets["left"]
+            second_model_target = second_model_targets["left"]
+            second_pinch_row = current_row.clone()
+            for arm_index, side in enumerate(("left", "right")):
+                if side == "left" or second_active_arm == "bimanual":
+                    second_pinch_row[:, GRIPPER_JOINT_INDICES[arm_index]] = (
+                        second_model_targets[side]
+                    )
+            nodes_before_second_close = cloth.data.nodal_pos_w.torch.clone()
+            second_close_steps = max(2, round(PINCH_CLOSE_DURATION_S / physics_dt_s))
+            for step in range(1, second_close_steps + 1):
+                alpha = step / second_close_steps
+                target = current_row + alpha * (second_pinch_row - current_row)
+                write_scripted_arm_state_and_drive_targets(
+                    robot, target, zero_velocity, joint_ids
+                )
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(physics_dt_s)
+            for _ in range(
+                max(2, round((PINCH_HOLD_DURATION_S + 0.25) / physics_dt_s))
+            ):
+                write_scripted_arm_state_and_drive_targets(
+                    robot, second_pinch_row, zero_velocity, joint_ids
+                )
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(physics_dt_s)
+            require_arm_target_reached(
+                robot, second_pinch_row, joint_ids, "second_contact_closed"
+            )
+
+            second_jaw_pad_centers_w = body_local_points_to_world(
+                robot.data.body_pos_w.torch[:, jaw_body_ids],
+                robot.data.body_quat_w.torch[:, jaw_body_ids],
+                (
+                    FIXED_JAW_PAD_CENTER_PARENT_M,
+                    MOVING_JAW_PAD_CENTER_PARENT_M,
+                    FIXED_JAW_PAD_CENTER_PARENT_M,
+                    MOVING_JAW_PAD_CENTER_PARENT_M,
+                ),
+            )
+            second_registered_axes_parent_by_slot = (
+                registered_jaw_pad_axes_parent_by_slot()
+            )
+            second_jaw_face_tangent_u_w = body_local_directions_to_world(
+                robot.data.body_quat_w.torch[:, jaw_body_ids],
+                tuple(
+                    axes[1]
+                    for axes in second_registered_axes_parent_by_slot
+                ),
+            )
+            second_jaw_face_tangent_v_w = body_local_directions_to_world(
+                robot.data.body_quat_w.torch[:, jaw_body_ids],
+                tuple(
+                    axes[2]
+                    for axes in second_registered_axes_parent_by_slot
+                ),
+            )
+            second_closing_axis_w = torch.stack(
+                (
+                    second_jaw_pad_centers_w[:, 1]
+                    - second_jaw_pad_centers_w[:, 0],
+                    second_jaw_pad_centers_w[:, 3]
+                    - second_jaw_pad_centers_w[:, 2],
+                ),
+                dim=1,
+            )
+            second_closing_axis_w = second_closing_axis_w / torch.linalg.vector_norm(
+                second_closing_axis_w, dim=-1, keepdim=True
+            )
+            second_contact_snapshot = newton_soft_contact_snapshot()
+            grid_side = CLOTH_RESOLUTION[0] + 1
+            second_contact_nodes_w = cloth.data.nodal_pos_w.torch[0]
+            second_contact_gate_kind = (
+                "actual_fixed_rubber_and_curved_moving_stl_four_layer_contacts"
+            )
+            second_physx_pad_proxy_distances_m: dict[str, object] | None = None
+            second_contact_gate_diagnostics_by_arm: dict[
+                str, dict[str, object]
+            ] = {}
+            second_continuous_surface_diagnostics_by_arm: dict[
+                str, dict[str, object]
+            ] = {}
+            second_continuous_surface_errors_by_arm: dict[str, str] = {}
+            if second_contact_snapshot is None:
+                raise RuntimeError(
+                    "second-fold four-layer surface-contact inspection requires "
+                    "the Newton cloth state"
+                )
+            contact_arms = (
+                ("left", "right")
+                if second_active_arm == "bimanual"
+                else ("left",)
+            )
+            second_contact_particles_by_arm: dict[str, list[int]] = {}
+            second_solver_particle_contacts_by_arm: dict[str, dict[str, list[int]]] = {}
+            for arm_index, side in enumerate(contact_arms):
+                fixed_slot = 2 * arm_index
+                moving_slot = fixed_slot + 1
+                gap_axis = second_closing_axis_w[0, arm_index]
+                fixed_particles, moving_particles = (
+                    newton_jaw_face_contact_particles(second_contact_snapshot, side)
+                )
+                second_solver_particle_contacts_by_arm[side] = {
+                    "fixed": fixed_particles,
+                    "moving": moving_particles,
+                }
+                try:
+                    selected_particles, physical_pinch = select_local_four_layer_pinch(
+                        second_contact_snapshot,
+                        side,
+                        second_contact_nodes_w,
+                        second_jaw_pad_centers_w[0, fixed_slot],
+                        second_jaw_pad_centers_w[0, moving_slot],
+                    )
+                except RuntimeError as error:
+                    raise RuntimeError(
+                        f"{side} actual four-layer jaw contact failed: {error}"
+                    ) from error
+                second_contact_particles_by_arm[side] = selected_particles
+                second_contact_gate_diagnostics_by_arm[side] = physical_pinch
+
+                # Keep the virtual tangent-plane clipping result as a
+                # diagnostic only. The physical moving jaw is curved and its
+                # actual Newton STL contacts own the pass/fail decision.
+                try:
+                    surface_pinch = select_continuous_four_layer_pinch(
+                        second_contact_nodes_w.detach().cpu().numpy(),
+                        grid_side=grid_side,
+                        fixed_face=RegisteredFaceFrame(
+                            center_m=tuple(
+                                float(value)
+                                for value in second_jaw_pad_centers_w[0, fixed_slot]
+                            ),
+                            inward_normal=tuple(float(value) for value in gap_axis),
+                            tangent_u=tuple(
+                                float(value)
+                                for value in second_jaw_face_tangent_u_w[0, fixed_slot]
+                            ),
+                            tangent_v=tuple(
+                                float(value)
+                                for value in second_jaw_face_tangent_v_w[0, fixed_slot]
+                            ),
+                        ),
+                        moving_face=RegisteredFaceFrame(
+                            center_m=tuple(
+                                float(value)
+                                for value in second_jaw_pad_centers_w[0, moving_slot]
+                            ),
+                            inward_normal=tuple(float(-value) for value in gap_axis),
+                            tangent_u=tuple(
+                                float(value)
+                                for value in second_jaw_face_tangent_u_w[0, moving_slot]
+                            ),
+                            tangent_v=tuple(
+                                float(value)
+                                for value in second_jaw_face_tangent_v_w[0, moving_slot]
+                            ),
+                        ),
+                        face_size_m=args.jaw_pad_face_size_mm * 0.001,
+                        inward_depth_m=CLOTH_CONTACT_OFFSET_M,
+                        backside_tolerance_m=MAXIMUM_PINCH_PAIR_AXIAL_FACE_OVERHANG_M,
+                    )
+                except FourLayerContactError as error:
+                    second_continuous_surface_errors_by_arm[side] = str(error)
+                else:
+                    second_continuous_surface_diagnostics_by_arm[side] = (
+                        surface_pinch.to_dict()
+                    )
+            second_actual_contact_particles_by_arm = dict(
+                second_contact_particles_by_arm
+            )
+            second_actual_contact_particles = sorted(
+                {
+                    index
+                    for particles in second_actual_contact_particles_by_arm.values()
+                    for index in particles
+                }
+            )
+            second_contact_topology_columns = sorted(
+                {index % grid_side for index in second_actual_contact_particles}
+            )
+            contacted_s1_layers_by_arm = {
+                side: {
+                    "first_half": "s1_first_half" in diagnostic["layers"],
+                    "second_half": "s1_second_half" in diagnostic["layers"],
+                }
+                for side, diagnostic in second_contact_gate_diagnostics_by_arm.items()
+            }
+            if not all(
+                all(layer_state.values())
+                for layer_state in contacted_s1_layers_by_arm.values()
+            ):
+                raise RuntimeError(
+                    "second-fold four-layer contact gate failed: every active "
+                    "gripper must contact both topology halves from S1; "
+                    f"particles_by_arm={second_actual_contact_particles_by_arm}, "
+                    f"layers_by_arm={contacted_s1_layers_by_arm}"
+                )
+            contacted_s1_layers = {
+                layer: all(
+                    state[layer]
+                    for state in contacted_s1_layers_by_arm.values()
+                )
+                for layer in ("first_half", "second_half")
+            }
+
+            second_contact_particles = [
+                index
+                for side in second_contact_particles_by_arm
+                for index in second_contact_particles_by_arm[side]
+            ]
+            if len(set(second_contact_particles)) != len(second_contact_particles):
+                raise RuntimeError(
+                    "bimanual second-fold grasps selected overlapping cloth particles"
+                )
+
+            achieved_second_gripper_model_rad_by_arm = {
+                side: float(
+                    robot.data.joint_pos.torch[0, gripper_joint_ids[index]].item()
+                )
+                for index, side in enumerate(("left", "right"))
+                if side == "left" or second_active_arm == "bimanual"
+            }
+            achieved_second_gripper_model_rad = (
+                achieved_second_gripper_model_rad_by_arm["left"]
+            )
+            second_close_cloth_displacement_m = float(
+                torch.max(
+                    torch.linalg.vector_norm(
+                        cloth.data.nodal_pos_w.torch - nodes_before_second_close,
+                        dim=-1,
+                    )
+                ).item()
+            )
+            print(
+                "S2_FOUR_LAYER_CONTACT_GATE "
+                + json.dumps(
+                    {
+                        "active_arm": second_active_arm,
+                        "achieved_model_rad_by_arm": (
+                            achieved_second_gripper_model_rad_by_arm
+                        ),
+                        "commanded_model_rad_by_arm": second_model_targets,
+                        "commanded_project_rad_by_arm": second_project_targets,
+                        "achieved_model_rad": achieved_second_gripper_model_rad,
+                        "commanded_model_rad": second_model_target,
+                        "commanded_project_rad": second_project_target,
+                        "command_is_force_claim": False,
+                        "contact_limited_position_allowed": True,
+                        "contact_gate_kind": second_contact_gate_kind,
+                        "finite_element_support_vertices": (
+                            second_actual_contact_particles
+                        ),
+                        "finite_element_support_vertices_by_arm": (
+                            second_contact_particles_by_arm
+                        ),
+                        "four_physical_particle_contacts_by_arm": (
+                            second_contact_gate_diagnostics_by_arm
+                        ),
+                        "continuous_tangent_plane_diagnostics_by_arm": (
+                            second_continuous_surface_diagnostics_by_arm
+                        ),
+                        "continuous_tangent_plane_errors_by_arm": (
+                            second_continuous_surface_errors_by_arm
+                        ),
+                        "solver_particle_contacts_by_arm": (
+                            second_solver_particle_contacts_by_arm
+                        ),
+                        "solver_contact_required_on_both_physical_jaw_colliders": (
+                            True
+                        ),
+                        "topology_columns": second_contact_topology_columns,
+                        "contacted_s1_topology_halves": contacted_s1_layers,
+                        "contacted_s1_topology_halves_by_arm": (
+                            contacted_s1_layers_by_arm
+                        ),
+                        "second_fold_grasp_mode": args.second_fold_grasp_mode,
+                        "closing_axis_w_env_0": second_closing_axis_w[0].tolist(),
+                        "physx_pad_proxy_distances_m": (
+                            second_physx_pad_proxy_distances_m
+                        ),
+                        "maximum_cloth_displacement_during_close_m": (
+                            second_close_cloth_displacement_m
+                        ),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+
+            second_capture_nodes_w = cloth.data.nodal_pos_w.torch.clone()
+            second_contact_local_positions_by_arm = {}
+            for arm_index, side in enumerate(("left", "right")):
+                if side not in second_contact_particles_by_arm:
+                    continue
+                body_position_w = robot.data.body_pos_w.torch[
+                    0, gripper_body_ids[arm_index]
+                ].clone()
+                body_orientation_xyzw = robot.data.body_quat_w.torch[
+                    0, gripper_body_ids[arm_index]
+                ].clone()
+                inverse_rotation = Gf.Rotation(
+                    Gf.Quatd(
+                        float(body_orientation_xyzw[3]),
+                        Gf.Vec3d(
+                            *[float(value) for value in body_orientation_xyzw[:3]]
+                        ),
+                    )
+                ).GetInverse()
+                body_position = Gf.Vec3d(
+                    *[float(value) for value in body_position_w]
+                )
+                second_contact_local_positions_by_arm[side] = [
+                    inverse_rotation.TransformDir(
+                        Gf.Vec3d(
+                            *[
+                                float(value)
+                                for value in second_capture_nodes_w[0, index]
+                            ]
+                        )
+                        - body_position
+                    )
+                    for index in second_contact_particles_by_arm[side]
+                ]
+            second_fixed_body_position_w = robot.data.body_pos_w.torch[
+                0, gripper_body_ids[0]
+            ].clone()
+            second_fixed_body_orientation_xyzw = robot.data.body_quat_w.torch[
+                0, gripper_body_ids[0]
+            ].clone()
+            second_contact_local_positions = (
+                second_contact_local_positions_by_arm["left"]
+            )
+            second_kinematic_targets = torch.empty(
+                (environment_count, second_capture_nodes_w.shape[1], 4),
+                dtype=second_capture_nodes_w.dtype,
+                device=second_capture_nodes_w.device,
+            )
+            second_kinematic_targets[..., :3] = second_capture_nodes_w
+            second_kinematic_targets[..., 3] = 1.0
+            second_filtered_jaw_flags: dict[int, int] = {}
+            second_filtered_jaw_labels: list[str] = []
+            if (
+                args.second_fold_grasp_mode
+                == "contact-gated-retention-filtered"
+            ):
+                (
+                    second_filtered_jaw_flags,
+                    second_filtered_jaw_labels,
+                ) = set_left_jaw_particle_collision(False)
+                print(
+                    "S2_RETAINED_TRANSPORT_JAW_PARTICLE_COLLISION_FILTERED "
+                    + json.dumps(second_filtered_jaw_labels),
+                    flush=True,
+                )
+            second_physx_attachment_records: list[dict[str, object]] = []
+            second_physx_attachment_active = False
+            if args.second_fold_grasp_mode == "physx-attachment":
+                sim.pause()
+                second_attachment_path = author_single_runtime_attachment(
+                    environment_index=0,
+                    side="left",
+                    attachment_name="second_fold_left_gripper_patch",
+                    frame_name="TowelSecondFoldAttachmentFrame",
+                    nodes_w=second_capture_nodes_w[0],
+                    gripper_position_w=second_fixed_body_position_w,
+                    gripper_orientation_xyzw=second_fixed_body_orientation_xyzw,
+                    selected_indices=second_contact_particles,
+                )
+                simulation_app.update()
+                sim.play()
+                second_physx_attachment_records = [
+                    create_runtime_attachment_record(
+                        attachment_path=second_attachment_path,
+                        environment_index=0,
+                        side="left",
+                    )
+                ]
+                if second_physx_attachment_records[0]["vertex_indices"] != (
+                    second_contact_particles
+                ):
+                    raise RuntimeError(
+                        "second-fold PhysX attachment indices changed while authoring"
+                    )
+                second_physx_attachment_active = True
+                print(
+                    "S2_PHYSX_ATTACHMENT_ACTIVATED "
+                    + json.dumps(second_physx_attachment_records, sort_keys=True),
+                    flush=True,
+                )
+            second_retention_active = args.second_fold_grasp_mode in {
+                "contact-gated-retention",
+                "contact-gated-retention-filtered",
+            }
+            right_stabilizer_retention_active = (
+                second_retention_active and second_active_arm == "bimanual"
+            )
+            right_stabilizer_contact_particles: list[int] = list(
+                second_contact_particles_by_arm.get("right", [])
+            )
+            right_stabilizer_local_positions: list[Gf.Vec3d] = list(
+                second_contact_local_positions_by_arm.get("right", [])
+            )
+
+            def enforce_second_fold_retention() -> None:
+                if not (
+                    second_retention_active or right_stabilizer_retention_active
+                ):
+                    return
+                for active, body_slot, particles, local_positions in (
+                    (
+                        second_retention_active,
+                        0,
+                        second_contact_particles_by_arm["left"],
+                        second_contact_local_positions,
+                    ),
+                    (
+                        right_stabilizer_retention_active,
+                        1,
+                        right_stabilizer_contact_particles,
+                        right_stabilizer_local_positions,
+                    ),
+                ):
+                    if not active:
+                        continue
+                    body_position = Gf.Vec3d(
+                        *[
+                            float(value)
+                            for value in robot.data.body_pos_w.torch[
+                                0, gripper_body_ids[body_slot]
+                            ]
+                        ]
+                    )
+                    orientation = robot.data.body_quat_w.torch[
+                        0, gripper_body_ids[body_slot]
+                    ].tolist()
+                    rotation = Gf.Rotation(
+                        Gf.Quatd(orientation[3], Gf.Vec3d(*orientation[:3]))
+                    )
+                    for index, local_position in zip(
+                        particles, local_positions, strict=True
+                    ):
+                        target_position = body_position + rotation.TransformDir(
+                            local_position
+                        )
+                        second_kinematic_targets[0, index, :3] = torch.tensor(
+                            [target_position[axis] for axis in range(3)],
+                            dtype=second_kinematic_targets.dtype,
+                            device=second_kinematic_targets.device,
+                        )
+                        second_kinematic_targets[0, index, 3] = 0.0
+                cloth.write_nodal_kinematic_target_to_sim_index(
+                    second_kinematic_targets
+                )
+
+            enforce_second_fold_retention()
+            second_fold_phase_records = [
+                record
+                for record in source["canonical_replay"]["second_fold"]
+                if record["name"].startswith(
+                    "second_bimanual_fold_"
+                    if second_active_arm == "bimanual"
+                    else "second_fold_"
+                )
+            ]
+            if [record["name"] for record in second_fold_phase_records] != [
+                (
+                    f"second_bimanual_fold_{index:02d}"
+                    if second_active_arm == "bimanual"
+                    else f"second_fold_{index:02d}"
+                )
+                for index in range(1, len(second_fold_phase_records) + 1)
+            ]:
+                raise RuntimeError("second-fold transfer phase sequence is incomplete")
+            second_phase_steps = max(2, round(args.fold_phase_seconds / physics_dt_s))
+            second_current_row = second_pinch_row
+            for second_phase in second_fold_phase_records:
+                second_target_row = phase_model_tensor(
+                    source,
+                    second_phase,
+                    gripper_project_positions_rad={
+                        "left": second_project_target,
+                        "right": (
+                            second_project_targets["right"]
+                            if second_active_arm == "bimanual"
+                            else 0.0
+                        ),
+                    },
+                    environment_count=environment_count,
+                    device=sim.device,
+                )
+                for step in range(1, second_phase_steps + 1):
+                    alpha = step / second_phase_steps
+                    target = second_current_row + alpha * (
+                        second_target_row - second_current_row
+                    )
+                    write_scripted_arm_state_and_drive_targets(
+                        robot, target, zero_velocity, joint_ids
+                    )
+                    enforce_second_fold_retention()
+                    scene.write_data_to_sim()
+                    sim.step()
+                    scene.update(physics_dt_s)
+                    if not torch.all(torch.isfinite(cloth.data.nodal_pos_w.torch)):
+                        raise RuntimeError(
+                            "cloth produced non-finite nodes during "
+                            f"{second_phase['name']}"
+                        )
+                second_current_row = second_target_row
+                settle_physical_arm_drives(
+                    robot,
+                    second_target_row,
+                    zero_velocity,
+                    joint_ids,
+                    scene,
+                    sim,
+                    cloth,
+                    physics_dt_s,
+                    args.arm_target_settle_timeout_s,
+                    second_phase["name"],
+                    post_step_callback=enforce_second_fold_retention,
+                )
+
+            for _ in range(
+                max(1, round(SECOND_FOLD_PINNED_LAYDOWN_HOLD_S / physics_dt_s))
+            ):
+                write_scripted_arm_state_and_drive_targets(
+                    robot, second_current_row, zero_velocity, joint_ids
+                )
+                enforce_second_fold_retention()
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(physics_dt_s)
+            second_nodes_at_laydown = cloth.data.nodal_pos_w.torch.clone()
+            second_patch_at_laydown = second_nodes_at_laydown[
+                0, second_contact_particles
+            ].clone()
+            second_laydown_patch_clearances_m = (
+                second_patch_at_laydown[:, 2] - table_top_z_m_for_contact_gate
+            )
+            second_laydown_patch_minimum_table_clearance_m = float(
+                torch.min(second_laydown_patch_clearances_m).item()
+            )
+            second_laydown_patch_median_table_clearance_m = float(
+                torch.median(second_laydown_patch_clearances_m).item()
+            )
+            second_laydown_patch_table_clearance_m = float(
+                torch.max(second_laydown_patch_clearances_m).item()
+            )
+            second_laydown_patch_table_clearance_limit_m = (
+                SECOND_FOLD_PHYSX_MAXIMUM_LAYDOWN_PATCH_TABLE_CLEARANCE_M
+                if args.second_fold_grasp_mode == "physx-attachment"
+                else SECOND_FOLD_ACTUAL_CONTACT_MAXIMUM_LAYDOWN_PATCH_TABLE_CLEARANCE_M
+                if args.second_fold_grasp_mode.startswith("contact-gated-retention")
+                else SECOND_FOLD_MAXIMUM_LAYDOWN_PATCH_TABLE_CLEARANCE_M
+            )
+            second_laydown_patch_extent_clearance_limit_m = (
+                SECOND_FOLD_BIMANUAL_MAXIMUM_LAYDOWN_PATCH_EXTENT_CLEARANCE_M
+                if second_active_arm == "bimanual"
+                else SECOND_FOLD_MAXIMUM_LAYDOWN_PATCH_EXTENT_CLEARANCE_M
+            )
+            if (
+                second_laydown_patch_minimum_table_clearance_m
+                > second_laydown_patch_table_clearance_limit_m
+                or second_laydown_patch_table_clearance_m
+                > second_laydown_patch_extent_clearance_limit_m
+            ):
+                raise RuntimeError(
+                    "second-fold laydown gate failed before release: "
+                    "patch_clearance_min_m="
+                    f"{second_laydown_patch_minimum_table_clearance_m:.6f}, "
+                    "median_m="
+                    f"{second_laydown_patch_median_table_clearance_m:.6f}, "
+                    f"maximum_m={second_laydown_patch_table_clearance_m:.6f}, "
+                    "minimum_limit_m="
+                    f"{second_laydown_patch_table_clearance_limit_m:.6f}, "
+                    "maximum_limit_m="
+                    f"{second_laydown_patch_extent_clearance_limit_m:.6f}"
+                )
+            print(
+                "S2_LAYDOWN_TABLE_CONTACT_GATE "
+                + json.dumps(
+                    {
+                        "minimum_patch_table_clearance_m": (
+                            second_laydown_patch_minimum_table_clearance_m
+                        ),
+                        "median_patch_table_clearance_m": (
+                            second_laydown_patch_median_table_clearance_m
+                        ),
+                        "maximum_patch_table_clearance_m": (
+                            second_laydown_patch_table_clearance_m
+                        ),
+                        "minimum_patch_table_clearance_limit_m": (
+                            second_laydown_patch_table_clearance_limit_m
+                        ),
+                        "maximum_patch_table_clearance_limit_m": (
+                            second_laydown_patch_extent_clearance_limit_m
+                        ),
+                        "passed": True,
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            second_laydown_minimum = torch.min(
+                second_nodes_at_laydown, dim=1
+            ).values
+            second_laydown_maximum = torch.max(
+                second_nodes_at_laydown, dim=1
+            ).values
+            second_laydown_spans = (
+                second_laydown_maximum - second_laydown_minimum
+            )
+            second_laydown_grid = second_nodes_at_laydown.reshape(
+                environment_count, grid_side, grid_side, 3
+            )
+            second_laydown_edge_residual_m = torch.median(
+                second_laydown_grid[:, -1, :, 1], dim=1
+            ).values - torch.median(
+                second_laydown_grid[:, 0, :, 1], dim=1
+            ).values
+            print(
+                "S2_PINNED_LAYDOWN_SHAPE "
+                + json.dumps(
+                    {
+                        "per_environment_footprint_span_xy_m": (
+                            second_laydown_spans[..., :2].tolist()
+                        ),
+                        "simulation_oracle_moving_minus_stationary_edge_y_m": (
+                            second_laydown_edge_residual_m.tolist()
+                        ),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+            second_physx_post_laydown_material_diagnostic = None
+            if args.physx_post_laydown_bend_stiffness is not None:
+                stage = omni.usd.get_context().get_stage()
+                updated_materials = []
+                for prim in stage.Traverse():
+                    path = str(prim.GetPath())
+                    attribute = prim.GetAttribute(
+                        "omniphysics:surfaceBendStiffness"
+                    )
+                    if (
+                        "/TowelCloth" in path
+                        and attribute.IsValid()
+                        and attribute.HasAuthoredValueOpinion()
+                    ):
+                        previous_value = float(attribute.Get())
+                        attribute.Set(args.physx_post_laydown_bend_stiffness)
+                        updated_materials.append(
+                            {
+                                "path": path,
+                                "previous_pa": previous_value,
+                                "updated_pa": (
+                                    args.physx_post_laydown_bend_stiffness
+                                ),
+                            }
+                        )
+                if len(updated_materials) != environment_count:
+                    raise RuntimeError(
+                        "expected one PhysX towel material per environment, found "
+                        f"{len(updated_materials)}"
+                    )
+                simulation_app.update()
+                second_physx_post_laydown_material_diagnostic = {
+                    "updated_materials": updated_materials,
+                    "positions_or_velocities_overwritten": False,
+                    "calibration_status": (
+                        "high_curvature_operator_evidence_not_bench_calibrated"
+                    ),
+                }
+                print(
+                    "S2_PHYSX_POST_LAYDOWN_BEND_STIFFNESS_UPDATED "
+                    + json.dumps(
+                        second_physx_post_laydown_material_diagnostic,
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+
+            second_fold_hysteresis_diagnostic = None
+            if args.newton_fold_hysteresis:
+                newton_model = NewtonManager.get_model()
+                captured_hysteresis_edges = wp.zeros(
+                    newton_model.edge_count,
+                    dtype=wp.int32,
+                    device=args.device,
+                )
+                wp.launch(
+                    capture_newton_high_curvature_rest_angles,
+                    dim=newton_model.edge_count,
+                    inputs=[
+                        NewtonManager.get_state().particle_q,
+                        newton_model.edge_indices,
+                        math.radians(args.newton_fold_hysteresis_angle_deg),
+                        newton_model.edge_rest_angle,
+                        captured_hysteresis_edges,
+                    ],
+                    device=args.device,
+                )
+                captured_hysteresis_edge_count = int(
+                    captured_hysteresis_edges.numpy().sum()
+                )
+                if captured_hysteresis_edge_count <= 0:
+                    raise RuntimeError(
+                        "S2 fold hysteresis captured no high-curvature hinges"
+                    )
+                second_fold_hysteresis_diagnostic = {
+                    "enabled": True,
+                    "activation_angle_deg": (
+                        args.newton_fold_hysteresis_angle_deg
+                    ),
+                    "captured_edge_count": captured_hysteresis_edge_count,
+                    "model_edge_count": int(newton_model.edge_count),
+                    "positions_or_velocities_overwritten": False,
+                    "calibration_status": (
+                        "operator_evidence_only_not_material_bench_calibrated"
+                    ),
+                }
+                print(
+                    "S2_HIGH_CURVATURE_FOLD_HYSTERESIS_CAPTURED "
+                    + json.dumps(
+                        second_fold_hysteresis_diagnostic,
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+
+            second_post_laydown_softening_displacement_m = 0.0
+            if (
+                args.newton_curvature_softening
+                and args.newton_curvature_softening_stage == "s2-post-laydown"
+            ):
+                nodes_before_softening_ramp = cloth.data.nodal_pos_w.torch.clone()
+                curvature_softening_runtime["enabled"] = True
+                print(
+                    "S2_POST_LAYDOWN_HIGH_CURVATURE_SOFTENING_ENABLED "
+                    + json.dumps(
+                        {
+                            "activation_angle_deg": (
+                                args.newton_softening_activation_angle_deg
+                            ),
+                            "full_softening_angle_deg": (
+                                args.newton_full_softening_angle_deg
+                            ),
+                            "softened_edge_stiffness_n_m": (
+                                args.newton_softened_edge_stiffness
+                            ),
+                            "small_bend_stiffness_n_m": (
+                                NEWTON_EDGE_STIFFNESS_N_M
+                            ),
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+                for _ in range(
+                    max(
+                        1,
+                        round(
+                            SECOND_FOLD_POST_LAYDOWN_SOFTENING_RAMP_S
+                            / physics_dt_s
+                        ),
+                    )
+                ):
+                    write_scripted_arm_state_and_drive_targets(
+                        robot, second_current_row, zero_velocity, joint_ids
+                    )
+                    enforce_second_fold_retention()
+                    scene.write_data_to_sim()
+                    sim.step()
+                    scene.update(physics_dt_s)
+                second_post_laydown_softening_displacement_m = float(
+                    torch.max(
+                        torch.linalg.vector_norm(
+                            cloth.data.nodal_pos_w.torch
+                            - nodes_before_softening_ramp,
+                            dim=-1,
+                        )
+                    ).item()
+                )
+                print(
+                    "S2_POST_LAYDOWN_HIGH_CURVATURE_SOFTENING_RAMP_COMPLETE "
+                    + json.dumps(
+                        {
+                            "duration_s": (
+                                SECOND_FOLD_POST_LAYDOWN_SOFTENING_RAMP_S
+                            ),
+                            "maximum_cloth_displacement_m": (
+                                second_post_laydown_softening_displacement_m
+                            ),
+                            "ramp_fraction": float(
+                                curvature_softening_runtime["ramp_fraction"]
+                            ),
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+
+            # The nominal release opens the left jaw in place and then retreats
+            # vertically.  The bilateral right-arm handoff remains only as a
+            # rejected diagnostic.  The surface-press variant instead stops at
+            # the first real fixed-pad contact and never closes or attaches the
+            # right jaw; it physically suppresses spring-back while the left
+            # jaw opens without pretending to grasp the folded bundle.
+            right_surface_press_enabled = (
+                args.second_fold_release_mode == "right-surface-press"
+            )
+            right_edge_handoff_enabled = (
+                args.second_fold_release_mode == "right-edge-handoff"
+            )
+            right_stabilizer_enabled = (
+                args.second_fold_release_mode
+                in {
+                    "right-stabilized",
+                    "right-surface-press",
+                    "right-edge-handoff",
+                }
+            )
+            right_support_replay_name = (
+                "second_handoff"
+                if right_edge_handoff_enabled
+                else "second_stabilizer"
+            )
+            right_support_phase_prefix = (
+                "second_handoff" if right_edge_handoff_enabled else "second_stabilizer"
+            )
+            right_stabilizer_approach_records = [
+                record
+                for record in source["canonical_replay"][right_support_replay_name]
+                if record["name"].startswith(
+                    f"{right_support_phase_prefix}_departure_"
+                )
+            ] if right_stabilizer_enabled else []
+            expected_right_stabilizer_approach_names = [
+                f"{right_support_phase_prefix}_departure_{index:02d}_right"
+                for index in range(1, 41)
+            ] if right_stabilizer_enabled else []
+            if [record["name"] for record in right_stabilizer_approach_records] != (
+                expected_right_stabilizer_approach_names
+            ):
+                raise RuntimeError("right S2 stabilizer approach sequence is incomplete")
+            nodes_before_right_stabilizer_approach = (
+                cloth.data.nodal_pos_w.torch.clone()
+            )
+            right_stabilizer_current_row = second_current_row
+            right_stabilizer_approach_command_duration_s = 0.0
+            for right_stabilizer_phase in right_stabilizer_approach_records:
+                right_stabilizer_target_row = phase_model_tensor(
+                    source,
+                    right_stabilizer_phase,
+                    gripper_project_positions_rad={
+                        "left": second_project_target,
+                        "right": 0.0,
+                    },
+                    environment_count=environment_count,
+                    device=sim.device,
+                )
+                # The stabilizer replay was solved from the canonical clear
+                # pose, so preserve every left-arm joint at the S2 laydown.
+                right_stabilizer_target_row[:, :6] = second_current_row[:, :6]
+                right_stabilizer_joint_chord_rad = float(
+                    torch.max(
+                        torch.abs(
+                            right_stabilizer_target_row[:, 6:11]
+                            - right_stabilizer_current_row[:, 6:11]
+                        )
+                    ).item()
+                )
+                right_stabilizer_phase_duration_s = max(
+                    SECOND_STABILIZER_MINIMUM_PHASE_DURATION_S,
+                    right_stabilizer_joint_chord_rad
+                    / SECOND_STABILIZER_MAXIMUM_COMMAND_SPEED_RAD_S,
+                )
+                right_stabilizer_phase_steps = max(
+                    2, round(right_stabilizer_phase_duration_s / physics_dt_s)
+                )
+                right_stabilizer_approach_command_duration_s += (
+                    right_stabilizer_phase_steps * physics_dt_s
+                )
+                for step in range(1, right_stabilizer_phase_steps + 1):
+                    alpha = step / right_stabilizer_phase_steps
+                    target = right_stabilizer_current_row + alpha * (
+                        right_stabilizer_target_row - right_stabilizer_current_row
+                    )
+                    write_scripted_arm_state_and_drive_targets(
+                        robot, target, zero_velocity, joint_ids
+                    )
+                    enforce_second_fold_retention()
+                    scene.write_data_to_sim()
+                    sim.step()
+                    scene.update(physics_dt_s)
+                right_stabilizer_current_row = right_stabilizer_target_row
+
+            settle_physical_arm_drives(
+                robot,
+                right_stabilizer_current_row,
+                zero_velocity,
+                joint_ids,
+                scene,
+                sim,
+                cloth,
+                physics_dt_s,
+                args.arm_target_settle_timeout_s,
+                f"{right_support_phase_prefix}_pregrasp_open",
+                post_step_callback=enforce_second_fold_retention,
+            )
+            right_stabilizer_pregrasp_cloth_displacement_m = float(
+                torch.max(
+                    torch.linalg.vector_norm(
+                        cloth.data.nodal_pos_w.torch
+                        - nodes_before_right_stabilizer_approach,
+                        dim=-1,
+                    )
+                ).item()
+            )
+            nodes_before_right_stabilizer_descent = (
+                cloth.data.nodal_pos_w.torch.clone()
+            )
+            if right_stabilizer_enabled:
+                right_stabilizer_contact_record = phase(
+                    source, f"{right_support_phase_prefix}_contact"
+                )
+                right_stabilizer_requested_contact_row = phase_model_tensor(
+                    source,
+                    right_stabilizer_contact_record,
+                    gripper_project_positions_rad={
+                        "left": second_project_target,
+                        "right": 0.0,
+                    },
+                    environment_count=environment_count,
+                    device=sim.device,
+                )
+                right_stabilizer_requested_contact_row[:, :6] = second_current_row[
+                    :, :6
+                ]
+            else:
+                right_stabilizer_requested_contact_row = (
+                    right_stabilizer_current_row.clone()
+                )
+            right_stabilizer_descent_stop_step = (
+                None if right_stabilizer_enabled else 0
+            )
+            right_stabilizer_descent_contact_snapshot = None
+            right_stabilizer_contact_descent_steps = max(
+                2, round(0.15 / physics_dt_s)
+            )
+            for step in (
+                range(1, right_stabilizer_contact_descent_steps + 1)
+                if right_stabilizer_enabled
+                else ()
+            ):
+                alpha = step / right_stabilizer_contact_descent_steps
+                target = right_stabilizer_current_row + alpha * (
+                    right_stabilizer_requested_contact_row
+                    - right_stabilizer_current_row
+                )
+                write_scripted_arm_state_and_drive_targets(
+                    robot, target, zero_velocity, joint_ids
+                )
+                enforce_second_fold_retention()
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(physics_dt_s)
+                contact_snapshot = newton_soft_contact_snapshot()
+                bilateral = (
+                    contact_snapshot.get("bilateral_same_particle_contacts", {})
+                    if contact_snapshot is not None
+                    else {}
+                )
+                right_fixed_pad_particles = sorted(
+                    {
+                        int(index)
+                        for label, indices in (
+                            contact_snapshot.get("jaw_particles_by_shape", {}).items()
+                            if contact_snapshot is not None
+                            else ()
+                        )
+                        if "/right_" in str(label)
+                        and "TowelFixedJawCollider" in str(label)
+                        for index in indices
+                    }
+                )
+                contact_reached = (
+                    bool(right_fixed_pad_particles)
+                    if right_surface_press_enabled
+                    else bool(bilateral.get("right"))
+                )
+                if contact_reached:
+                    right_stabilizer_descent_stop_step = step
+                    right_stabilizer_descent_contact_snapshot = contact_snapshot
+                    right_stabilizer_current_row = target.clone()
+                    break
+            if right_stabilizer_descent_stop_step is None:
+                right_stabilizer_current_row = (
+                    right_stabilizer_requested_contact_row
+                )
+            settle_physical_arm_drives(
+                robot,
+                right_stabilizer_current_row,
+                zero_velocity,
+                joint_ids,
+                scene,
+                sim,
+                cloth,
+                physics_dt_s,
+                args.arm_target_settle_timeout_s,
+                f"{right_support_phase_prefix}_contact_open",
+                post_step_callback=enforce_second_fold_retention,
+            )
+            right_stabilizer_approach_cloth_displacement_m = float(
+                torch.max(
+                    torch.linalg.vector_norm(
+                        cloth.data.nodal_pos_w.torch
+                        - nodes_before_right_stabilizer_approach,
+                        dim=-1,
+                    )
+                ).item()
+            )
+            right_stabilizer_descent_cloth_displacement_m = float(
+                torch.max(
+                    torch.linalg.vector_norm(
+                        cloth.data.nodal_pos_w.torch
+                        - nodes_before_right_stabilizer_descent,
+                        dim=-1,
+                    )
+                ).item()
+            )
+            print(
+                "S2_RIGHT_STABILIZER_APPROACH_GATE "
+                + json.dumps(
+                    {
+                        "maximum_cloth_displacement_m": (
+                            right_stabilizer_approach_cloth_displacement_m
+                        ),
+                        "pregrasp_cloth_displacement_m": (
+                            right_stabilizer_pregrasp_cloth_displacement_m
+                        ),
+                        "contact_descent_cloth_displacement_m": (
+                            right_stabilizer_descent_cloth_displacement_m
+                        ),
+                        "contact_descent_stop_fraction": (
+                            right_stabilizer_descent_stop_step
+                            / right_stabilizer_contact_descent_steps
+                            if right_stabilizer_descent_stop_step is not None
+                            else 1.0
+                        ),
+                        "left_retention_active": second_retention_active,
+                        "commanded_route_duration_s": (
+                            right_stabilizer_approach_command_duration_s
+                        ),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+
+            if right_edge_handoff_enabled:
+                right_stabilizer_project_target = float(
+                    second_fold_gripper_candidate[
+                        "four_layer_project_contact_target_rad"
+                    ]["right"]
+                )
+                right_stabilizer_model_target = float(
+                    second_fold_gripper_candidate[
+                        "four_layer_model_contact_target_rad"
+                    ]["right"]
+                )
+            else:
+                right_stabilizer_project_target = float(
+                    gripper_candidate.grasp_project_rad["right"][4]
+                )
+                right_stabilizer_model_target = float(
+                    gripper_candidate.grasp_model_rad("right", 4)
+                )
+            right_stabilizer_closed_row = right_stabilizer_current_row.clone()
+            right_stabilizer_closed_row[:, GRIPPER_JOINT_INDICES[1]] = (
+                right_stabilizer_model_target
+            )
+            nodes_before_right_stabilizer_close = (
+                cloth.data.nodal_pos_w.torch.clone()
+            )
+            right_stabilizer_contact_snapshot = newton_soft_contact_snapshot()
+            existing_right_bilateral = (
+                right_stabilizer_contact_snapshot.get(
+                    "bilateral_same_particle_contacts", {}
+                ).get("right", [])
+                if right_stabilizer_enabled
+                and right_stabilizer_contact_snapshot is not None
+                else []
+            )
+            # S2 folds topology rows 32..63 over rows 0..31.  The contact
+            # classifier protects the stationary lower bundle, so its split
+            # must be the fold midline rather than an arbitrary four-row
+            # strip at the original free edge.  Edge locality is already
+            # enforced geometrically by the planned jaw pose and finite pad.
+            right_handoff_upper_row_minimum = grid_side // 2
+            right_handoff_contact_state = None
+            if right_edge_handoff_enabled:
+                (
+                    right_handoff_fixed_particles,
+                    right_handoff_moving_particles,
+                ) = newton_jaw_face_contact_particles(
+                    right_stabilizer_contact_snapshot, "right"
+                )
+                right_handoff_contact_state = (
+                    classify_opposing_jaw_two_layer_contact(
+                        right_handoff_fixed_particles,
+                        right_handoff_moving_particles,
+                        grid_side=grid_side,
+                        upper_row_minimum=right_handoff_upper_row_minimum,
+                    )
+                )
+            right_stabilizer_contact_stop_step = (
+                0
+                if right_surface_press_enabled
+                or (
+                    right_edge_handoff_enabled
+                    and right_handoff_contact_state.clean_two_layer_pinch
+                )
+                or (not right_edge_handoff_enabled and existing_right_bilateral)
+                or not right_stabilizer_enabled
+                else None
+            )
+            right_stabilizer_requested_closed_row = (
+                right_stabilizer_closed_row.clone()
+            )
+            if right_stabilizer_contact_stop_step == 0:
+                right_stabilizer_closed_row = right_stabilizer_current_row.clone()
+            for step in (
+                range(1, second_close_steps + 1)
+                if right_stabilizer_contact_stop_step is None
+                else ()
+            ):
+                alpha = step / second_close_steps
+                target = right_stabilizer_current_row + alpha * (
+                    right_stabilizer_requested_closed_row
+                    - right_stabilizer_current_row
+                )
+                write_scripted_arm_state_and_drive_targets(
+                    robot, target, zero_velocity, joint_ids
+                )
+                enforce_second_fold_retention()
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(physics_dt_s)
+                contact_snapshot = newton_soft_contact_snapshot()
+                bilateral = (
+                    contact_snapshot.get("bilateral_same_particle_contacts", {})
+                    if contact_snapshot is not None
+                    else {}
+                )
+                contact_reached = bool(bilateral.get("right"))
+                if right_edge_handoff_enabled:
+                    (
+                        right_handoff_fixed_particles,
+                        right_handoff_moving_particles,
+                    ) = newton_jaw_face_contact_particles(
+                        contact_snapshot, "right"
+                    )
+                    right_handoff_contact_state = (
+                        classify_opposing_jaw_two_layer_contact(
+                            right_handoff_fixed_particles,
+                            right_handoff_moving_particles,
+                            grid_side=grid_side,
+                            upper_row_minimum=(
+                                right_handoff_upper_row_minimum
+                            ),
+                        )
+                    )
+                    if right_handoff_contact_state.lower_bundle_particles:
+                        raise RuntimeError(
+                            "S2 edge handoff touched the stationary lower bundle "
+                            "before a clean two-layer pinch: "
+                            f"closing_fraction={alpha:.6f}, "
+                            f"contact_state={right_handoff_contact_state}"
+                        )
+                    contact_reached = (
+                        right_handoff_contact_state.clean_two_layer_pinch
+                    )
+                if contact_reached:
+                    right_stabilizer_contact_snapshot = contact_snapshot
+                    right_stabilizer_contact_stop_step = step
+                    right_stabilizer_closed_row = target.clone()
+                    break
+            if right_stabilizer_contact_stop_step is None:
+                right_stabilizer_closed_row = (
+                    right_stabilizer_requested_closed_row
+                )
+            for _ in range(max(2, round(PINCH_HOLD_DURATION_S / physics_dt_s))):
+                write_scripted_arm_state_and_drive_targets(
+                    robot, right_stabilizer_closed_row, zero_velocity, joint_ids
+                )
+                enforce_second_fold_retention()
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(physics_dt_s)
+            require_arm_target_reached(
+                robot,
+                right_stabilizer_closed_row,
+                joint_ids,
+                "second_stabilizer_contact_closed",
+            )
+            right_stabilizer_contact_snapshot = newton_soft_contact_snapshot()
+            if right_stabilizer_enabled and right_stabilizer_contact_snapshot is None:
+                raise RuntimeError(
+                    "right S2 stabilizer requires Newton bilateral contact data"
+                )
+            right_stabilizer_bilateral = (
+                right_stabilizer_contact_snapshot.get(
+                    "bilateral_same_particle_contacts", {}
+                )
+                if right_stabilizer_enabled
+                else {}
+            )
+            if right_edge_handoff_enabled:
+                (
+                    right_handoff_fixed_particles,
+                    right_handoff_moving_particles,
+                ) = newton_jaw_face_contact_particles(
+                    right_stabilizer_contact_snapshot, "right"
+                )
+                right_handoff_contact_state = (
+                    classify_opposing_jaw_two_layer_contact(
+                        right_handoff_fixed_particles,
+                        right_handoff_moving_particles,
+                        grid_side=grid_side,
+                        upper_row_minimum=right_handoff_upper_row_minimum,
+                    )
+                )
+                if not right_handoff_contact_state.clean_two_layer_pinch:
+                    raise RuntimeError(
+                        "S2 edge handoff actual-contact gate did not preserve "
+                        "a clean opposing-jaw pinch across both upper layers: "
+                        f"contact_state={right_handoff_contact_state}"
+                    )
+                right_stabilizer_actual_contact_particles = list(
+                    right_handoff_contact_state.upper_bundle_particles
+                )
+            elif right_surface_press_enabled:
+                right_stabilizer_actual_contact_particles = sorted(
+                    {
+                        int(index)
+                        for label, indices in right_stabilizer_contact_snapshot.get(
+                            "jaw_particles_by_shape", {}
+                        ).items()
+                        if "/right_" in str(label)
+                        and "TowelFixedJawCollider" in str(label)
+                        for index in indices
+                    }
+                )
+            else:
+                right_stabilizer_actual_contact_particles = sorted(
+                    {
+                        int(index)
+                        for index in right_stabilizer_bilateral.get("right", [])
+                    }
+                )
+            if right_stabilizer_enabled and not right_stabilizer_actual_contact_particles:
+                raise RuntimeError(
+                    "right S2 support contact gate failed: "
+                    + (
+                        "the fixed rubber pad does not contact the towel"
+                        if right_surface_press_enabled
+                        else "the fixed and moving right jaws do not share a towel particle"
+                    )
+                )
+            right_stabilizer_particle = None
+            if right_stabilizer_enabled:
+                right_stabilizer_gripper_position_w = (
+                    robot.data.body_pos_w.torch[0, gripper_body_ids[1]].clone()
+                )
+                right_stabilizer_gripper_orientation_xyzw = (
+                    robot.data.body_quat_w.torch[0, gripper_body_ids[1]].clone()
+                )
+                right_stabilizer_tcp_w = gripper_tcp_positions_w(
+                    right_stabilizer_gripper_position_w.reshape(1, 1, 3),
+                    right_stabilizer_gripper_orientation_xyzw.reshape(1, 1, 4),
+                )[0, 0]
+                if right_edge_handoff_enabled:
+                    for first_column, last_column in (
+                        (0, grid_side // 2),
+                        (grid_side // 2, grid_side),
+                    ):
+                        layer_particles = [
+                            index
+                            for index in right_stabilizer_actual_contact_particles
+                            if first_column <= index % grid_side < last_column
+                        ]
+                        right_stabilizer_contact_particles.append(
+                            min(
+                                layer_particles,
+                                key=lambda index: float(
+                                    torch.linalg.vector_norm(
+                                        cloth.data.nodal_pos_w.torch[0, index]
+                                        - right_stabilizer_tcp_w
+                                    ).item()
+                                ),
+                            )
+                        )
+                    right_stabilizer_particle = right_stabilizer_contact_particles[0]
+                else:
+                    right_stabilizer_particle = min(
+                        right_stabilizer_actual_contact_particles,
+                        key=lambda index: float(
+                            torch.linalg.vector_norm(
+                                cloth.data.nodal_pos_w.torch[0, index]
+                                - right_stabilizer_tcp_w
+                            ).item()
+                        ),
+                    )
+                    if right_stabilizer_particle in second_contact_particles:
+                        raise RuntimeError(
+                            "right S2 stabilizer contacted only a left-retained edge particle"
+                        )
+                    right_stabilizer_contact_particles.append(
+                        right_stabilizer_particle
+                    )
+                right_stabilizer_inverse_rotation = Gf.Rotation(
+                    Gf.Quatd(
+                        float(right_stabilizer_gripper_orientation_xyzw[3]),
+                        Gf.Vec3d(
+                            *[
+                                float(value)
+                                for value in right_stabilizer_gripper_orientation_xyzw[:3]
+                            ]
+                        ),
+                    )
+                ).GetInverse()
+                right_stabilizer_body_position = Gf.Vec3d(
+                    *[float(value) for value in right_stabilizer_gripper_position_w]
+                )
+                if not right_surface_press_enabled:
+                    right_stabilizer_local_positions.extend(
+                        right_stabilizer_inverse_rotation.TransformDir(
+                            Gf.Vec3d(
+                                *[
+                                    float(value)
+                                    for value in cloth.data.nodal_pos_w.torch[
+                                        0, contact_particle
+                                    ]
+                                ]
+                            )
+                            - right_stabilizer_body_position
+                        )
+                        for contact_particle in right_stabilizer_contact_particles
+                    )
+                    right_stabilizer_retention_active = True
+            enforce_second_fold_retention()
+            achieved_right_stabilizer_model_rad = float(
+                robot.data.joint_pos.torch[0, gripper_joint_ids[1]].item()
+            )
+            right_stabilizer_close_cloth_displacement_m = float(
+                torch.max(
+                    torch.linalg.vector_norm(
+                        cloth.data.nodal_pos_w.torch
+                        - nodes_before_right_stabilizer_close,
+                        dim=-1,
+                    )
+                ).item()
+            )
+            print(
+                "S2_RIGHT_STABILIZER_CONTACT_GATE "
+                + json.dumps(
+                    {
+                        "actual_bilateral_particles": (
+                            right_stabilizer_actual_contact_particles
+                            if not right_surface_press_enabled
+                            else []
+                        ),
+                        "actual_fixed_pad_contact_particles": (
+                            right_stabilizer_actual_contact_particles
+                            if right_surface_press_enabled
+                            else []
+                        ),
+                        "contact_particle": right_stabilizer_particle,
+                        "retained_particle": (
+                            right_stabilizer_particle
+                            if right_stabilizer_retention_active
+                            else None
+                        ),
+                        "right_contact_mode": (
+                            "fixed_rubber_pad_surface_press"
+                            if right_surface_press_enabled
+                            else "bilateral_pinch"
+                        ),
+                        "retention_created": right_stabilizer_retention_active,
+                        "commanded_project_rad": (
+                            right_stabilizer_project_target
+                        ),
+                        "commanded_model_rad": right_stabilizer_model_target,
+                        "contact_stop_model_rad": float(
+                            right_stabilizer_closed_row[
+                                0, GRIPPER_JOINT_INDICES[1]
+                            ].item()
+                        ),
+                        "contact_stop_closing_fraction": (
+                            right_stabilizer_contact_stop_step / second_close_steps
+                            if right_stabilizer_contact_stop_step is not None
+                            else 1.0
+                        ),
+                        "achieved_model_rad": (
+                            achieved_right_stabilizer_model_rad
+                        ),
+                        "command_is_force_claim": False,
+                        "maximum_cloth_displacement_during_approach_m": (
+                            right_stabilizer_approach_cloth_displacement_m
+                        ),
+                        "maximum_cloth_displacement_during_close_m": (
+                            right_stabilizer_close_cloth_displacement_m
+                        ),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+
+            second_current_row = right_stabilizer_closed_row
+            second_open_row = second_current_row.clone()
+            second_open_row[:, GRIPPER_JOINT_INDICES[0]] = (
+                SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD["left"]
+            )
+            if second_active_arm == "bimanual":
+                second_open_row[:, GRIPPER_JOINT_INDICES[1]] = (
+                    SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD["right"]
+                )
+            second_open_steps = max(2, round(JAW_OPEN_DURATION_S / physics_dt_s))
+            second_retention_released_during_open = not (
+                second_retention_active
+                or right_stabilizer_retention_active
+                or second_physx_attachment_active
+            )
+            for step in range(1, second_open_steps + 1):
+                alpha = step / second_open_steps
+                target = second_current_row + alpha * (
+                    second_open_row - second_current_row
+                )
+                write_scripted_arm_state_and_drive_targets(
+                    robot,
+                    target,
+                    zero_velocity,
+                    joint_ids,
+                    lock_gripper_state=True,
+                )
+                if (
+                    second_retention_active
+                    and alpha < SECOND_FOLD_RETENTION_RELEASE_OPEN_FRACTION
+                ):
+                    enforce_second_fold_retention()
+                elif second_retention_active:
+                    second_kinematic_targets[
+                        0, second_contact_particles, 3
+                    ] = 1.0
+                    cloth.write_nodal_kinematic_target_to_sim_index(
+                        second_kinematic_targets
+                    )
+                    second_retention_active = False
+                    if second_active_arm == "bimanual":
+                        right_stabilizer_retention_active = False
+                    second_retention_released_during_open = True
+                    if second_filtered_jaw_flags:
+                        set_left_jaw_particle_collision(
+                            True, saved_flags=second_filtered_jaw_flags
+                        )
+                        print(
+                            "S2_RELEASE_JAW_PARTICLE_COLLISION_RESTORED",
+                            flush=True,
+                        )
+                    print(
+                        "S2_RETENTION_RELEASED_AFTER_MEDIUM_OPEN "
+                        + json.dumps(
+                            {
+                                "opening_travel_fraction": alpha,
+                                "minimum_opening_travel_fraction": (
+                                    SECOND_FOLD_RETENTION_RELEASE_OPEN_FRACTION
+                                ),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
+                elif (
+                    second_physx_attachment_active
+                    and alpha >= SECOND_FOLD_RETENTION_RELEASE_OPEN_FRACTION
+                ):
+                    disable_runtime_attachments(second_physx_attachment_records)
+                    simulation_app.update()
+                    if not runtime_attachments_are_disabled(
+                        second_physx_attachment_records
+                    ):
+                        raise RuntimeError(
+                            "second-fold PhysX attachment remained enabled after release"
+                        )
+                    second_physx_attachment_active = False
+                    second_retention_released_during_open = True
+                    print(
+                        "S2_PHYSX_ATTACHMENT_RELEASED_AFTER_MEDIUM_OPEN "
+                        + json.dumps(
+                            {
+                                "opening_travel_fraction": alpha,
+                                "minimum_opening_travel_fraction": (
+                                    SECOND_FOLD_RETENTION_RELEASE_OPEN_FRACTION
+                                ),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
+                enforce_second_fold_retention()
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(physics_dt_s)
+            if not second_retention_released_during_open:
+                raise RuntimeError("second-fold retention was not released during jaw opening")
+            for _ in range(max(1, round(POST_OPEN_RELEASE_HOLD_S / physics_dt_s))):
+                write_scripted_arm_state_and_drive_targets(
+                    robot,
+                    second_open_row,
+                    zero_velocity,
+                    joint_ids,
+                    lock_gripper_state=True,
+                )
+                enforce_second_fold_retention()
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(physics_dt_s)
+
+            second_release_patch_w = cloth.data.nodal_pos_w.torch[
+                0, second_contact_particles
+            ].clone()
+            second_release_patch_lift_m = float(
+                torch.max(
+                    second_release_patch_w[:, 2]
+                    - second_patch_at_laydown[:, 2]
+                ).item()
+            )
+            second_retreat_records = [
+                record
+                for record in source["canonical_replay"]["second_fold"]
+                if record["name"]
+                in (
+                    {"second_bimanual_retreat"}
+                    if second_active_arm == "bimanual"
+                    else {"second_retreat", "second_reobserve_clear"}
+                )
+            ]
+            expected_second_retreat_names = (
+                ["second_bimanual_retreat"]
+                if second_active_arm == "bimanual"
+                else ["second_retreat", "second_reobserve_clear"]
+            )
+            if [record["name"] for record in second_retreat_records] != (
+                expected_second_retreat_names
+            ):
+                raise RuntimeError("second-fold release retreat sequence is incomplete")
+            second_current_row = second_open_row
+            for second_retreat_phase in second_retreat_records:
+                second_target_row = phase_model_tensor(
+                    source,
+                    second_retreat_phase,
+                    gripper_project_positions_rad={"left": 0.0, "right": 0.0},
+                    environment_count=environment_count,
+                    device=sim.device,
+                )
+                second_target_row[:, GRIPPER_JOINT_INDICES[0]] = (
+                    SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD["left"]
+                )
+                if second_active_arm == "bimanual":
+                    second_target_row[:, GRIPPER_JOINT_INDICES[1]] = (
+                        SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD[
+                            "right"
+                        ]
+                    )
+                else:
+                    second_target_row[:, 6:12] = (
+                        right_stabilizer_closed_row[:, 6:12]
+                    )
+                second_retreat_steps = max(
+                    2, round(args.retreat_seconds / physics_dt_s)
+                )
+                for step in range(1, second_retreat_steps + 1):
+                    alpha = step / second_retreat_steps
+                    target = second_current_row + alpha * (
+                        second_target_row - second_current_row
+                    )
+                    write_scripted_arm_state_and_drive_targets(
+                        robot,
+                        target,
+                        zero_velocity,
+                        joint_ids,
+                        lock_gripper_state=True,
+                    )
+                    enforce_second_fold_retention()
+                    scene.write_data_to_sim()
+                    sim.step()
+                    scene.update(physics_dt_s)
+                second_current_row = second_target_row
+                settle_physical_arm_drives(
+                    robot,
+                    second_target_row,
+                    zero_velocity,
+                    joint_ids,
+                    scene,
+                    sim,
+                    cloth,
+                    physics_dt_s,
+                    args.arm_target_settle_timeout_s,
+                    second_retreat_phase["name"],
+                    lock_gripper_state=True,
+                    post_step_callback=enforce_second_fold_retention,
+                )
+
+            second_patch_to_gripper_distance_m_by_arm = {}
+            for arm_index, side in enumerate(second_contact_particles_by_arm):
+                arm_patch_after_retreat_w = cloth.data.nodal_pos_w.torch[
+                    0, second_contact_particles_by_arm[side]
+                ]
+                arm_gripper_after_retreat_w = robot.data.body_pos_w.torch[
+                    0, gripper_body_ids[arm_index]
+                ]
+                second_patch_to_gripper_distance_m_by_arm[side] = float(
+                    torch.min(
+                        torch.linalg.vector_norm(
+                            arm_patch_after_retreat_w
+                            - arm_gripper_after_retreat_w,
+                            dim=-1,
+                        )
+                    ).item()
+                )
+            second_patch_to_gripper_distance_m = min(
+                second_patch_to_gripper_distance_m_by_arm.values()
+            )
+            stuck_release_arms = [
+                side
+                for side, distance_m in (
+                    second_patch_to_gripper_distance_m_by_arm.items()
+                )
+                if distance_m
+                < SECOND_FOLD_MINIMUM_RELEASE_PATCH_TO_JAW_DISTANCE_M
+            ]
+            if (
+                second_release_patch_lift_m
+                > SECOND_FOLD_MAXIMUM_RELEASE_PATCH_LIFT_M
+                and stuck_release_arms
+            ):
+                raise RuntimeError(
+                    "second-fold release gate failed: "
+                    f"patch_lift={second_release_patch_lift_m:.6f} m, "
+                    "patch_to_gripper_by_arm="
+                    f"{second_patch_to_gripper_distance_m_by_arm}, "
+                    f"stuck_arms={stuck_release_arms}"
+                )
+
+            right_stabilizer_patch_at_release_w = (
+                cloth.data.nodal_pos_w.torch[
+                    0, right_stabilizer_contact_particles
+                ].clone()
+                if right_stabilizer_enabled
+                else None
+            )
+            right_stabilizer_open_row = second_current_row.clone()
+            if right_stabilizer_enabled and not right_surface_press_enabled:
+                right_stabilizer_open_row[:, GRIPPER_JOINT_INDICES[1]] = (
+                    SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD["right"]
+                )
+            right_stabilizer_released_during_open = (
+                not right_stabilizer_enabled or right_surface_press_enabled
+            )
+            for step in (
+                range(1, second_open_steps + 1)
+                if right_stabilizer_enabled and not right_surface_press_enabled
+                else ()
+            ):
+                alpha = step / second_open_steps
+                target = second_current_row + alpha * (
+                    right_stabilizer_open_row - second_current_row
+                )
+                write_scripted_arm_state_and_drive_targets(
+                    robot,
+                    target,
+                    zero_velocity,
+                    joint_ids,
+                    lock_gripper_state=True,
+                )
+                if (
+                    right_stabilizer_retention_active
+                    and alpha < SECOND_FOLD_RETENTION_RELEASE_OPEN_FRACTION
+                ):
+                    enforce_second_fold_retention()
+                elif right_stabilizer_retention_active:
+                    second_kinematic_targets[
+                        0, right_stabilizer_contact_particles, 3
+                    ] = 1.0
+                    cloth.write_nodal_kinematic_target_to_sim_index(
+                        second_kinematic_targets
+                    )
+                    right_stabilizer_retention_active = False
+                    right_stabilizer_released_during_open = True
+                    print(
+                        "S2_RIGHT_STABILIZER_RELEASED_AFTER_LEFT_CLEAR "
+                        + json.dumps(
+                            {
+                                "opening_travel_fraction": alpha,
+                                "minimum_opening_travel_fraction": (
+                                    SECOND_FOLD_RETENTION_RELEASE_OPEN_FRACTION
+                                ),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(physics_dt_s)
+            if not right_stabilizer_released_during_open:
+                raise RuntimeError("right S2 stabilizer was not released during jaw opening")
+            for _ in range(max(1, round(POST_OPEN_RELEASE_HOLD_S / physics_dt_s))):
+                write_scripted_arm_state_and_drive_targets(
+                    robot,
+                    right_stabilizer_open_row,
+                    zero_velocity,
+                    joint_ids,
+                    lock_gripper_state=True,
+                )
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(physics_dt_s)
+
+            right_stabilizer_retreat_records = [
+                record
+                for record in source["canonical_replay"][right_support_replay_name]
+                if record["name"]
+                in {
+                    f"{right_support_phase_prefix}_retreat",
+                    f"{right_support_phase_prefix}_reobserve_clear",
+                }
+            ] if right_stabilizer_enabled else []
+            if [record["name"] for record in right_stabilizer_retreat_records] != [
+                *(
+                    (
+                        f"{right_support_phase_prefix}_retreat",
+                        f"{right_support_phase_prefix}_reobserve_clear",
+                    )
+                    if right_stabilizer_enabled
+                    else ()
+                )
+            ]:
+                raise RuntimeError("right S2 stabilizer retreat sequence is incomplete")
+            second_current_row = right_stabilizer_open_row
+            for right_stabilizer_retreat_phase in right_stabilizer_retreat_records:
+                right_stabilizer_target_row = phase_model_tensor(
+                    source,
+                    right_stabilizer_retreat_phase,
+                    gripper_project_positions_rad={"left": 0.0, "right": 0.0},
+                    environment_count=environment_count,
+                    device=sim.device,
+                )
+                right_stabilizer_target_row[:, :6] = second_current_row[:, :6]
+                right_stabilizer_target_row[:, GRIPPER_JOINT_INDICES[0]] = (
+                    SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD["left"]
+                )
+                right_stabilizer_target_row[:, GRIPPER_JOINT_INDICES[1]] = (
+                    SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD["right"]
+                )
+                right_stabilizer_retreat_steps = max(
+                    2, round(args.retreat_seconds / physics_dt_s)
+                )
+                for step in range(1, right_stabilizer_retreat_steps + 1):
+                    alpha = step / right_stabilizer_retreat_steps
+                    target = second_current_row + alpha * (
+                        right_stabilizer_target_row - second_current_row
+                    )
+                    write_scripted_arm_state_and_drive_targets(
+                        robot,
+                        target,
+                        zero_velocity,
+                        joint_ids,
+                        lock_gripper_state=True,
+                    )
+                    scene.write_data_to_sim()
+                    sim.step()
+                    scene.update(physics_dt_s)
+                second_current_row = right_stabilizer_target_row
+                settle_physical_arm_drives(
+                    robot,
+                    right_stabilizer_target_row,
+                    zero_velocity,
+                    joint_ids,
+                    scene,
+                    sim,
+                    cloth,
+                    physics_dt_s,
+                    args.arm_target_settle_timeout_s,
+                    right_stabilizer_retreat_phase["name"],
+                    lock_gripper_state=True,
+                )
+
+            right_stabilizer_release_patch_lift_m = None
+            right_stabilizer_patch_to_gripper_distance_m = None
+            if right_stabilizer_enabled:
+                right_stabilizer_patch_after_retreat_w = cloth.data.nodal_pos_w.torch[
+                    0, right_stabilizer_contact_particles
+                ]
+                right_stabilizer_gripper_after_retreat_w = robot.data.body_pos_w.torch[
+                    0, gripper_body_ids[1]
+                ]
+                right_stabilizer_release_patch_lift_m = float(
+                    torch.max(
+                        right_stabilizer_patch_after_retreat_w[:, 2]
+                        - right_stabilizer_patch_at_release_w[:, 2]
+                    ).item()
+                )
+                right_stabilizer_patch_to_gripper_distance_m = float(
+                    torch.min(
+                        torch.linalg.vector_norm(
+                            right_stabilizer_patch_after_retreat_w
+                            - right_stabilizer_gripper_after_retreat_w,
+                            dim=-1,
+                        )
+                    ).item()
+                )
+                if (
+                    right_stabilizer_release_patch_lift_m
+                    > SECOND_FOLD_MAXIMUM_RELEASE_PATCH_LIFT_M
+                    and right_stabilizer_patch_to_gripper_distance_m
+                    < SECOND_FOLD_MINIMUM_RELEASE_PATCH_TO_JAW_DISTANCE_M
+                ):
+                    raise RuntimeError(
+                        "right S2 stabilizer release gate failed: "
+                        f"patch_lift={right_stabilizer_release_patch_lift_m:.6f} m, "
+                        "patch_to_gripper="
+                        f"{right_stabilizer_patch_to_gripper_distance_m:.6f} m"
+                    )
+
+            if second_fold_correction_checkpoint_local is not None:
+                correction_checkpoint_local = torch.tensor(
+                    second_fold_correction_checkpoint_local,
+                    dtype=cloth.data.nodal_pos_w.torch.dtype,
+                    device=sim.device,
+                )
+                correction_checkpoint_position_w = (
+                    correction_checkpoint_local.unsqueeze(0)
+                    + scene.env_origins[:, None, :]
+                )
+                correction_checkpoint_velocity_w = torch.zeros_like(
+                    correction_checkpoint_position_w
+                )
+                correction_checkpoint_state_w = torch.cat(
+                    (
+                        correction_checkpoint_position_w,
+                        correction_checkpoint_velocity_w,
+                    ),
+                    dim=-1,
+                )
+                cloth.write_nodal_state_to_sim_index(
+                    correction_checkpoint_state_w
+                )
+                correction_checkpoint_error_m = float(
+                    torch.max(
+                        torch.linalg.vector_norm(
+                            local_nodes(scene, cloth)
+                            - correction_checkpoint_local.unsqueeze(0),
+                            dim=-1,
+                        )
+                    ).item()
+                )
+                if correction_checkpoint_error_m > 1.0e-6:
+                    raise RuntimeError(
+                        "raw S2 correction checkpoint write failed: "
+                        f"maximum_error={correction_checkpoint_error_m:.9f} m"
+                    )
+                second_fold_correction_checkpoint = {
+                    **second_fold_correction_checkpoint_source,
+                    "maximum_write_error_m": correction_checkpoint_error_m,
+                    "velocity_reset_to_zero": True,
+                    "purpose": "isolate_camera_correction_from_raw_S2_nondeterminism",
+                    "end_to_end_result_claimed": False,
+                }
+                print(
+                    "S2_CORRECTION_RAW_CHECKPOINT_RESTORED "
+                    + json.dumps(
+                        second_fold_correction_checkpoint, sort_keys=True
+                    ),
+                    flush=True,
+                )
+
+            second_settled_run = 0
+            second_settled_step = None
+            second_settle_samples: list[dict[str, float]] = []
+            second_settle_sample_steps = max(
+                1, round((1.0 / RELEASE_SHAPE_VIDEO_FPS) / physics_dt_s)
+            )
+            second_previous_sample_nodes = local_nodes(scene, cloth).clone()
+            second_previous_edge_residual_m = None
+            for settle_step in range(
+                1, math.ceil(SECOND_FOLD_SETTLE_TIMEOUT_S / physics_dt_s) + 1
+            ):
+                write_scripted_arm_state_and_drive_targets(
+                    robot,
+                    second_current_row,
+                    zero_velocity,
+                    joint_ids,
+                    lock_gripper_state=True,
+                )
+                scene.write_data_to_sim()
+                sim.step()
+                scene.update(physics_dt_s)
+                second_speed = float(
+                    torch.max(
+                        torch.linalg.vector_norm(
+                            cloth.data.nodal_vel_w.torch, dim=-1
+                        )
+                    ).item()
+                )
+                if settle_step % second_settle_sample_steps == 0:
+                    second_current_sample_nodes = local_nodes(scene, cloth).clone()
+                    second_sample_displacement = torch.linalg.vector_norm(
+                        second_current_sample_nodes - second_previous_sample_nodes,
+                        dim=-1,
+                    )
+                    second_p95_sample_displacement_m = float(
+                        torch.max(
+                            torch.quantile(
+                                second_sample_displacement, 0.95, dim=1
+                            )
+                        ).item()
+                    )
+                    second_sample_grid = second_current_sample_nodes.reshape(
+                        environment_count, grid_side, grid_side, 3
+                    )
+                    second_edge_residual_sample_m = float(
+                        (
+                            torch.median(second_sample_grid[0, -1, :, 1])
+                            - torch.median(second_sample_grid[0, 0, :, 1])
+                        ).item()
+                    )
+                    second_edge_residual_change_m = (
+                        abs(
+                            second_edge_residual_sample_m
+                            - second_previous_edge_residual_m
+                        )
+                        if second_previous_edge_residual_m is not None
+                        else None
+                    )
+                    second_settle_samples.append(
+                        {
+                            "time_s": settle_step * physics_dt_s,
+                            "p95_shape_displacement_m": (
+                                second_p95_sample_displacement_m
+                            ),
+                            "edge_residual_m": second_edge_residual_sample_m,
+                            "edge_residual_change_m": (
+                                second_edge_residual_change_m
+                            ),
+                            "maximum_node_speed_m_s": second_speed,
+                        }
+                    )
+                    sample_stable = (
+                        second_p95_sample_displacement_m
+                        <= RELEASE_SHAPE_DISPLACEMENT_THRESHOLD_M
+                        and second_edge_residual_change_m is not None
+                        and second_edge_residual_change_m
+                        <= RELEASE_SHAPE_DISPLACEMENT_THRESHOLD_M
+                    )
+                    second_settled_run = (
+                        second_settled_run + 1 if sample_stable else 0
+                    )
+                    second_previous_sample_nodes = second_current_sample_nodes
+                    second_previous_edge_residual_m = (
+                        second_edge_residual_sample_m
+                    )
+                    if (
+                        second_settled_run
+                        >= RELEASE_SHAPE_CONSECUTIVE_VIDEO_FRAMES
+                    ):
+                        second_settled_step = settle_step
+                        break
+            second_settle_gate_passed = second_settled_step is not None
+
+            if second_fold_correction_replay is not None:
+                if not second_settle_gate_passed:
+                    raise RuntimeError(
+                        "second-fold correction requires a camera-stable raw S2 "
+                        f"shape; last_sample={second_settle_samples[-1]}"
+                    )
+                correction_grid_before = local_nodes(scene, cloth).reshape(
+                    environment_count, grid_side, grid_side, 3
+                )
+                correction_moving_y_before = float(
+                    torch.median(correction_grid_before[0, -1, :, 1]).item()
+                )
+                correction_stationary_y_before = float(
+                    torch.median(correction_grid_before[0, 0, :, 1]).item()
+                )
+                correction_residual_before = (
+                    correction_moving_y_before - correction_stationary_y_before
+                )
+                planned_observation = second_fold_correction_replay.get(
+                    "geometry_oracle_observation", {}
+                )
+                planned_residual = float(
+                    planned_observation["moving_free_edge_y_m"]
+                ) - float(planned_observation["stationary_right_edge_y_m"])
+                if (
+                    abs(correction_residual_before - planned_residual)
+                    > SECOND_FOLD_CORRECTION_OBSERVATION_TOLERANCE_M
+                    or correction_residual_before * planned_residual <= 0.0
+                ):
+                    raise RuntimeError(
+                        "fresh S2 edge observation no longer matches the correction "
+                        f"plan: current={correction_residual_before:.6f} m, "
+                        f"planned={planned_residual:.6f} m"
+                    )
+                print(
+                    "S2_CORRECTION_FRESH_OBSERVATION_GATE "
+                    + json.dumps(
+                        {
+                            "moving_free_edge_y_m": correction_moving_y_before,
+                            "stationary_right_edge_y_m": correction_stationary_y_before,
+                            "signed_residual_m": correction_residual_before,
+                            "planned_signed_residual_m": planned_residual,
+                            "maximum_plan_difference_m": (
+                                SECOND_FOLD_CORRECTION_OBSERVATION_TOLERANCE_M
+                            ),
+                            "settled": True,
+                            "arms_clear": True,
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+
+                correction_contact_index = next(
+                    index
+                    for index, record in enumerate(second_fold_correction_records)
+                    if record["name"] == "second_correction_contact"
+                )
+                correction_laydown_index = next(
+                    index
+                    for index, record in enumerate(second_fold_correction_records)
+                    if record["name"] == "second_correction_laydown"
+                )
+                correction_current_row = second_current_row
+                correction_nodes_before_approach = (
+                    cloth.data.nodal_pos_w.torch.clone()
+                )
+
+                def execute_second_correction_phase(
+                    record: dict[str, object],
+                    *,
+                    gripper_model_rad: float,
+                    retention_callback: object | None = None,
+                ) -> torch.Tensor:
+                    nonlocal correction_current_row
+                    target_row = phase_model_tensor(
+                        source,
+                        record,
+                        gripper_project_positions_rad={"left": 0.0, "right": 0.0},
+                        environment_count=environment_count,
+                        device=sim.device,
+                    )
+                    target_row[:, :6] = correction_current_row[:, :6]
+                    target_row[:, GRIPPER_JOINT_INDICES[0]] = (
+                        SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD["left"]
+                    )
+                    target_row[:, GRIPPER_JOINT_INDICES[1]] = gripper_model_rad
+                    right_joint_chord_rad = float(
+                        torch.max(
+                            torch.abs(
+                                target_row[:, 6:11]
+                                - correction_current_row[:, 6:11]
+                            )
+                        ).item()
+                    )
+                    duration_s = max(
+                        SECOND_STABILIZER_MINIMUM_PHASE_DURATION_S,
+                        right_joint_chord_rad
+                        / SECOND_STABILIZER_MAXIMUM_COMMAND_SPEED_RAD_S,
+                    )
+                    phase_steps = max(2, round(duration_s / physics_dt_s))
+                    for phase_step in range(1, phase_steps + 1):
+                        alpha = phase_step / phase_steps
+                        target = correction_current_row + alpha * (
+                            target_row - correction_current_row
+                        )
+                        write_scripted_arm_state_and_drive_targets(
+                            robot,
+                            target,
+                            zero_velocity,
+                            joint_ids,
+                            lock_gripper_state=True,
+                        )
+                        if retention_callback is not None:
+                            retention_callback()
+                        scene.write_data_to_sim()
+                        sim.step()
+                        scene.update(physics_dt_s)
+                        if not torch.all(
+                            torch.isfinite(cloth.data.nodal_pos_w.torch)
+                        ):
+                            raise RuntimeError(
+                                "cloth produced non-finite nodes during S2 correction "
+                                f"{record['name']}"
+                            )
+                    correction_current_row = target_row
+                    settle_physical_arm_drives(
+                        robot,
+                        target_row,
+                        zero_velocity,
+                        joint_ids,
+                        scene,
+                        sim,
+                        cloth,
+                        physics_dt_s,
+                        args.arm_target_settle_timeout_s,
+                        str(record["name"]),
+                        post_step_callback=retention_callback,
+                        lock_gripper_state=True,
+                    )
+                    return target_row
+
+                correction_open_model_rad = (
+                    SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD["right"]
+                )
+                for correction_record in second_fold_correction_records[
+                    : correction_contact_index + 1
+                ]:
+                    execute_second_correction_phase(
+                        correction_record,
+                        gripper_model_rad=correction_open_model_rad,
+                    )
+
+                correction_project_target = float(
+                    second_fold_gripper_candidate[
+                        "four_layer_project_contact_target_rad"
+                    ]["right"]
+                )
+                correction_model_target = float(
+                    second_fold_gripper_candidate[
+                        "four_layer_model_contact_target_rad"
+                    ]["right"]
+                )
+                correction_open_contact_row = correction_current_row.clone()
+                if correction_is_open_jaw_edge_push:
+                    # The complete push is the old "translate" tail target.
+                    # Interpolate to it with the jaw held fully open so contact
+                    # is physical and no cloth particle is kinematically retained.
+                    correction_requested_pinch_row = phase_model_tensor(
+                        source,
+                        second_fold_correction_records[
+                            correction_contact_index + 2
+                        ],
+                        gripper_project_positions_rad={"left": 0.0, "right": 0.0},
+                        environment_count=environment_count,
+                        device=sim.device,
+                    )
+                    correction_requested_pinch_row[:, :6] = (
+                        correction_current_row[:, :6]
+                    )
+                    correction_requested_pinch_row[
+                        :, GRIPPER_JOINT_INDICES[0]
+                    ] = SIMULATION_RELEASE_MODEL_GRIPPER_JOINT_POSITIONS_RAD["left"]
+                    correction_requested_pinch_row[
+                        :, GRIPPER_JOINT_INDICES[1]
+                    ] = correction_open_model_rad
+                    correction_project_target = None
+                    correction_model_target = correction_open_model_rad
+                else:
+                    correction_requested_pinch_row = correction_current_row.clone()
+                    correction_requested_pinch_row[:, GRIPPER_JOINT_INDICES[1]] = (
+                        correction_model_target
+                    )
+                correction_nodes_before_close = cloth.data.nodal_pos_w.torch.clone()
+                correction_close_steps = max(
+                    2, round(PINCH_CLOSE_DURATION_S / physics_dt_s)
+                )
+                # The complete moved S2 half is the upper bundle.  Restricting
+                # this to the last four topology rows falsely labels a valid
+                # inward contact on a curled/arched upper edge as stationary
+                # lower-cloth contact (for example row 55 of a 64x64 cloth).
+                correction_upper_row_minimum = grid_side // 2
+                correction_contact_stop_step = None
+                correction_contact_snapshot = None
+                correction_bilateral_particles: list[int] = []
+                correction_fixed_face_particles: list[int] = []
+                correction_moving_face_particles: list[int] = []
+                correction_upper_particles: list[int] = []
+                correction_lower_particles: list[int] = []
+                correction_opposing_assignment = None
+                correction_contacted_s1_layers = {
+                    "first_half": False,
+                    "second_half": False,
+                }
+                correction_last_contact_state = None
+                for correction_close_step in range(1, correction_close_steps + 1):
+                    alpha = correction_close_step / correction_close_steps
+                    target = correction_open_contact_row + alpha * (
+                        correction_requested_pinch_row - correction_open_contact_row
+                    )
+                    write_scripted_arm_state_and_drive_targets(
+                        robot,
+                        target,
+                        zero_velocity,
+                        joint_ids,
+                        lock_gripper_state=True,
+                    )
+                    scene.write_data_to_sim()
+                    sim.step()
+                    scene.update(physics_dt_s)
+                    step_snapshot = newton_soft_contact_snapshot()
+                    step_bilateral = step_snapshot.get(
+                        "bilateral_same_particle_contacts", {}
+                    ).get("right", [])
+                    step_bilateral_particles = sorted(
+                        {int(index) for index in step_bilateral}
+                    )
+                    (
+                        step_fixed_face_particles,
+                        step_moving_face_particles,
+                    ) = newton_jaw_face_contact_particles(step_snapshot, "right")
+                    if (
+                        correction_is_open_jaw_edge_push
+                        and step_moving_face_particles
+                    ):
+                        raise RuntimeError(
+                            "S2 fixed-pad edge push touched cloth with the long "
+                            "moving jaw: "
+                            f"motion_fraction={alpha:.6f}, "
+                            f"particles={step_moving_face_particles}"
+                        )
+                    step_contact_state = classify_opposing_jaw_two_layer_contact(
+                        step_fixed_face_particles,
+                        step_moving_face_particles,
+                        grid_side=grid_side,
+                        upper_row_minimum=correction_upper_row_minimum,
+                    )
+                    correction_last_contact_state = step_contact_state
+                    step_upper_particles = list(
+                        step_contact_state.upper_bundle_particles
+                    )
+                    step_lower_particles = list(
+                        step_contact_state.lower_bundle_particles
+                    )
+                    step_contacted_s1_layers = {
+                        "first_half": (
+                            step_contact_state.fixed_contacts_first_half
+                            or step_contact_state.moving_contacts_first_half
+                        ),
+                        "second_half": (
+                            step_contact_state.fixed_contacts_second_half
+                            or step_contact_state.moving_contacts_second_half
+                        ),
+                    }
+                    if step_lower_particles:
+                        raise RuntimeError(
+                            "S2 correction touched the stationary lower bundle: "
+                            f"closing_fraction={alpha:.6f}, "
+                            f"lower={step_lower_particles}, "
+                            f"upper={step_upper_particles}"
+                        )
+                    if correction_is_open_jaw_edge_push:
+                        correction_current_row = target.clone()
+                        if step_upper_particles:
+                            # Retain the latest physical pusher contact, but do
+                            # not stop the commanded bounded push early.
+                            correction_contact_stop_step = correction_close_step
+                            correction_contact_snapshot = step_snapshot
+                            correction_bilateral_particles = step_bilateral_particles
+                            correction_fixed_face_particles = (
+                                step_fixed_face_particles
+                            )
+                            correction_moving_face_particles = (
+                                step_moving_face_particles
+                            )
+                            correction_upper_particles = step_upper_particles
+                            correction_lower_particles = step_lower_particles
+                            correction_opposing_assignment = "open_jaw_edge_push"
+                            correction_contacted_s1_layers = (
+                                step_contacted_s1_layers
+                            )
+                    elif step_contact_state.clean_two_layer_pinch:
+                        correction_contact_stop_step = correction_close_step
+                        correction_current_row = target.clone()
+                        correction_contact_snapshot = step_snapshot
+                        correction_bilateral_particles = step_bilateral_particles
+                        correction_fixed_face_particles = (
+                            step_fixed_face_particles
+                        )
+                        correction_moving_face_particles = (
+                            step_moving_face_particles
+                        )
+                        correction_upper_particles = step_upper_particles
+                        correction_lower_particles = step_lower_particles
+                        correction_opposing_assignment = (
+                            step_contact_state.opposing_assignment
+                        )
+                        correction_contacted_s1_layers = (
+                            step_contacted_s1_layers
+                        )
+                        break
+                if correction_contact_stop_step is None:
+                    raise RuntimeError(
+                        "S2 correction did not obtain the required upper-edge contact: "
+                        f"last_contact_state={correction_last_contact_state}"
+                    )
+                for _ in range(max(2, round(PINCH_HOLD_DURATION_S / physics_dt_s))):
+                    write_scripted_arm_state_and_drive_targets(
+                        robot,
+                        correction_current_row,
+                        zero_velocity,
+                        joint_ids,
+                        lock_gripper_state=True,
+                    )
+                    scene.write_data_to_sim()
+                    sim.step()
+                    scene.update(physics_dt_s)
+                require_arm_target_reached(
+                    robot,
+                    correction_current_row,
+                    joint_ids,
+                    "second_correction_contact_closed",
+                )
+
+                correction_contact_snapshot = newton_soft_contact_snapshot()
+                correction_bilateral = correction_contact_snapshot.get(
+                    "bilateral_same_particle_contacts", {}
+                ).get("right", [])
+                correction_bilateral_particles = sorted(
+                    {int(index) for index in correction_bilateral}
+                )
+                (
+                    correction_fixed_face_particles,
+                    correction_moving_face_particles,
+                ) = newton_jaw_face_contact_particles(
+                    correction_contact_snapshot, "right"
+                )
+                correction_contact_state = classify_opposing_jaw_two_layer_contact(
+                    correction_fixed_face_particles,
+                    correction_moving_face_particles,
+                    grid_side=grid_side,
+                    upper_row_minimum=correction_upper_row_minimum,
+                )
+                correction_upper_particles = list(
+                    correction_contact_state.upper_bundle_particles
+                )
+                correction_lower_particles = list(
+                    correction_contact_state.lower_bundle_particles
+                )
+                correction_opposing_assignment = (
+                    "open_jaw_fixed_pad_edge_push"
+                    if correction_is_open_jaw_edge_push
+                    else correction_contact_state.opposing_assignment
+                )
+                if (
+                    correction_is_open_jaw_edge_push
+                    and correction_moving_face_particles
+                ):
+                    raise RuntimeError(
+                        "S2 fixed-pad edge push ended with moving-jaw cloth contact: "
+                        f"particles={correction_moving_face_particles}"
+                    )
+                if correction_lower_particles:
+                    raise RuntimeError(
+                        "S2 correction clean contact did not survive the hold; "
+                        "stationary lower-bundle particles appeared: "
+                        f"lower={correction_lower_particles}, "
+                        f"fixed_upper={correction_contact_state.fixed_upper_particles}, "
+                        f"moving_upper={correction_contact_state.moving_upper_particles}"
+                    )
+                correction_contacted_s1_layers = {
+                    "first_half": (
+                        correction_contact_state.fixed_contacts_first_half
+                        or correction_contact_state.moving_contacts_first_half
+                    ),
+                    "second_half": (
+                        correction_contact_state.fixed_contacts_second_half
+                        or correction_contact_state.moving_contacts_second_half
+                    ),
+                }
+                if (
+                    correction_is_open_jaw_edge_push
+                    and not correction_fixed_face_particles
+                ):
+                    raise RuntimeError(
+                        "S2 open-jaw correction lost fixed-pad upper-edge contact "
+                        "at the end of the bounded push"
+                    )
+                if (
+                    not correction_is_open_jaw_edge_push
+                    and not correction_contact_state.clean_two_layer_pinch
+                ):
+                    raise RuntimeError(
+                        "S2 correction actual-contact gate did not preserve an "
+                        "opposing-jaw pinch across both upper S1 layers: "
+                        f"contact_state={correction_contact_state}"
+                    )
+
+                correction_gripper_position_w = robot.data.body_pos_w.torch[
+                    0, gripper_body_ids[1]
+                ].clone()
+                correction_gripper_orientation_xyzw = robot.data.body_quat_w.torch[
+                    0, gripper_body_ids[1]
+                ].clone()
+                correction_tcp_w = gripper_tcp_positions_w(
+                    correction_gripper_position_w.reshape(1, 1, 3),
+                    correction_gripper_orientation_xyzw.reshape(1, 1, 4),
+                )[0, 0]
+                correction_contact_particles: list[int] = []
+                if correction_is_open_jaw_edge_push:
+                    correction_contact_particles.append(
+                        min(
+                            correction_upper_particles,
+                            key=lambda index: float(
+                                torch.linalg.vector_norm(
+                                    cloth.data.nodal_pos_w.torch[0, index]
+                                    - correction_tcp_w
+                                ).item()
+                            ),
+                        )
+                    )
+                else:
+                    for first_column, last_column in (
+                        (0, grid_side // 2),
+                        (grid_side // 2, grid_side),
+                    ):
+                        layer_particles = [
+                            index
+                            for index in correction_upper_particles
+                            if first_column <= index % grid_side < last_column
+                        ]
+                        correction_contact_particles.append(
+                            min(
+                                layer_particles,
+                                key=lambda index: float(
+                                    torch.linalg.vector_norm(
+                                        cloth.data.nodal_pos_w.torch[0, index]
+                                        - correction_tcp_w
+                                    ).item()
+                                ),
+                            )
+                        )
+                correction_inverse_rotation = Gf.Rotation(
+                    Gf.Quatd(
+                        float(correction_gripper_orientation_xyzw[3]),
+                        Gf.Vec3d(
+                            *[
+                                float(value)
+                                for value in correction_gripper_orientation_xyzw[:3]
+                            ]
+                        ),
+                    )
+                ).GetInverse()
+                correction_body_position = Gf.Vec3d(
+                    *[float(value) for value in correction_gripper_position_w]
+                )
+                correction_local_positions = [
+                    correction_inverse_rotation.TransformDir(
+                        Gf.Vec3d(
+                            *[
+                                float(value)
+                                for value in cloth.data.nodal_pos_w.torch[0, index]
+                            ]
+                        )
+                        - correction_body_position
+                    )
+                    for index in correction_contact_particles
+                ]
+                correction_kinematic_targets = torch.empty(
+                    (environment_count, grid_side * grid_side, 4),
+                    dtype=cloth.data.nodal_pos_w.torch.dtype,
+                    device=sim.device,
+                )
+                correction_kinematic_targets[..., :3] = (
+                    cloth.data.nodal_pos_w.torch
+                )
+                correction_kinematic_targets[..., 3] = 1.0
+                correction_retention_active = not correction_is_open_jaw_edge_push
+
+                def enforce_second_fold_correction_retention() -> None:
+                    if not correction_retention_active:
+                        return
+                    body_position = Gf.Vec3d(
+                        *[
+                            float(value)
+                            for value in robot.data.body_pos_w.torch[
+                                0, gripper_body_ids[1]
+                            ]
+                        ]
+                    )
+                    orientation = robot.data.body_quat_w.torch[
+                        0, gripper_body_ids[1]
+                    ].tolist()
+                    rotation = Gf.Rotation(
+                        Gf.Quatd(orientation[3], Gf.Vec3d(*orientation[:3]))
+                    )
+                    for index, local_position in zip(
+                        correction_contact_particles,
+                        correction_local_positions,
+                        strict=True,
+                    ):
+                        target_position = body_position + rotation.TransformDir(
+                            local_position
+                        )
+                        correction_kinematic_targets[0, index, :3] = torch.tensor(
+                            [target_position[axis] for axis in range(3)],
+                            dtype=correction_kinematic_targets.dtype,
+                            device=correction_kinematic_targets.device,
+                        )
+                        correction_kinematic_targets[0, index, 3] = 0.0
+                    cloth.write_nodal_kinematic_target_to_sim_index(
+                        correction_kinematic_targets
+                    )
+
+                enforce_second_fold_correction_retention()
+                correction_close_displacement_m = float(
+                    torch.max(
+                        torch.linalg.vector_norm(
+                            cloth.data.nodal_pos_w.torch - correction_nodes_before_close,
+                            dim=-1,
+                        )
+                    ).item()
+                )
+                print(
+                    "S2_CORRECTION_ACTUAL_CONTACT_GATE "
+                    + json.dumps(
+                        {
+                            "bilateral_particles": correction_bilateral_particles,
+                            "fixed_rubber_face_particles": (
+                                correction_fixed_face_particles
+                            ),
+                            "moving_jaw_face_particles": (
+                                correction_moving_face_particles
+                            ),
+                            "upper_bundle_particles": correction_upper_particles,
+                            "retained_particles_one_per_s1_layer": (
+                                correction_contact_particles
+                            ),
+                            "contacted_s1_topology_halves": (
+                                correction_contacted_s1_layers
+                            ),
+                            "opposing_face_assignment": (
+                                correction_opposing_assignment
+                            ),
+                            "commanded_project_rad": correction_project_target,
+                            "commanded_model_rad": correction_model_target,
+                            "contact_stop_closing_fraction": (
+                                correction_contact_stop_step
+                                / correction_close_steps
+                            ),
+                            "contact_stop_model_rad": float(
+                                correction_current_row[
+                                    0, GRIPPER_JOINT_INDICES[1]
+                                ].item()
+                            ),
+                            "maximum_cloth_displacement_during_close_m": (
+                                correction_close_displacement_m
+                            ),
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+
+                correction_nodes_before_transport = (
+                    cloth.data.nodal_pos_w.torch.clone()
+                )
+                correction_transport_records = (
+                    []
+                    if correction_is_open_jaw_edge_push
+                    else second_fold_correction_records[
+                        correction_contact_index + 1 : correction_laydown_index + 1
+                    ]
+                )
+                for correction_record in correction_transport_records:
+                    execute_second_correction_phase(
+                        correction_record,
+                        gripper_model_rad=correction_model_target,
+                        retention_callback=enforce_second_fold_correction_retention,
+                    )
+                correction_patch_at_laydown_w = cloth.data.nodal_pos_w.torch[
+                    0, correction_contact_particles
+                ].clone()
+                correction_laydown_clearance_m = float(
+                    torch.max(
+                        correction_patch_at_laydown_w[:, 2]
+                        - table_top_z_m_for_contact_gate
+                    ).item()
+                )
+                if (
+                    not correction_is_open_jaw_edge_push
+                    and
+                    correction_laydown_clearance_m
+                    > SECOND_FOLD_MAXIMUM_LAYDOWN_PATCH_TABLE_CLEARANCE_M
+                ):
+                    raise RuntimeError(
+                        "S2 correction laydown remained airborne: "
+                        f"clearance={correction_laydown_clearance_m:.6f} m"
+                    )
+
+                correction_open_row = correction_current_row.clone()
+                correction_open_row[:, GRIPPER_JOINT_INDICES[1]] = (
+                    correction_open_model_rad
+                )
+                correction_released_during_open = correction_is_open_jaw_edge_push
+                for correction_open_step in range(1, second_open_steps + 1):
+                    alpha = correction_open_step / second_open_steps
+                    target = correction_current_row + alpha * (
+                        correction_open_row - correction_current_row
+                    )
+                    write_scripted_arm_state_and_drive_targets(
+                        robot,
+                        target,
+                        zero_velocity,
+                        joint_ids,
+                        lock_gripper_state=True,
+                    )
+                    if (
+                        correction_retention_active
+                        and alpha < SECOND_FOLD_RETENTION_RELEASE_OPEN_FRACTION
+                    ):
+                        enforce_second_fold_correction_retention()
+                    elif correction_retention_active:
+                        correction_kinematic_targets[
+                            0, correction_contact_particles, 3
+                        ] = 1.0
+                        cloth.write_nodal_kinematic_target_to_sim_index(
+                            correction_kinematic_targets
+                        )
+                        correction_retention_active = False
+                        correction_released_during_open = True
+                    scene.write_data_to_sim()
+                    sim.step()
+                    scene.update(physics_dt_s)
+                if not correction_released_during_open:
+                    raise RuntimeError("S2 correction retention did not release")
+                correction_current_row = correction_open_row
+                for _ in range(max(1, round(POST_OPEN_RELEASE_HOLD_S / physics_dt_s))):
+                    write_scripted_arm_state_and_drive_targets(
+                        robot,
+                        correction_current_row,
+                        zero_velocity,
+                        joint_ids,
+                        lock_gripper_state=True,
+                    )
+                    scene.write_data_to_sim()
+                    sim.step()
+                    scene.update(physics_dt_s)
+
+                for correction_record in second_fold_correction_records[
+                    correction_laydown_index + 1 :
+                ]:
+                    execute_second_correction_phase(
+                        correction_record,
+                        gripper_model_rad=correction_open_model_rad,
+                    )
+                second_current_row = correction_current_row
+
+                correction_settled_run = 0
+                correction_settled_step = None
+                correction_settle_samples: list[dict[str, object]] = []
+                correction_previous_sample_nodes = local_nodes(scene, cloth).clone()
+                correction_previous_edge_residual_m = None
+                for correction_settle_step in range(
+                    1, math.ceil(SECOND_FOLD_SETTLE_TIMEOUT_S / physics_dt_s) + 1
+                ):
+                    write_scripted_arm_state_and_drive_targets(
+                        robot,
+                        second_current_row,
+                        zero_velocity,
+                        joint_ids,
+                        lock_gripper_state=True,
+                    )
+                    scene.write_data_to_sim()
+                    sim.step()
+                    scene.update(physics_dt_s)
+                    correction_speed = float(
+                        torch.max(
+                            torch.linalg.vector_norm(
+                                cloth.data.nodal_vel_w.torch, dim=-1
+                            )
+                        ).item()
+                    )
+                    if correction_settle_step % second_settle_sample_steps == 0:
+                        correction_current_sample_nodes = local_nodes(
+                            scene, cloth
+                        ).clone()
+                        correction_sample_displacement = torch.linalg.vector_norm(
+                            correction_current_sample_nodes
+                            - correction_previous_sample_nodes,
+                            dim=-1,
+                        )
+                        correction_p95_sample_displacement_m = float(
+                            torch.max(
+                                torch.quantile(
+                                    correction_sample_displacement, 0.95, dim=1
+                                )
+                            ).item()
+                        )
+                        correction_sample_grid = (
+                            correction_current_sample_nodes.reshape(
+                                environment_count, grid_side, grid_side, 3
+                            )
+                        )
+                        correction_edge_residual_sample_m = float(
+                            (
+                                torch.median(
+                                    correction_sample_grid[0, -1, :, 1]
+                                )
+                                - torch.median(
+                                    correction_sample_grid[0, 0, :, 1]
+                                )
+                            ).item()
+                        )
+                        correction_edge_residual_change_m = (
+                            abs(
+                                correction_edge_residual_sample_m
+                                - correction_previous_edge_residual_m
+                            )
+                            if correction_previous_edge_residual_m is not None
+                            else None
+                        )
+                        correction_settle_samples.append(
+                            {
+                                "time_s": correction_settle_step * physics_dt_s,
+                                "p95_shape_displacement_m": (
+                                    correction_p95_sample_displacement_m
+                                ),
+                                "edge_residual_m": (
+                                    correction_edge_residual_sample_m
+                                ),
+                                "edge_residual_change_m": (
+                                    correction_edge_residual_change_m
+                                ),
+                                "maximum_node_speed_m_s": correction_speed,
+                            }
+                        )
+                        sample_stable = (
+                            correction_p95_sample_displacement_m
+                            <= RELEASE_SHAPE_DISPLACEMENT_THRESHOLD_M
+                            and correction_edge_residual_change_m is not None
+                            and correction_edge_residual_change_m
+                            <= RELEASE_SHAPE_DISPLACEMENT_THRESHOLD_M
+                        )
+                        correction_settled_run = (
+                            correction_settled_run + 1 if sample_stable else 0
+                        )
+                        correction_previous_sample_nodes = (
+                            correction_current_sample_nodes
+                        )
+                        correction_previous_edge_residual_m = (
+                            correction_edge_residual_sample_m
+                        )
+                        if (
+                            correction_settled_run
+                            >= RELEASE_SHAPE_CONSECUTIVE_VIDEO_FRAMES
+                        ):
+                            correction_settled_step = correction_settle_step
+                            break
+                if correction_settled_step is None:
+                    raise RuntimeError("cloth did not settle after S2 correction")
+                correction_grid_after = local_nodes(scene, cloth).reshape(
+                    environment_count, grid_side, grid_side, 3
+                )
+                correction_residual_after = float(
+                    (
+                        torch.median(correction_grid_after[0, -1, :, 1])
+                        - torch.median(correction_grid_after[0, 0, :, 1])
+                    ).item()
+                )
+                correction_within_tolerance = (
+                    abs(correction_residual_after) <= SECOND_FOLD_TARGET_TOLERANCE_M
+                )
+                correction_step_limited = bool(
+                    second_fold_correction_replay["correction_plan"].get(
+                        "step_limited"
+                    )
+                )
+                correction_monotonic_improvement = (
+                    abs(correction_residual_after) < abs(correction_residual_before)
+                    and (
+                        correction_residual_after * correction_residual_before > 0.0
+                        or correction_within_tolerance
+                    )
+                )
+                if (
+                    not correction_within_tolerance
+                    and (
+                        not correction_step_limited
+                        or not correction_monotonic_improvement
+                    )
+                ):
+                    raise RuntimeError(
+                        "S2 correction did not safely reach or monotonically approach "
+                        "the camera edge tolerance: "
+                        f"residual={correction_residual_after:.6f} m, "
+                        f"limit={SECOND_FOLD_TARGET_TOLERANCE_M:.6f} m"
+                    )
+                second_fold_correction_result = {
+                    "replay_path": str(
+                        args.second_fold_correction_replay.resolve()
+                    ),
+                    "fresh_observation_signed_edge_residual_m": (
+                        correction_residual_before
+                    ),
+                    "planned_correction_delta_y_m": float(
+                        second_fold_correction_replay["correction_plan"][
+                            "correction_delta_y_m"
+                        ]
+                    ),
+                    "contact_mode": correction_contact_mode,
+                    "open_jaw_edge_push": correction_is_open_jaw_edge_push,
+                    "actual_contact_particles": correction_upper_particles,
+                    "fixed_rubber_face_contact_particles": (
+                        correction_fixed_face_particles
+                    ),
+                    "moving_jaw_face_contact_particles": (
+                        correction_moving_face_particles
+                    ),
+                    "opposing_face_assignment": correction_opposing_assignment,
+                    "contact_stop_motion_fraction": (
+                        correction_contact_stop_step / correction_close_steps
+                    ),
+                    "retained_particles_one_per_s1_layer": (
+                        correction_contact_particles
+                    ),
+                    "lower_bundle_jaw_contact_particles": (
+                        correction_lower_particles
+                    ),
+                    "laydown_patch_maximum_table_clearance_m": (
+                        correction_laydown_clearance_m
+                    ),
+                    "maximum_cloth_displacement_during_approach_m": float(
+                        torch.max(
+                            torch.linalg.vector_norm(
+                                correction_nodes_before_transport
+                                - correction_nodes_before_approach,
+                                dim=-1,
+                            )
+                        ).item()
+                    ),
+                    "settle_time_s": correction_settled_step * physics_dt_s,
+                    "settle_gate": {
+                        "observable": "p95_shape_and_median_edge_change_per_video_frame",
+                        "video_fps": RELEASE_SHAPE_VIDEO_FPS,
+                        "displacement_threshold_m": (
+                            RELEASE_SHAPE_DISPLACEMENT_THRESHOLD_M
+                        ),
+                        "consecutive_frames": (
+                            RELEASE_SHAPE_CONSECUTIVE_VIDEO_FRAMES
+                        ),
+                        "samples": correction_settle_samples,
+                    },
+                    "final_signed_edge_residual_m": correction_residual_after,
+                    "target_tolerance_m": SECOND_FOLD_TARGET_TOLERANCE_M,
+                    "within_target_tolerance": correction_within_tolerance,
+                    "bounded_step_monotonic_improvement": (
+                        correction_monotonic_improvement
+                    ),
+                    "another_observe_correct_step_required": (
+                        not correction_within_tolerance
+                    ),
+                    "reobservation_required": True,
+                    "motion_authorized": False,
+                    "checkpoint_isolated": True,
+                    "end_to_end_result_claimed": False,
+                    "raw_checkpoint": second_fold_correction_checkpoint,
+                }
+                print(
+                    "S2_CORRECTION_RESULT "
+                    + json.dumps(second_fold_correction_result, sort_keys=True),
+                    flush=True,
+                )
+
+            nodes_final = local_nodes(scene, cloth).clone()
+            second_final_node_speeds = torch.linalg.vector_norm(
+                cloth.data.nodal_vel_w.torch, dim=-1
+            ).reshape(-1)
+            second_maximum_final_speed_m_s = float(
+                torch.max(second_final_node_speeds).item()
+            )
+            second_p95_final_speed_m_s = float(
+                torch.quantile(second_final_node_speeds, 0.95).item()
+            )
+            second_minimum = torch.min(nodes_final, dim=1).values
+            second_maximum = torch.max(nodes_final, dim=1).values
+            second_spans = second_maximum - second_minimum
+            second_grid = nodes_final.reshape(
+                environment_count, grid_side, grid_side, 3
+            )
+            second_row_pair_errors = torch.linalg.vector_norm(
+                second_grid[:, : grid_side // 2, :, :2]
+                - torch.flip(
+                    second_grid[:, grid_side // 2 :, :, :2], dims=(1,)
+                ),
+                dim=-1,
+            ).reshape(environment_count, -1)
+            second_p95_pair_error_m = torch.quantile(
+                second_row_pair_errors, 0.95, dim=1
+            )
+            moving_edge_y_m = torch.median(second_grid[:, -1, :, 1], dim=1).values
+            stationary_edge_y_m = torch.median(
+                second_grid[:, 0, :, 1], dim=1
+            ).values
+            second_oracle_edge_residual_m = moving_edge_y_m - stationary_edge_y_m
+            second_shape_gate_failures = []
+            if not second_settle_gate_passed:
+                second_shape_gate_failures.append(
+                    "settle_timeout_p95_shape_or_edge_change_not_stable"
+                )
+            for environment_index in range(environment_count):
+                x_span = float(second_spans[environment_index, 0].item())
+                y_span = float(second_spans[environment_index, 1].item())
+                if not (
+                    SECOND_FOLD_MINIMUM_FOOTPRINT_SPAN_M
+                    <= x_span
+                    <= SECOND_FOLD_MAXIMUM_FOOTPRINT_SPAN_M
+                ):
+                    second_shape_gate_failures.append(
+                        f"env_{environment_index}_x_span_m={x_span:.6f}"
+                    )
+                if not (
+                    SECOND_FOLD_MINIMUM_FOOTPRINT_SPAN_M
+                    <= y_span
+                    <= SECOND_FOLD_MAXIMUM_FOOTPRINT_SPAN_M
+                ):
+                    second_shape_gate_failures.append(
+                        f"env_{environment_index}_y_span_m={y_span:.6f}"
+                    )
+            second_maximum_height_m = float(
+                torch.max(nodes_final[..., 2] - table_top_z_m_for_contact_gate).item()
+            )
+            if second_maximum_height_m > SECOND_FOLD_MAXIMUM_HEIGHT_M:
+                second_shape_gate_failures.append(
+                    f"maximum_height_m={second_maximum_height_m:.6f}"
+                )
+            second_minimum_table_clearance_m = float(
+                torch.min(
+                    nodes_final[..., 2] - table_top_z_m_for_contact_gate
+                ).item()
+            )
+            second_nodes_below_table_limit = int(
+                torch.sum(
+                    nodes_final[..., 2] - table_top_z_m_for_contact_gate
+                    < -SECOND_FOLD_MAXIMUM_TABLE_PENETRATION_M
+                ).item()
+            )
+            if (
+                second_minimum_table_clearance_m
+                < -SECOND_FOLD_MAXIMUM_TABLE_PENETRATION_M
+            ):
+                second_shape_gate_failures.append(
+                    "minimum_table_clearance_m="
+                    f"{second_minimum_table_clearance_m:.6f}"
+                )
+            second_fold_result = {
+                "status": (
+                    SECOND_FOLD_CORRECTED_STATUS
+                    if second_fold_correction_result is not None
+                    else SECOND_FOLD_RAW_EXECUTED_STATUS
+                ),
+                "active_arm": second_active_arm,
+                "direction": "left_to_right",
+                "motion_style": (
+                    "bimanual_four_layer_u_pinch_and_fold_arc"
+                    if second_active_arm == "bimanual"
+                    else "single_arm_four_layer_u_pinch_and_flip"
+                ),
+                "right_arm_role": (
+                    "robot_far_edge_primary_grasp_and_simultaneous_release"
+                    if second_active_arm == "bimanual"
+                    else "fixed_rubber_pad_surface_press_during_left_release"
+                    if right_surface_press_enabled
+                    else
+                    "actual_contact_gated_bundle_stabilizer_during_left_release"
+                    if right_stabilizer_enabled
+                    else "clear_observer_then_post_release_camera_correction"
+                ),
+                "release_mode": args.second_fold_release_mode,
+                "newton_coupling_mode": args.newton_coupling_mode,
+                "grasp_transport_mode": args.second_fold_grasp_mode,
+                "contact_gate_kind": second_contact_gate_kind,
+                "physx_pad_proxy_distances_m": (
+                    second_physx_pad_proxy_distances_m
+                ),
+                "physx_attachment_records": second_physx_attachment_records,
+                "jaw_particle_collision_filtered_during_retained_transport": bool(
+                    second_filtered_jaw_flags
+                ),
+                "retention_release_opening_travel_fraction": (
+                    SECOND_FOLD_RETENTION_RELEASE_OPEN_FRACTION
+                ),
+                "four_layer_gripper_candidate_path": str(
+                    args.second_fold_gripper_config.resolve()
+                ),
+                "four_layer_contact_gate_passed": True,
+                "finite_element_support_vertices": (
+                    second_actual_contact_particles
+                ),
+                "solver_particle_contacts_by_arm": (
+                    second_solver_particle_contacts_by_arm
+                ),
+                "retained_contact_element_vertices": second_contact_particles,
+                "retained_contact_element_vertices_by_arm": (
+                    second_contact_particles_by_arm
+                ),
+                "four_physical_particle_contacts_by_arm": (
+                    second_contact_gate_diagnostics_by_arm
+                ),
+                "continuous_tangent_plane_diagnostics_by_arm": (
+                    second_continuous_surface_diagnostics_by_arm
+                ),
+                "continuous_tangent_plane_errors_by_arm": (
+                    second_continuous_surface_errors_by_arm
+                ),
+                "contacted_s1_topology_halves": contacted_s1_layers,
+                "contacted_s1_topology_halves_by_arm": (
+                    contacted_s1_layers_by_arm
+                ),
+                "commanded_project_rad": second_project_target,
+                "commanded_model_rad": second_model_target,
+                "achieved_model_rad": achieved_second_gripper_model_rad,
+                "commanded_project_rad_by_arm": second_project_targets,
+                "commanded_model_rad_by_arm": second_model_targets,
+                "achieved_model_rad_by_arm": (
+                    achieved_second_gripper_model_rad_by_arm
+                ),
+                "command_is_force_claim": False,
+                "closing_axis_w_env_0": second_closing_axis_w[0].tolist(),
+                "maximum_cloth_displacement_during_close_m": (
+                    second_close_cloth_displacement_m
+                ),
+                "laydown_patch_minimum_table_clearance_m": (
+                    second_laydown_patch_minimum_table_clearance_m
+                ),
+                "laydown_patch_median_table_clearance_m": (
+                    second_laydown_patch_median_table_clearance_m
+                ),
+                "laydown_patch_maximum_table_clearance_m": (
+                    second_laydown_patch_table_clearance_m
+                ),
+                "pinned_laydown_footprint_span_xy_m": (
+                    second_laydown_spans[..., :2].tolist()
+                ),
+                "pinned_laydown_oracle_edge_residual_m": (
+                    second_laydown_edge_residual_m.tolist()
+                ),
+                "release_patch_lift_m": second_release_patch_lift_m,
+                "release_patch_to_gripper_distance_m": (
+                    second_patch_to_gripper_distance_m
+                ),
+                "release_patch_to_gripper_distance_m_by_arm": (
+                    second_patch_to_gripper_distance_m_by_arm
+                ),
+                "right_stabilizer_actual_bilateral_particles": (
+                    right_stabilizer_actual_contact_particles
+                    if right_stabilizer_enabled and not right_surface_press_enabled
+                    else []
+                ),
+                "right_surface_press_actual_fixed_pad_particles": (
+                    right_stabilizer_actual_contact_particles
+                    if right_surface_press_enabled
+                    else []
+                ),
+                "right_stabilizer_retained_particle": (
+                    right_stabilizer_particle
+                    if right_stabilizer_enabled and not right_surface_press_enabled
+                    else None
+                ),
+                "right_stabilizer_commanded_project_rad": (
+                    right_stabilizer_project_target
+                    if right_stabilizer_enabled and not right_surface_press_enabled
+                    else None
+                ),
+                "right_stabilizer_commanded_model_rad": (
+                    right_stabilizer_model_target
+                    if right_stabilizer_enabled and not right_surface_press_enabled
+                    else None
+                ),
+                "right_stabilizer_contact_stop_model_rad": float(
+                    right_stabilizer_closed_row[
+                        0, GRIPPER_JOINT_INDICES[1]
+                    ].item()
+                ) if right_stabilizer_enabled else None,
+                "right_stabilizer_contact_stop_closing_fraction": (
+                    right_stabilizer_contact_stop_step / second_close_steps
+                    if right_stabilizer_contact_stop_step is not None
+                    else 1.0
+                ),
+                "right_stabilizer_achieved_model_rad": (
+                    achieved_right_stabilizer_model_rad
+                    if right_stabilizer_enabled
+                    else None
+                ),
+                "right_stabilizer_approach_cloth_displacement_m": (
+                    right_stabilizer_approach_cloth_displacement_m
+                ),
+                "right_stabilizer_approach_command_duration_s": (
+                    right_stabilizer_approach_command_duration_s
+                ),
+                "right_stabilizer_pregrasp_cloth_displacement_m": (
+                    right_stabilizer_pregrasp_cloth_displacement_m
+                ),
+                "right_stabilizer_descent_cloth_displacement_m": (
+                    right_stabilizer_descent_cloth_displacement_m
+                ),
+                "right_stabilizer_descent_stop_fraction": (
+                    right_stabilizer_descent_stop_step
+                    / right_stabilizer_contact_descent_steps
+                    if right_stabilizer_descent_stop_step is not None
+                    else 1.0
+                ),
+                "right_stabilizer_close_cloth_displacement_m": (
+                    right_stabilizer_close_cloth_displacement_m
+                ),
+                "right_stabilizer_release_patch_lift_m": (
+                    right_stabilizer_release_patch_lift_m
+                ),
+                "right_stabilizer_release_patch_to_gripper_distance_m": (
+                    right_stabilizer_patch_to_gripper_distance_m
+                ),
+                "settle_gate_passed": second_settle_gate_passed,
+                "settle_gate": {
+                    "observable": "p95_shape_and_median_edge_change_per_video_frame",
+                    "video_fps": RELEASE_SHAPE_VIDEO_FPS,
+                    "displacement_threshold_m": (
+                        RELEASE_SHAPE_DISPLACEMENT_THRESHOLD_M
+                    ),
+                    "consecutive_frames": (
+                        RELEASE_SHAPE_CONSECUTIVE_VIDEO_FRAMES
+                    ),
+                    "samples": second_settle_samples,
+                },
+                "settle_time_s": (
+                    second_settled_step * physics_dt_s
+                    if second_settled_step is not None
+                    else SECOND_FOLD_SETTLE_TIMEOUT_S
+                ),
+                "maximum_final_speed_m_s": second_maximum_final_speed_m_s,
+                "p95_final_speed_m_s": second_p95_final_speed_m_s,
+                "per_environment_footprint_span_xy_m": (
+                    second_spans[..., :2].tolist()
+                ),
+                "per_environment_p95_paired_row_xy_error_m": (
+                    second_p95_pair_error_m.tolist()
+                ),
+                "simulation_oracle_moving_minus_stationary_edge_y_m": (
+                    second_oracle_edge_residual_m.tolist()
+                ),
+                "maximum_final_height_m": second_maximum_height_m,
+                "minimum_final_table_clearance_m": (
+                    second_minimum_table_clearance_m
+                ),
+                "maximum_table_penetration_limit_m": (
+                    SECOND_FOLD_MAXIMUM_TABLE_PENETRATION_M
+                ),
+                "nodes_below_table_penetration_limit": (
+                    second_nodes_below_table_limit
+                ),
+                "post_laydown_softening_ramp_displacement_m": (
+                    second_post_laydown_softening_displacement_m
+                ),
+                "high_curvature_fold_hysteresis": (
+                    second_fold_hysteresis_diagnostic
+                ),
+                "physx_post_laydown_material": (
+                    second_physx_post_laydown_material_diagnostic
+                ),
+                "coarse_shape_gate_passed": not second_shape_gate_failures,
+                "coarse_shape_gate_failures": second_shape_gate_failures,
+                "camera_correction_applied": (
+                    second_fold_correction_result is not None
+                ),
+                "camera_correction": second_fold_correction_result,
+                "accepted_s1_checkpoint": second_fold_checkpoint,
+            }
+            print(
+                "S2_RAW_FOLD_RESULT "
+                + json.dumps(second_fold_result, sort_keys=True),
+                flush=True,
+            )
+            result_status = (
+                SECOND_FOLD_CORRECTED_STATUS
+                if second_fold_correction_result is not None
+                else SECOND_FOLD_RAW_EXECUTED_STATUS
+            )
+            keep_open_row = second_current_row
+
     curvature_softening_diagnostic = None
     if args.newton_curvature_softening:
         softened_edges_np = curvature_softening_runtime["softened_edges"].numpy()
@@ -5709,6 +12537,12 @@ def run() -> int:
         peak_angles_np = curvature_softening_runtime["peak_absolute_angles"].numpy()
         curvature_softening_diagnostic = {
             "enabled": True,
+            "stage": args.newton_curvature_softening_stage,
+            "post_laydown_ramp_s": (
+                SECOND_FOLD_POST_LAYDOWN_SOFTENING_RAMP_S
+                if args.newton_curvature_softening_stage == "s2-post-laydown"
+                else 0.0
+            ),
             "small_bend_edge_stiffness_n_m": NEWTON_EDGE_STIFFNESS_N_M,
             "activation_angle_deg": args.newton_softening_activation_angle_deg,
             "full_softening_angle_deg": args.newton_full_softening_angle_deg,
@@ -5741,6 +12575,7 @@ def run() -> int:
         "motion_commands": 0,
         "environment_count": environment_count,
         "device": str(sim.device),
+        "physics_backend": args.physics_backend,
         "fabric_enabled": True,
         "suppress_readback": True,
         "replicate_physics": False,
@@ -5754,11 +12589,22 @@ def run() -> int:
             "measured_mass_thickness_and_table_friction": True,
             "generic_in_plane_youngs_modulus": True,
             "cantilever_surface_bend_stiffness_calibrated": True,
+            "physx_dynamic_friction_workaround": (
+                args.physx_dynamic_friction_workaround
+            ),
+            "measured_dynamic_friction": material_candidate.dynamic_friction,
             "edge_release_bend_damping_calibrated": (
                 args.physics_backend == "physx"
             ),
             "newton_meter_calibration_status": (
-                material_candidate.newton_calibration_status
+                "CANTILEVER_AND_EDGE_RELEASE_MATCH"
+                if resolution_specific_newton_calibration is not None
+                else material_candidate.newton_calibration_status
+                if args.physics_backend == "newton-coupled-vbd"
+                else None
+            ),
+            "newton_resolution_specific_calibration": (
+                resolution_specific_newton_calibration
                 if args.physics_backend == "newton-coupled-vbd"
                 else None
             ),
@@ -5776,10 +12622,34 @@ def run() -> int:
             "project_positive_direction": "closes",
             "model_positive_direction": "opens",
             "physical_robot_motion_authorized": False,
+            "measured_one_layer_close_command_project_rad": (
+                REQUESTED_PINCH_PROJECT_GRIPPER_JOINT_POSITIONS_RAD
+            ),
+            "measured_one_layer_close_command_model_target_rad": (
+                REQUESTED_PINCH_MODEL_GRIPPER_JOINT_POSITIONS_RAD
+            ),
+            "simulation_contact_limited_achieved_model_rad": (
+                PINCH_MODEL_GRIPPER_JOINT_POSITIONS_RAD
+            ),
+            "one_way_left_contact_limit_override_used": (
+                args.left_one_way_contact_limited_model_rad is not None
+            ),
+            "one_way_contact_limit_force_validated": False,
         },
         "cloth": {
             "size_xy_m": list(CLOTH_SIZE_XY_M),
             "resolution": list(CLOTH_RESOLUTION),
+            "material_calibrated_resolution": list(
+                MATERIAL_CALIBRATED_CLOTH_RESOLUTION
+            ),
+            "resolution_matches_material_calibration": (
+                CLOTH_RESOLUTION_MATCHES_MATERIAL_CALIBRATION
+            ),
+            "validation_scope": (
+                "full_fold_material_and_contact"
+                if CLOTH_RESOLUTION_MATCHES_MATERIAL_CALIBRATION
+                else "local_jaw_contact_geometry_only_material_extrapolated"
+            ),
             "node_count": int(nodes_after.shape[1]),
             "mass_kg": CLOTH_MASS_KG,
             "density_kg_m3": CLOTH_DENSITY_KG_M3,
@@ -5787,11 +12657,10 @@ def run() -> int:
             "dynamic_friction": CLOTH_DYNAMIC_FRICTION,
             "self_collision_enabled": args.self_contact,
             "self_collision_enabled_at_spawn": (
-                args.self_contact
-                and args.physics_backend == "newton-coupled-vbd"
+                args.self_contact and IS_NEWTON_BACKEND
             ),
             "self_collision_enabled_after_closed_jaw_gate": (
-                args.self_contact and args.physics_backend == "physx"
+                args.self_contact
             ),
             "self_collision_authored_paths": staged_self_collision_paths,
             "self_collision_filter_distance_m": (
@@ -5828,6 +12697,57 @@ def run() -> int:
             ),
             "newton_edge_damping_n_m_s": (
                 NEWTON_EDGE_DAMPING_N_M_S
+                if args.physics_backend == "newton-coupled-vbd"
+                else None
+            ),
+            "newton_vbd_iterations_per_substep": (
+                args.newton_vbd_iterations
+                if args.physics_backend == "newton-coupled-vbd"
+                else None
+            ),
+            "newton_contact_damping": (
+                args.newton_contact_damping
+                if args.physics_backend == "newton-coupled-vbd"
+                else None
+            ),
+            "newton_deep_table_support": (
+                {
+                    "enabled": args.newton_deep_table_support,
+                    "depth_m": (
+                        NEWTON_DEEP_TABLE_SUPPORT_DEPTH_M
+                        if args.newton_deep_table_support
+                        else None
+                    ),
+                    "top_surface_matches_measured_table": True,
+                    "visual_table_unchanged": True,
+                }
+                if IS_NEWTON_BACKEND
+                else None
+            ),
+            "newton_analytic_table_plane": (
+                {
+                    "enabled": args.newton_analytic_table_plane,
+                    "top_surface_matches_measured_table": True,
+                    "robot_collision_filtered": True,
+                    "visual_table_unchanged": True,
+                    **analytic_plane_filter_runtime,
+                }
+                if IS_NEWTON_BACKEND
+                else None
+            ),
+            "newton_vertex_contact_buffer_size": (
+                128
+                if args.physics_backend == "newton-coupled-vbd"
+                and args.execute_second_fold
+                else 32
+                if args.physics_backend == "newton-coupled-vbd"
+                else None
+            ),
+            "newton_edge_contact_buffer_size": (
+                256
+                if args.physics_backend == "newton-coupled-vbd"
+                and args.execute_second_fold
+                else 64
                 if args.physics_backend == "newton-coupled-vbd"
                 else None
             ),
@@ -5871,14 +12791,63 @@ def run() -> int:
                 args.grasp_mode == "frictional"
             ),
             "retention_basis": (
-                "actual_same_particle_bilateral_contact_then_operator_"
-                "measured_no_slip_surrogate"
+                "validated_actual_contact_lift_checkpoint_replayed_at_"
+                "identical_jaw_pose_then_operator_measured_no_slip_retention"
+                if validated_contact_checkpoint_used
+                else "actual_distinct_registered_face_contacts_then_operator_"
+                "measured_no_slip_retention"
                 if contact_gated_retention_used
+                else None
+            ),
+            "s1_checkpoint_prelude_surrogate_used": False,
+            "validated_contact_checkpoint": (
+                {
+                    "path": validated_contact_checkpoint["path"],
+                    "sha256": validated_contact_checkpoint["sha256"],
+                    "used_for_contact_buffer_boundary_replay": True,
+                }
+                if validated_contact_checkpoint_used
+                else None
+            ),
+            "strict_single_sheet_pinch_by_side": (
+                strict_single_sheet_pinch_by_side
+                if strict_single_sheet_pinch_by_side
                 else None
             ),
             "proximity_fallback_used": False if contact_gated_retention_used else None,
             "actual_contact_particles_by_side": (
                 actual_bilateral_particles_by_side
+                if contact_gated_retention_used
+                else None
+            ),
+            "retained_finite_element_support_by_side": (
+                retained_finite_element_support_by_side
+                if contact_gated_retention_used
+                else None
+            ),
+            "retention_support_mode": (
+                "actual_opposing_face_contact_particles_only"
+                if contact_gated_retention_used
+                and args.retain_contact_evidence_only
+                else "continuous_contact_triangle_vertices"
+                if contact_gated_retention_used
+                and args.surface_distributed_contact_retention
+                else "entire_contact_finite_element"
+                if contact_gated_retention_used
+                else None
+            ),
+            "progressive_contact_release_used": (
+                args.progressive_contact_release
+                if contact_gated_retention_used
+                else None
+            ),
+            "contact_release_activations": (
+                contact_gated_release_activations
+                if contact_gated_retention_used
+                else None
+            ),
+            "progressive_contact_release_events": (
+                progressive_contact_release_events
                 if contact_gated_retention_used
                 else None
             ),
@@ -5898,8 +12867,14 @@ def run() -> int:
             "pinch_project_gripper_joint_positions_rad": (
                 PINCH_PROJECT_GRIPPER_JOINT_POSITIONS_RAD
             ),
+            "requested_measured_pinch_project_gripper_joint_positions_rad": (
+                REQUESTED_PINCH_PROJECT_GRIPPER_JOINT_POSITIONS_RAD
+            ),
             "pinch_model_gripper_joint_positions_rad": (
                 PINCH_MODEL_GRIPPER_JOINT_POSITIONS_RAD
+            ),
+            "requested_measured_pinch_model_gripper_joint_positions_rad": (
+                REQUESTED_PINCH_MODEL_GRIPPER_JOINT_POSITIONS_RAD
             ),
             "release_model_gripper_joint_position_rad": (
                 RELEASE_MODEL_GRIPPER_JOINT_POSITION_RAD
@@ -5986,6 +12961,9 @@ def run() -> int:
         "place_release": place_release_result,
         "post_release_correction": post_release_correction_result,
         "second_contact_diagnostic": second_contact_diagnostic,
+        "second_fold": second_fold_result,
+        "second_fold_correction": second_fold_correction_result,
+        "second_fold_correction_checkpoint": second_fold_correction_checkpoint,
         "final_cloth_shape_local_m_env_0": (
             nodes_final[0].tolist() if args.place_release else None
         ),

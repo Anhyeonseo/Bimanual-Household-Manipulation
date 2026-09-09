@@ -165,18 +165,28 @@ def test_laydown_returns_held_edge_to_anchored_free_edge_without_z_path() -> Non
     clearance_lift = _phase(spec, "first_gravity_clearance_lift_04")
     clearance_outboard = _phase(spec, "first_gravity_clearance_outboard_04")
     assert clearance_lift.targets[0].xyz_m == pytest.approx(
-        (0.106, -0.015, 0.200)
+        (0.106, 0.025, 0.200)
     )
     assert clearance_outboard.targets[0].xyz_m == pytest.approx(
-        (0.1855, -0.015, 0.200)
+        (0.1855, 0.025, 0.200)
     )
-    assert all(
-        not phase.name.startswith("first_gravity_release_sideways_")
-        for phase in spec.phases
+    first_sideways = _phase(spec, "first_gravity_release_sideways_01")
+    final_sideways = _phase(spec, "first_gravity_release_sideways_04")
+    assert first_sideways.targets[0].xyz_m == pytest.approx(
+        (0.106, -0.005, 0.016)
+    )
+    assert first_sideways.targets[1].xyz_m == pytest.approx(
+        (0.106, -0.295, 0.016)
+    )
+    assert final_sideways.targets[0].xyz_m == pytest.approx(
+        (0.106, 0.025, 0.016)
+    )
+    assert final_sideways.targets[1].xyz_m == pytest.approx(
+        (0.106, -0.325, 0.016)
     )
     retreat = _phase(spec, "first_gravity_retreat")
-    assert retreat.targets[0].xyz_m == pytest.approx((0.106, -0.015, 0.045))
-    assert retreat.targets[1].xyz_m == pytest.approx((0.106, -0.285, 0.045))
+    assert retreat.targets[0].xyz_m == pytest.approx((0.106, 0.025, 0.045))
+    assert retreat.targets[1].xyz_m == pytest.approx((0.106, -0.325, 0.045))
 
 
 def test_suspended_fold_rejects_non_nominal_towel_or_bad_table() -> None:

@@ -56,9 +56,10 @@
     "right": {
       "one_layer": {
         "validated_hold_anchor_rad": 0.18868,
-        "operational_candidate_rad": 0.18868,
+        "operational_candidate_rad": 0.193282,
         "use_operational_candidate": true,
-        "operational_candidate_revalidated": true
+        "operational_candidate_revalidated": false,
+        "selection_reason": "operator explicitly selected the three-raw-step tighter follow-up candidate for R2"
       },
       "four_layer": {
         "validated_hold_anchor_rad": 0.128854,

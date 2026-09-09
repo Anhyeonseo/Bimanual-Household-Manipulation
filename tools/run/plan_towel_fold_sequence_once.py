@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan the canonical bimanual-then-single towel sequence with zero motion commands.
+"""Plan the canonical towel sequence with zero motion commands.
 
 This is the final R0 reachability gate.  It combines deterministic task-pose
 IK with MoveIt planning, dense strict collision checks, the registered wrist
@@ -24,7 +24,12 @@ from typing import Iterable
 
 import rclpy
 import yaml
-from moveit_msgs.msg import MoveItErrorCodes, PlanningSceneComponents, RobotState
+from moveit_msgs.msg import (
+    AllowedCollisionEntry,
+    MoveItErrorCodes,
+    PlanningSceneComponents,
+    RobotState,
+)
 from moveit_msgs.srv import ApplyPlanningScene, GetPlanningScene, GetStateValidity
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
@@ -52,7 +57,14 @@ from tools.lib.towel_task_pose_planning import (  # noqa: E402
     validate_phase_contract,
 )
 from tools.lib.towel_bimanual_then_single_planning import (  # noqa: E402
+    SECOND_SINGLE_ARM_ACCEPTED_S1_CONTACT_CORRECTION_XYZ_M,
+    build_bimanual_second_fold,
     build_bimanual_then_single_candidates,
+    build_single_arm_second_fold,
+)
+from tools.lib.towel_second_fold_correction import (  # noqa: E402
+    SECOND_FOLD_DIRECTION,
+    load_accepted_first_fold_footprint,
 )
 from tools.run.plan_observe_clear_once import (  # noqa: E402
     APPLY_SCENE_SERVICE,
@@ -69,11 +81,22 @@ from tools.run.plan_observe_clear_once import (  # noqa: E402
 
 
 STATUS = "TOWEL_BIMANUAL_THEN_SINGLE_TASK_POSE_PLAN_ONLY_PASS"
+S2_ONLY_STATUS = "TOWEL_SECOND_FOLD_SINGLE_LEFT_TO_RIGHT_PLAN_ONLY_PASS"
 PATH_VALIDATION_STEP_RAD = 0.020
 MAXIMUM_DENSE_TCP_PATH_DEVIATION_M = 0.004
 MAXIMUM_GOAL_RESIDUAL_RAD = 0.001
 PLANNING_ATTEMPTS_PER_IK_BRANCH = 8
 MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M = 0.0001
+FIXED_JAW_RUBBER_PAD_THICKNESS_M = 0.0022
+MAXIMUM_FIXED_JAW_RUBBER_TABLE_CONTACT_DEPTH_M = 0.00025
+MAXIMUM_FIXED_JAW_RUBBER_COMPRESSION_FRACTION = (
+    MAXIMUM_FIXED_JAW_RUBBER_TABLE_CONTACT_DEPTH_M
+    / FIXED_JAW_RUBBER_PAD_THICKNESS_M
+)
+# FCL may choose adjacent representative mesh triangles across repeated
+# queries. Keep the 0.25 mm pad-compression limit explicit and allow only
+# 0.1 micrometre of numerical comparison tolerance beyond that limit.
+INTENDED_TABLE_CONTACT_NUMERICAL_TOLERANCE_M = 0.0000001
 RIGHT_CLEARANCE_SHOULDER_RAD = -0.12
 RIGHT_CLEARANCE_ELBOW_RAD = -0.2
 RIGHT_DEPARTURE_BASE_RESTORE_FRACTION = 0.25
@@ -97,6 +120,9 @@ DEFAULT_RIGHT_TABLETOP = (
     ROOT
     / "artifacts/calibration/right_tabletop_target_staged_20260826_r0/candidate.yaml"
 )
+DEFAULT_SECOND_LAYER_GRIPPER = (
+    ROOT / "config/so101_gripper_s2_four_layer.candidate.json"
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -118,6 +144,9 @@ def load_json(path: Path) -> dict:
 
 
 def validate_inputs(args: argparse.Namespace) -> dict[str, object]:
+    second_layer_gripper_path = Path(
+        getattr(args, "second_layer_gripper_config", DEFAULT_SECOND_LAYER_GRIPPER)
+    )
     for path in (
         args.contract,
         args.worktable,
@@ -126,6 +155,7 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, object]:
         args.registered_urdf_manifest,
         args.right_registration_shadow,
         args.right_tabletop_validation,
+        second_layer_gripper_path,
     ):
         if not path.is_file():
             raise RuntimeError(f"required source does not exist: {path}")
@@ -204,6 +234,23 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, object]:
         or confirmation.get("cable_or_connector_issue_observed") is not False
     ):
         raise RuntimeError("operator-reviewed cable-safe envelope is not available")
+    second_layer_gripper = load_json(second_layer_gripper_path)
+    second_layer_controls = second_layer_gripper.get("control_contract", {})
+    if (
+        second_layer_gripper.get("record_kind")
+        != "so101_gripper_s2_four_layer_candidate"
+        or second_layer_gripper.get("simulation_only") is not True
+        or second_layer_gripper.get("motion_authorized") is not False
+        or second_layer_controls.get("retention_only_after_four_layer_contact_gate")
+        is not True
+        or second_layer_controls.get(
+            "collision_validation_uses_exact_four_layer_target"
+        )
+        is not True
+        or second_layer_controls.get("both_arms_used_for_nominal_second_fold")
+        is not True
+    ):
+        raise RuntimeError("bimanual S2 four-layer gripper candidate is invalid")
     return {
         "contract": contract,
         "worktable": worktable,
@@ -212,15 +259,22 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, object]:
         "tabletop": tabletop,
         "limits": limits,
         "cable": cable,
+        "second_layer_gripper": second_layer_gripper,
         "urdf_path": urdf_path,
     }
 
 
-def gripper_modes(contract: dict, cable_review: dict) -> dict[str, tuple[float, float]]:
+def gripper_modes(
+    contract: dict,
+    cable_review: dict,
+    second_layer_gripper: dict | None = None,
+) -> dict[str, tuple[float, float]]:
     contact = contract["cloth_contact_candidate"]
     clear_positions = contract["workcell_observation_candidate"]["observe_clear"][
         "joint_positions_rad"
     ]
+    if second_layer_gripper is None:
+        second_layer_gripper = load_json(DEFAULT_SECOND_LAYER_GRIPPER)
     result = {
         "task_open": (
             float(clear_positions[5]),
@@ -230,9 +284,9 @@ def gripper_modes(contract: dict, cable_review: dict) -> dict[str, tuple[float, 
             float(contact["left"]["one_layer"]["operational_candidate_rad"]),
             float(contact["right"]["one_layer"]["operational_candidate_rad"]),
         ),
-        "four_layer_contact": (
-            float(contact["left"]["four_layer"]["operational_candidate_rad"]),
-            float(contact["right"]["four_layer"]["operational_candidate_rad"]),
+        "four_layer_contact": tuple(
+            float(second_layer_gripper["four_layer_project_contact_target_rad"][side])
+            for side in ("left", "right")
         ),
     }
     if not all(math.isfinite(value) for pair in result.values() for value in pair):
@@ -265,6 +319,50 @@ def with_grippers(full: Iterable[float], pair: tuple[float, float]) -> tuple[flo
     return tuple(result)
 
 
+def intended_jaw_table_depth_limit_m(pair_names: set[str]) -> float | None:
+    """Return the material-specific table-contact limit for a jaw pair."""
+    if "validated_worktable_region" not in pair_names:
+        return None
+    if any(name.endswith("_gripper_link") for name in pair_names):
+        return MAXIMUM_FIXED_JAW_RUBBER_TABLE_CONTACT_DEPTH_M
+    if any(name.endswith("_moving_jaw_link") for name in pair_names):
+        return MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M
+    return None
+
+
+def collision_matrix_with_compliant_pad_table_pairs(
+    matrix: object,
+    arms: Iterable[str],
+) -> object:
+    """Allow exact fixed-pad/table pairs only while OMPL constructs a path."""
+    result = copy.deepcopy(matrix)
+    names = list(result.entry_names)
+    pairs = tuple(
+        (f"{side}_gripper_link", "validated_worktable_region")
+        for side in arms
+    )
+    required = sorted({name for pair in pairs for name in pair})
+    for name in required:
+        if name in names:
+            continue
+        names.append(name)
+        for row in result.entry_values:
+            row.enabled.append(False)
+        new = AllowedCollisionEntry()
+        new.enabled = [False] * len(names)
+        result.entry_values.append(new)
+    if len(result.entry_values) != len(names) or any(
+        len(row.enabled) != len(names) for row in result.entry_values
+    ):
+        raise RuntimeError("MoveIt allowed-collision matrix is not square")
+    result.entry_names = names
+    index = {name: offset for offset, name in enumerate(names)}
+    for first, second in pairs:
+        result.entry_values[index[first]].enabled[index[second]] = True
+        result.entry_values[index[second]].enabled[index[first]] = True
+    return result
+
+
 def phase_gripper_modes(
     phase: PhaseSpec,
     configured: dict[str, tuple[float, float]],
@@ -273,8 +371,9 @@ def phase_gripper_modes(
 
     Applying every measured width to every arm pose creates impossible states
     (for example a closed jaw during an open pregrasp).  Contact and release
-    phases include both sides of the state change; a two-layer bundle is
-    checked at both measured one- and four-layer bounds.
+    phases include both sides of the state change.  In S2 each jaw pinches the
+    already two-layer bundle, so its closed state uses the measured four-layer
+    command rather than the superseded interpolated two-layer command.
     """
     open_pair = configured["task_open"]
     if phase.clear_pose:
@@ -302,8 +401,7 @@ def phase_gripper_modes(
     layers = {target.layer for target in phase.targets}
     modes: dict[str, tuple[float, float]] = {}
     if "two_layer_bundle" in layers:
-        modes["two_layer_one_layer_bound"] = mixed("one_layer_contact")
-        modes["two_layer_four_layer_bound"] = mixed("four_layer_contact")
+        modes["four_layer_contact"] = mixed("four_layer_contact")
     else:
         modes["one_layer_contact"] = mixed("one_layer_contact")
     if "contact" in semantics or any(
@@ -355,6 +453,7 @@ class MoveItPlanOnlyGate:
         self.validity_client = node.create_client(GetStateValidity, STATE_VALIDITY_SERVICE)
         self.strict_matrix = None
         self.exceptions_enabled = False
+        self.compliant_pad_table_planning_arms: tuple[str, ...] = ()
         self.validated_path_cache: dict[
             str,
             tuple[
@@ -404,7 +503,34 @@ class MoveItPlanOnlyGate:
             raise RuntimeError("MoveIt rejected a collision-matrix update")
         self.exceptions_enabled = enabled
 
+    def set_compliant_pad_table_planning_exception(
+        self, arms: Iterable[str]
+    ) -> None:
+        """Toggle planning-only pad contact; strict dense validation stays on."""
+        if self.strict_matrix is None:
+            raise RuntimeError("strict collision matrix has not been loaded")
+        requested = tuple(sorted(set(str(side) for side in arms)))
+        if any(side not in {"left", "right"} for side in requested):
+            raise RuntimeError("invalid compliant pad arm")
+        matrix = collision_matrix_with_exceptions(
+            self.strict_matrix, self.exceptions_enabled
+        )
+        if requested:
+            matrix = collision_matrix_with_compliant_pad_table_pairs(
+                matrix, requested
+            )
+        request = ApplyPlanningScene.Request()
+        request.scene = scene_with_collision_matrix(matrix)
+        response = wait_future(
+            self.node, self.scene_client.call_async(request), self.timeout_s
+        )
+        if not response.success:
+            raise RuntimeError("MoveIt rejected compliant pad collision update")
+        self.compliant_pad_table_planning_arms = requested
+
     def restore(self) -> None:
+        if self.compliant_pad_table_planning_arms:
+            self.set_compliant_pad_table_planning_exception(())
         if self.exceptions_enabled:
             self.set_exceptions(False)
 
@@ -433,19 +559,17 @@ class MoveItPlanOnlyGate:
                     contact.contact_body_1,
                     contact.contact_body_2,
                 }
-                table_pair = (
-                    "validated_worktable_region" in pair_names
-                    and any(
-                        name.endswith("_moving_jaw_link")
-                        for name in pair_names
-                    )
+                table_contact_limit_m = intended_jaw_table_depth_limit_m(
+                    pair_names
                 )
                 depth = float(contact.depth)
                 if (
                     intended_table_contact
-                    and table_pair
+                    and table_contact_limit_m is not None
                     and math.isfinite(depth)
-                    and depth <= MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M
+                    and depth
+                    <= table_contact_limit_m
+                    + INTENDED_TABLE_CONTACT_NUMERICAL_TOLERANCE_M
                 ):
                     continue
                 remaining_contacts.append(contact)
@@ -834,7 +958,7 @@ class MoveItPlanOnlyGate:
         start: tuple[float, ...],
         clear: tuple[float, ...],
     ) -> tuple[list[dict[str, object]], dict[str, object]]:
-        """Return from the first retreat through strict r0g route stages.
+        """Return from a bimanual retreat through strict r0g route stages.
 
         The registered-r0g state grid and every connecting single-joint chord
         were checked through MoveIt's strict state-validity service.  Restoring
@@ -845,13 +969,62 @@ class MoveItPlanOnlyGate:
         """
         current = start
         prefix_records: list[dict[str, object]] = []
-        route = (
-            ("target_shoulder", 7, clear[7]),
-            ("target_elbow", 8, clear[8]),
-            ("target_base", 6, clear[6]),
-            ("target_wrist_roll", 10, clear[10]),
-            ("target_wrist_flex", 9, clear[9]),
-        )
+        if phase_name == "second_bimanual_reobserve_clear":
+            # The S1-specific fixed right-joint order rotates the open S2 jaw
+            # through its own shoulder.  At S2 the cloth is already released,
+            # so plan the complete right-arm escape while the left arm remains
+            # fixed, then let the common final segment return only the left.
+            right_clear = replace_arm(
+                current, "right", arm_values(clear, "right")
+            )
+            failures = []
+            right_segment = None
+            for attempt in range(1, PLANNING_ATTEMPTS_PER_IK_BRANCH + 1):
+                previous_exceptions = self.exceptions_enabled
+                try:
+                    self.set_exceptions(False)
+                    candidate = self.plan_segment(
+                        f"{phase_name}_route_right_arm", current, right_clear
+                    )
+                    candidate["strict_validation"] = self.dense_validate(
+                        candidate,
+                        {"task_open": self.grippers["task_open"]},
+                        False,
+                        (),
+                    )
+                except RuntimeError as exc:
+                    failures.append(f"attempt={attempt}: {exc}")
+                    continue
+                finally:
+                    if self.exceptions_enabled != previous_exceptions:
+                        self.set_exceptions(previous_exceptions)
+                candidate["planning_attempt"] = attempt
+                candidate["staged_reobserve_clear_route"] = True
+                right_segment = candidate
+                break
+            if right_segment is None:
+                reason = failures[0] if failures else "no right-arm escape"
+                raise RuntimeError(
+                    f"{phase_name}: right-arm escape failed; {reason}"
+                )
+            prefix_records.append(
+                {
+                    "name": f"{phase_name}_route_right_arm",
+                    "targets": [],
+                    "staged_reobserve_clear_route": True,
+                    "moveit": right_segment,
+                }
+            )
+            current = right_clear
+            route = ()
+        else:
+            route = (
+                ("target_shoulder", 7, clear[7]),
+                ("target_elbow", 8, clear[8]),
+                ("target_base", 6, clear[6]),
+                ("target_wrist_roll", 10, clear[10]),
+                ("target_wrist_flex", 9, clear[9]),
+            )
         for route_name, index, value in route:
             if abs(current[index] - value) <= 1.0e-12:
                 continue
@@ -1001,23 +1174,24 @@ class MoveItPlanOnlyGate:
                             contact.contact_body_1,
                             contact.contact_body_2,
                         }
-                        table_pair = (
-                            "validated_worktable_region" in pair_names
-                            and any(
-                                name.endswith("_moving_jaw_link")
-                                for name in pair_names
-                            )
+                        table_contact_limit_m = intended_jaw_table_depth_limit_m(
+                            pair_names
                         )
-                        if intended_table_contact and table_pair:
+                        if (
+                            intended_table_contact
+                            and table_contact_limit_m is not None
+                        ):
                             depth = float(contact.depth)
                             if (
                                 not math.isfinite(depth)
-                                or depth > MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M
+                                or depth
+                                > table_contact_limit_m
+                                + INTENDED_TABLE_CONTACT_NUMERICAL_TOLERANCE_M
                             ):
                                 raise RuntimeError(
                                     f"{segment['name']}: intended jaw-table contact "
-                                    f"depth={depth} exceeds "
-                                    f"{MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M} m"
+                                    f"pair={sorted(pair_names)} depth={depth} exceeds "
+                                    f"{table_contact_limit_m} m"
                                 )
                             intended_table_contacts += 1
                             maximum_table_contact_depth = max(
@@ -1076,6 +1250,18 @@ class MoveItPlanOnlyGate:
             "maximum_intended_jaw_table_contact_depth_m": maximum_table_contact_depth,
             "maximum_intended_jaw_table_contact_depth_limit_m": (
                 MAXIMUM_INTENDED_TABLE_CONTACT_DEPTH_M
+            ),
+            "maximum_fixed_jaw_rubber_table_contact_depth_limit_m": (
+                MAXIMUM_FIXED_JAW_RUBBER_TABLE_CONTACT_DEPTH_M
+            ),
+            "fixed_jaw_rubber_pad_thickness_m": (
+                FIXED_JAW_RUBBER_PAD_THICKNESS_M
+            ),
+            "maximum_fixed_jaw_rubber_compression_fraction": (
+                MAXIMUM_FIXED_JAW_RUBBER_COMPRESSION_FRACTION
+            ),
+            "intended_jaw_table_contact_numerical_tolerance_m": (
+                INTENDED_TABLE_CONTACT_NUMERICAL_TOLERANCE_M
             ),
             "dense_tcp_path_audit_target": "nearest_point_on_adjacent_task_chord",
             "maximum_dense_tcp_path_deviation_m_by_arm": (
@@ -1408,6 +1594,7 @@ def solve_and_plan_phases(
                 in {
                     "contact",
                     "attached_lift",
+                    "attached_transfer",
                     "attached_laydown",
                     "attached_correction",
                     "released_retreat",
@@ -1424,6 +1611,10 @@ def solve_and_plan_phases(
             staged_right_reobserve = phase.clear_pose and (
                 (
                     phase.name == "first_reobserve_clear"
+                    and phase.clear_arm is None
+                )
+                or (
+                    phase.name == "second_bimanual_reobserve_clear"
                     and phase.clear_arm is None
                 )
                 or (
@@ -1487,6 +1678,12 @@ def solve_and_plan_phases(
                 "first_gravity_release_sideways_"
             )
             deterministic_surface_exit = phase.name == "first_gravity_retreat"
+            deterministic_bimanual_second_fold = phase.name.startswith(
+                "second_bimanual_fold_"
+            )
+            deterministic_bimanual_second_contact = (
+                phase.name == "second_bimanual_contact"
+            )
             planning_start = current
             departure_prefix_records: list[dict[str, object]] = []
             if deterministic_departure:
@@ -1538,6 +1735,8 @@ def solve_and_plan_phases(
                     or deterministic_overcenter
                     or deterministic_sideways_release
                     or deterministic_surface_exit
+                    or deterministic_bimanual_second_fold
+                    or deterministic_bimanual_second_contact
                 )
                 else PLANNING_ATTEMPTS_PER_IK_BRANCH
             )
@@ -1547,6 +1746,8 @@ def solve_and_plan_phases(
                         deterministic_overcenter
                         or deterministic_sideways_release
                         or deterministic_surface_exit
+                        or deterministic_bimanual_second_fold
+                        or deterministic_bimanual_second_contact
                     ):
                         segment = gate.deterministic_bimanual_segment(
                             phase.name,
@@ -1561,9 +1762,22 @@ def solve_and_plan_phases(
                             phase.targets[0].arm,
                         )
                     else:
-                        segment = gate.plan_segment(
-                            phase.name, current, target_positions
+                        compliant_planning_arms = (
+                            {target.arm for target in phase.targets}
+                            if intended_table_contact
+                            else set()
                         )
+                        if compliant_planning_arms:
+                            gate.set_compliant_pad_table_planning_exception(
+                                compliant_planning_arms
+                            )
+                        try:
+                            segment = gate.plan_segment(
+                                phase.name, current, target_positions
+                            )
+                        finally:
+                            if compliant_planning_arms:
+                                gate.set_compliant_pad_table_planning_exception(())
                 except RuntimeError as exc:
                     failures.append(f"attempt={attempt}: {exc}")
                     continue
@@ -1578,6 +1792,7 @@ def solve_and_plan_phases(
                             in {
                                 "contact",
                                 "attached_lift",
+                                "attached_transfer",
                                 "attached_laydown",
                                 "attached_correction",
                                 "released_retreat",
@@ -1622,6 +1837,10 @@ def solve_and_plan_phases(
                     segment["gravity_overcenter_exact_chord"] = True
                 if deterministic_surface_exit:
                     segment["gravity_surface_exit_exact_chord"] = True
+                if deterministic_bimanual_second_fold:
+                    segment["bimanual_second_fold_exact_chord"] = True
+                if deterministic_bimanual_second_contact:
+                    segment["bimanual_second_contact_exact_chord"] = True
                 selected = (
                     target_positions,
                     evaluations,
@@ -1813,7 +2032,11 @@ def evaluate_candidate(
         "second_axis": candidate.second_axis,
         "second_direction": candidate.second_direction,
         "second_active_arm": candidate.second_active_arm,
-        "second_grasp_strategy": "single_arm_moving_edge_midpoint_multilayer",
+        "second_grasp_strategy": (
+            "bimanual_two_separated_four_layer_top_down_u_pinches"
+            if candidate.second_active_arm == "bimanual"
+            else "single_arm_moving_edge_midpoint_multilayer"
+        ),
         "final_footprint_requires_bounded_visual_correction": True,
         "first_expected_footprint_xyxy_m": list(
             candidate.first_expected_footprint_xyxy_m
@@ -1853,13 +2076,44 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--right-tabletop-validation", type=Path, default=DEFAULT_RIGHT_TABLETOP
     )
+    parser.add_argument(
+        "--second-layer-gripper-config",
+        type=Path,
+        default=DEFAULT_SECOND_LAYER_GRIPPER,
+    )
     parser.add_argument("--timeout-s", type=float, default=15.0)
+    parser.add_argument(
+        "--s2-only-s1-result",
+        type=Path,
+        help="plan only S2 from a hash-locked accepted S1 terminal shape",
+    )
+    parser.add_argument(
+        "--s1-summary",
+        type=Path,
+        default=(
+            ROOT
+            / "artifacts/bimanual/planning/"
+            "towel_first_fold_surface_drag_r2_s1_summary.json"
+        ),
+    )
+    parser.add_argument(
+        "--second-along-edge-offset-m",
+        type=float,
+        default=0.0,
+        help="legacy single-midpoint S2 option; must remain zero for bimanual S2",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.output.exists():
         parser.error(f"refusing to overwrite existing output: {args.output}")
     if not math.isfinite(args.timeout_s) or args.timeout_s <= 0.0:
         parser.error("--timeout-s must be positive and finite")
+    if args.s2_only_s1_result is not None:
+        for path in (args.s2_only_s1_result, args.s1_summary):
+            if not path.is_file():
+                parser.error(f"required S2 source does not exist: {path}")
+        if not math.isclose(args.second_along_edge_offset_m, 0.0, abs_tol=1.0e-12):
+            parser.error("single-arm S2 currently uses the observed edge midpoint")
     return args
 
 
@@ -1873,10 +2127,44 @@ def main() -> int:
         board["calibrated_span_m"], board["origin_in_left_base_link_xy_m"]
     )
     table_z = float(board["table_z_in_left_base_link_m"])
-    candidates = build_bimanual_then_single_candidates(towel_bounds, table_z)
-    corrections = build_correction_probes(
-        candidates[0].first_expected_footprint_xyxy_m, table_z
-    )
+    if args.s2_only_s1_result is None:
+        candidates = build_bimanual_then_single_candidates(towel_bounds, table_z)
+        corrections = build_correction_probes(
+            candidates[0].first_expected_footprint_xyxy_m, table_z
+        )
+        planning_scope = "canonical_bimanual_first_and_single_arm_second"
+    else:
+        accepted = load_accepted_first_fold_footprint(
+            args.s2_only_s1_result, args.s1_summary
+        )
+        second_phases, final_footprint = build_single_arm_second_fold(
+            accepted.bounds_xyxy_m,
+            table_z,
+            active_arm="left",
+            direction=SECOND_FOLD_DIRECTION,
+            contact_correction_xyz_m=(
+                SECOND_SINGLE_ARM_ACCEPTED_S1_CONTACT_CORRECTION_XYZ_M
+            ),
+        )
+        candidates = (
+            CandidateSpec(
+                candidate_id=(
+                    "accepted_s1__second_left_left_to_right_midpoint"
+                ),
+                first_arm_assignment="accepted_s1_terminal_shape",
+                first_axis="x",
+                first_direction="already_completed",
+                second_axis="y",
+                second_direction=SECOND_FOLD_DIRECTION,
+                second_active_arm="left",
+                first_fold_phases=(),
+                second_fold_phases=second_phases,
+                first_expected_footprint_xyxy_m=accepted.bounds_xyxy_m,
+                final_expected_footprint_xyxy_m=final_footprint,
+            ),
+        )
+        corrections = ()
+        planning_scope = "accepted_s1_terminal_shape_to_single_left_second_fold_only"
     clear = tuple(
         float(value)
         for value in contract["workcell_observation_candidate"]["observe_clear"][
@@ -1891,7 +2179,11 @@ def main() -> int:
         side: planning.load_arm_joint_bounds(side)
         for side in ("left", "right")
     }
-    grippers = gripper_modes(contract, inputs["cable"])
+    grippers = gripper_modes(
+        contract,
+        inputs["cable"],
+        inputs["second_layer_gripper"],
+    )
 
     rclpy.init()
     node = Node("towel_fold_sequence_plan_only")
@@ -1946,19 +2238,35 @@ def main() -> int:
         ("registered_urdf_manifest", args.registered_urdf_manifest),
         ("right_registration_shadow", args.right_registration_shadow),
         ("right_tabletop_validation", args.right_tabletop_validation),
+        ("second_layer_gripper_config", args.second_layer_gripper_config),
         ("registered_urdf", inputs["urdf_path"]),
     ):
         sources[name] = {"path": str(path.resolve()), "sha256": sha256_file(path)}
+    if args.s2_only_s1_result is not None:
+        for name, path in (
+            ("accepted_s1_result", args.s2_only_s1_result),
+            ("accepted_s1_summary", args.s1_summary),
+        ):
+            sources[name] = {
+                "path": str(path.resolve()),
+                "sha256": sha256_file(path),
+            }
+    output_status = S2_ONLY_STATUS if args.s2_only_s1_result is not None else STATUS
     document = {
         "schema_version": 1,
-        "record_kind": "towel_bimanual_then_single_task_pose_plan_only",
-        "status": STATUS,
+        "record_kind": (
+            "towel_second_fold_bimanual_task_pose_plan_only"
+            if args.s2_only_s1_result is not None
+            else "towel_bimanual_then_single_task_pose_plan_only"
+        ),
+        "status": output_status,
         "generated_at_unix_s": time.time(),
         "motion_authorized": False,
         "automatic_execution_permitted": False,
         "execution_api_used": False,
         "motion_commands": 0,
         "planning_group": "both_arms",
+        "planning_scope": planning_scope,
         "kinematic_contract": {
             "arm_dof": 5,
             "arbitrary_exact_6d_pose_claimed": False,
@@ -1966,10 +2274,12 @@ def main() -> int:
                 "tcp_xyz",
                 "phase_semantic_approach_cone",
                 "jaw_opening_line_yaw",
+                "phase_specific_finger_axis_tilt",
                 "full_6d_fk_recorded",
             ],
             "position_only_ik_accepted": False,
         },
+        "second_fold_along_edge_offset_m": None,
         "towel_placement": {
             "nominal_side_m": 0.300,
             "bounds_xyxy_m": list(towel_bounds),
@@ -2016,7 +2326,10 @@ def main() -> int:
                 "command remains uncommissioned"
             ),
             "one_layer_contact": "static retention operational candidates",
-            "four_layer_contact": "static retention operational candidates",
+            "four_layer_contact": (
+                "physically retained four-layer anchors applied to the two-layer "
+                "S1 bundle pinched between each pair of jaws"
+            ),
         },
         "sources": sources,
         "limitations": [
@@ -2031,7 +2344,7 @@ def main() -> int:
         json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     print(
-        f"{STATUS} candidate={selected['candidate_id']} "
+        f"{output_status} candidate={selected['candidate_id']} "
         f"segments={selected['strict_validation']['planning_segment_count']} "
         f"strict_states={selected['strict_validation']['strict_state_sample_count']} "
         f"motion_commands=0 output={args.output} sha256={sha256_file(args.output)}"

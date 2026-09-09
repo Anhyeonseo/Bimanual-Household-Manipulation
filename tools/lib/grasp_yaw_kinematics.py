@@ -50,6 +50,16 @@ GRIPPER_LINK = f"{DEFAULT_PREFIX}gripper_link"
 TCP_LINK = f"{DEFAULT_PREFIX}gripper_frame_link"
 JAW_JOINT = f"{DEFAULT_PREFIX}gripper_joint"
 
+# Unit normal of the fixed-jaw rubber contact face in the registered
+# gripper-link frame.  Both arms use the same fixed-jaw STL and link-local
+# frame: the plastic face is the local x=-7.9 mm plane and the rubber pad
+# protrudes toward local +X.  Mirroring belongs to the arm FK, not this local
+# hardware constant.
+FIXED_JAW_PAD_NORMAL_IN_GRIPPER = {
+    "left_": np.array((1.0, 0.0, 0.0)),
+    "right_": np.array((1.0, 0.0, 0.0)),
+}
+
 
 def _rpy_matrix(roll: float, pitch: float, yaw: float) -> np.ndarray:
     """URDF rpy 규약: R = Rz(yaw) Ry(pitch) Rx(roll)."""
@@ -220,6 +230,31 @@ class GraspYawKinematics:
         """Return the jaw-opening line in the shared root frame."""
         root_from_base_rotation, _ = self._root_from_base(root_link)
         return root_from_base_rotation @ self.finger_axis(positions)
+
+    def fixed_jaw_pad_normal_in_root(
+        self,
+        positions: dict[str, float],
+        root_link: str = "workcell_base_link",
+    ) -> np.ndarray:
+        """Return the actual fixed rubber-pad face normal in the root frame.
+
+        Unlike :meth:`finger_axis_in_root`, this follows the contact face
+        authored in Isaac.  Fold/correction IK uses it when avoiding a
+        downward diagonal pinch is part of the physical grasp contract.
+        """
+        try:
+            normal = FIXED_JAW_PAD_NORMAL_IN_GRIPPER[self.prefix]
+        except KeyError as exc:
+            raise ValueError(
+                f"no registered fixed-jaw pad normal for prefix {self.prefix!r}"
+            ) from exc
+        root_from_base_rotation, _ = self._root_from_base(root_link)
+        base_from_gripper_rotation = self.gripper_rotation(positions)
+        result = root_from_base_rotation @ base_from_gripper_rotation @ normal
+        norm = np.linalg.norm(result)
+        if norm < 1.0e-9:
+            raise ValueError("fixed-jaw pad normal is degenerate")
+        return result / norm
 
     def point_in_base_frame(
         self,
