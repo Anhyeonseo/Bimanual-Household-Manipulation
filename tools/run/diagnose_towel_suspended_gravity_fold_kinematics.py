@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from hashlib import sha256
 import json
 import math
@@ -32,6 +33,7 @@ from tools.lib.towel_task_pose_planning import (  # noqa: E402
 
 
 STATUS = "TOWEL_SUSPENDED_GRAVITY_FULL_FK_DIAGNOSTIC_PASS"
+CONTACT_STATUS = "TOWEL_SUSPENDED_GRAVITY_CONTACT_FK_DIAGNOSTIC_PASS"
 DEFAULT_WORKTABLE = (
     ROOT
     / "ros2_ws/src/manipulation_camera_manager/config/"
@@ -59,6 +61,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--urdf", type=Path, default=DEFAULT_URDF)
     parser.add_argument("--operational-limits", type=Path, default=DEFAULT_LIMITS)
     parser.add_argument("--contact-config", type=Path, default=DEFAULT_CONTACT)
+    parser.add_argument(
+        "--initial-contact-replay",
+        type=Path,
+        help=(
+            "passing suspended-gravity replay whose first_contact arm joints "
+            "seed a nearby contact-height solve"
+        ),
+    )
+    parser.add_argument(
+        "--post-contact-trajectory-reference-replay",
+        type=Path,
+        help=(
+            "passing suspended-gravity replay whose task-space targets are "
+            "reused after first_contact; the lower contact is still solved "
+            "continuously instead of splicing saved joint values"
+        ),
+    )
     parser.add_argument("--contract", type=Path, default=DEFAULT_CONTRACT)
     parser.add_argument("--towel-x-offset-m", type=float, default=-0.020)
     parser.add_argument("--contact-tcp-z-offset-m", type=float, default=0.015)
@@ -67,6 +86,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=18,
         help="number of deterministic random IK seeds per target",
+    )
+    parser.add_argument(
+        "--contact-only",
+        action="store_true",
+        help="solve and save only first_contact for a hybrid Isaac replay",
     )
     parser.add_argument(
         "--laydown-tcp-z-offset-m",
@@ -87,6 +111,21 @@ def parse_args() -> argparse.Namespace:
     ):
         if not path.is_file():
             parser.error(f"required source does not exist: {path}")
+    if (
+        args.initial_contact_replay is not None
+        and not args.initial_contact_replay.is_file()
+    ):
+        parser.error(
+            f"initial contact replay does not exist: {args.initial_contact_replay}"
+        )
+    if (
+        args.post_contact_trajectory_reference_replay is not None
+        and not args.post_contact_trajectory_reference_replay.is_file()
+    ):
+        parser.error(
+            "post-contact trajectory reference replay does not exist: "
+            f"{args.post_contact_trajectory_reference_replay}"
+        )
     if args.output.exists():
         parser.error(f"refusing to overwrite existing output: {args.output}")
     if not math.isfinite(args.towel_x_offset_m):
@@ -141,6 +180,54 @@ def main() -> int:
     )
     phases = spec.phases[contact_index:]
 
+    reference_targets_by_phase: dict[str, dict[str, tuple[float, float, float]]] = {}
+    reference_joints_by_phase: dict[str, dict[str, tuple[float, ...]]] = {}
+    if args.post_contact_trajectory_reference_replay is not None:
+        reference_replay = json.loads(
+            args.post_contact_trajectory_reference_replay.read_text(encoding="utf-8")
+        )
+        if reference_replay.get("status") != STATUS:
+            raise RuntimeError("post-contact trajectory reference is not a passing replay")
+        reference_records = reference_replay.get("selected_candidate", {}).get(
+            "first_fold", []
+        )
+        for record in reference_records:
+            phase_name = record.get("name")
+            if not isinstance(phase_name, str) or phase_name == "first_contact":
+                continue
+            targets = record.get("targets", [])
+            target_map: dict[str, tuple[float, float, float]] = {}
+            for target in targets:
+                arm = target.get("arm")
+                xyz = target.get("xyz_m")
+                if arm not in {"left", "right"} or not isinstance(xyz, list):
+                    raise RuntimeError(
+                        f"{phase_name}: malformed post-contact reference target"
+                    )
+                target_map[arm] = tuple(
+                    float(value) for value in xyz
+                )  # type: ignore[assignment]
+            reference_targets_by_phase[phase_name] = target_map
+            joints = record.get("arm_joint_positions_rad", {})
+            if not isinstance(joints, dict):
+                raise RuntimeError(
+                    f"{phase_name}: malformed post-contact reference joints"
+                )
+            reference_joints_by_phase[phase_name] = {
+                arm: tuple(float(value) for value in joints[arm])
+                for arm in target_map
+            }
+        expected_names = {
+            phase.name for phase in phases if phase.name != "first_contact"
+        }
+        if set(reference_targets_by_phase) != expected_names:
+            missing = sorted(expected_names - set(reference_targets_by_phase))
+            extra = sorted(set(reference_targets_by_phase) - expected_names)
+            raise RuntimeError(
+                "post-contact trajectory reference phase mismatch: "
+                f"missing={missing} extra={extra}"
+            )
+
     kinematics = {
         arm: GraspYawKinematics(args.urdf, prefix=f"{arm}_")
         for arm in ("left", "right")
@@ -170,11 +257,48 @@ def main() -> int:
         arm: tuple(float(value) for value in contact["arm_joint_positions_rad"][arm])
         for arm in ("left", "right")
     }
+    if args.initial_contact_replay is not None:
+        initial_contact_replay = json.loads(
+            args.initial_contact_replay.read_text(encoding="utf-8")
+        )
+        initial_records = initial_contact_replay.get("selected_candidate", {}).get(
+            "first_fold", []
+        )
+        initial_contact = next(
+            (record for record in initial_records if record.get("name") == "first_contact"),
+            None,
+        )
+        if (
+            initial_contact_replay.get("status")
+            != "TOWEL_SUSPENDED_GRAVITY_FULL_FK_DIAGNOSTIC_PASS"
+            or initial_contact is None
+        ):
+            raise RuntimeError("initial contact replay is not a passing contact seed")
+        current = {
+            arm: tuple(
+                float(value)
+                for value in initial_contact["arm_joint_positions_rad"][arm]
+            )
+            for arm in ("left", "right")
+        }
 
     records = []
     minimum_margin = math.inf
     maximum_tilt = 0.0
     for phase in phases:
+        if phase.name in reference_targets_by_phase:
+            reference_targets = reference_targets_by_phase[phase.name]
+            if {target.arm for target in phase.targets} != set(reference_targets):
+                raise RuntimeError(
+                    f"{phase.name}: post-contact reference arm mismatch"
+                )
+            phase = replace(
+                phase,
+                targets=tuple(
+                    replace(target, xyz_m=reference_targets[target.arm])
+                    for target in phase.targets
+                ),
+            )
         record = phase_to_dict(phase)
         evaluations = []
         if phase.clear_pose:
@@ -189,7 +313,9 @@ def main() -> int:
                     lower,
                     upper,
                     current[target.arm],
-                    clear_by_arm[target.arm],
+                    reference_joints_by_phase.get(phase.name, {}).get(
+                        target.arm, clear_by_arm[target.arm]
+                    ),
                     random_seed_count=args.ik_random_seed_count,
                 )
                 if not branches:
@@ -223,15 +349,26 @@ def main() -> int:
         record["transition_collision_checked"] = False
         records.append(record)
         print(f"SUSPENDED_GRAVITY_FULL_FK_PASS phase={phase.name}", flush=True)
+        if args.contact_only:
+            break
 
+    status = CONTACT_STATUS if args.contact_only else STATUS
     result = {
         "schema_version": 1,
-        "record_kind": "towel_suspended_gravity_full_fk_diagnostic",
-        "status": STATUS,
+        "record_kind": (
+            "towel_suspended_gravity_contact_fk_diagnostic"
+            if args.contact_only
+            else "towel_suspended_gravity_full_fk_diagnostic"
+        ),
+        "status": status,
         "created_unix_s": time.time(),
         "motion_authorized": False,
         "automatic_execution_permitted": False,
-        "scope": "full_fk_only_no_moveit_no_robot_command",
+        "scope": (
+            "first_contact_fk_only_no_moveit_no_robot_command"
+            if args.contact_only
+            else "full_fk_only_no_moveit_no_robot_command"
+        ),
         "towel_bounds_xyxy_m": bounds,
         "towel_placement": {"bounds_xyxy_m": bounds},
         "table_z_m": table_z,
@@ -286,12 +423,36 @@ def main() -> int:
                 ("contact_config", args.contact_config),
                 ("contract", args.contract),
             )
-        },
+        }
+        | (
+            {
+                "initial_contact_replay": {
+                    "path": str(args.initial_contact_replay.resolve()),
+                    "sha256": file_sha256(args.initial_contact_replay),
+                }
+            }
+            if args.initial_contact_replay is not None
+            else {}
+        )
+        | (
+            {
+                "post_contact_trajectory_reference_replay": {
+                    "path": str(
+                        args.post_contact_trajectory_reference_replay.resolve()
+                    ),
+                    "sha256": file_sha256(
+                        args.post_contact_trajectory_reference_replay
+                    ),
+                }
+            }
+            if args.post_contact_trajectory_reference_replay is not None
+            else {}
+        ),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(
-        f"{STATUS} phases={len(records)} "
+        f"{status} phases={len(records)} "
         f"minimum_margin_rad={minimum_margin:.6f} "
         f"maximum_tilt_deg={math.degrees(maximum_tilt):.3f} "
         f"output={args.output}",

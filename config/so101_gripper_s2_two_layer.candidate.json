@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "record_kind": "so101_gripper_s2_two_layer_candidate",
+  "status": "R2_S2_TWO_LAYER_CONTACT_TARGET_DERIVED_NOT_PHYSICALLY_REVALIDATED",
+  "simulation_only": true,
+  "motion_authorized": false,
+  "base_gripper_geometry": {
+    "path": "config/so101_gripper_geometry.candidate.json",
+    "sha256": "dc2b8e11b0303e93485965d3683552ee2448cb03283dcc6cb08e6585d8899e5c"
+  },
+  "measured_body_thickness_mm": {
+    "one_layer": 3.0,
+    "two_layer": 7.0,
+    "four_layer": 13.0
+  },
+  "interpolation_fraction_one_to_four": 0.4,
+  "two_layer_project_contact_target_rad": {
+    "left": 0.2350058,
+    "right": 0.1675108
+  },
+  "two_layer_model_contact_target_rad": {
+    "left": -0.0484178,
+    "right": 0.0190772
+  },
+  "derivation": "one-layer command + 0.4 * (four-layer command - one-layer command), where 0.4 = (7-3)/(13-3)",
+  "control_contract": {
+    "command_is_force_claim": false,
+    "close_only_after_two_layer_contact_gate": true,
+    "achieved_position_is_contact_limited": true,
+    "collision_validation_uses_exact_two_layer_target": true,
+    "both_arms_used_for_nominal_second_fold": true,
+    "simultaneous_release_after_dual_laydown_gate": true,
+    "right_reserved_for_post_release_correction": false
+  },
+  "limitations": [
+    "the two-layer command is derived from measured thickness and retained one/four-layer anchors, not a separately measured two-layer force",
+    "the candidate may be used in Isaac contact trials but does not authorize physical robot motion"
+  ]
+}

@@ -58,6 +58,7 @@ IK_POSITION_RESIDUAL_SCALE_M = 0.0005
 MAXIMUM_JAW_YAW_ERROR_RAD = math.radians(4.0)
 MAXIMUM_APPROACH_TILT_RAD = math.radians(70.0)
 MAXIMUM_ATTACHED_TRANSFER_TILT_RAD = math.radians(90.0)
+MAXIMUM_FINGER_TILT_RAD = math.radians(90.0)
 MINIMUM_JOINT_LIMIT_MARGIN_RAD = 0.025
 IK_RANDOM_SEED_COUNT = 18
 IK_MAXIMUM_BRANCHES = 4
@@ -76,6 +77,10 @@ class TaskPose:
     semantic: str
     layer: str
     maximum_approach_tilt_rad: float = MAXIMUM_APPROACH_TILT_RAD
+    maximum_finger_tilt_rad: float = MAXIMUM_FINGER_TILT_RAD
+    enforce_finger_yaw: bool = True
+    fixed_pad_normal_yaw_rad: float | None = None
+    maximum_fixed_pad_normal_tilt_rad: float = math.pi / 2.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +125,12 @@ def _finite_vector(values: Sequence[float], length: int, name: str) -> tuple[flo
     if len(result) != length or not all(math.isfinite(value) for value in result):
         raise TowelPlanningError(f"{name} must contain {length} finite values")
     return result
+
+
+def _wrap_full_turn(angle_rad: float) -> float:
+    """Wrap a directed angle to (-pi, pi]."""
+    wrapped = (float(angle_rad) + math.pi) % (2.0 * math.pi) - math.pi
+    return math.pi if wrapped <= -math.pi else wrapped
 
 
 def point_segment_distance_m(
@@ -196,6 +207,10 @@ def _pose(
     semantic: str,
     layer: str,
     maximum_approach_tilt_rad: float = MAXIMUM_APPROACH_TILT_RAD,
+    maximum_finger_tilt_rad: float = MAXIMUM_FINGER_TILT_RAD,
+    enforce_finger_yaw: bool = True,
+    fixed_pad_normal_yaw_rad: float | None = None,
+    maximum_fixed_pad_normal_tilt_rad: float = math.pi / 2.0,
 ) -> TaskPose:
     if arm not in {"left", "right"}:
         raise TowelPlanningError(f"invalid arm: {arm}")
@@ -209,6 +224,26 @@ def _pose(
         raise TowelPlanningError(
             f"{name} maximum approach tilt must be in (0, pi]"
         )
+    if (
+        not math.isfinite(maximum_finger_tilt_rad)
+        or not 0.0 <= maximum_finger_tilt_rad <= math.pi / 2.0
+    ):
+        raise TowelPlanningError(
+            f"{name} maximum finger tilt must be in [0, pi/2]"
+        )
+    if fixed_pad_normal_yaw_rad is not None and not math.isfinite(
+        fixed_pad_normal_yaw_rad
+    ):
+        raise TowelPlanningError(f"{name} fixed-pad normal yaw must be finite")
+    if (
+        not math.isfinite(maximum_fixed_pad_normal_tilt_rad)
+        or not 0.0
+        <= maximum_fixed_pad_normal_tilt_rad
+        <= math.pi / 2.0
+    ):
+        raise TowelPlanningError(
+            f"{name} maximum fixed-pad normal tilt must be in [0, pi/2]"
+        )
     return TaskPose(
         name=name,
         arm=arm,
@@ -217,6 +252,16 @@ def _pose(
         semantic=semantic,
         layer=layer,
         maximum_approach_tilt_rad=float(maximum_approach_tilt_rad),
+        maximum_finger_tilt_rad=float(maximum_finger_tilt_rad),
+        enforce_finger_yaw=bool(enforce_finger_yaw),
+        fixed_pad_normal_yaw_rad=(
+            None
+            if fixed_pad_normal_yaw_rad is None
+            else _wrap_full_turn(float(fixed_pad_normal_yaw_rad))
+        ),
+        maximum_fixed_pad_normal_tilt_rad=float(
+            maximum_fixed_pad_normal_tilt_rad
+        ),
     )
 
 
@@ -481,6 +526,11 @@ def _jaw_yaw(axis: np.ndarray) -> float:
     return wrap_half_turn(math.atan2(float(axis[1]), float(axis[0])))
 
 
+def _directed_yaw(axis: np.ndarray) -> float:
+    """Return the yaw of a directed axis in (-pi, pi]."""
+    return _wrap_full_turn(math.atan2(float(axis[1]), float(axis[0])))
+
+
 def evaluate_task_pose(
     kinematics: GraspYawKinematics,
     pose: TaskPose,
@@ -497,18 +547,50 @@ def evaluate_task_pose(
     rotation, xyz = kinematics.tcp_pose_in_root(by_name)
     approach = kinematics.approach_axis_in_root(by_name)
     finger = kinematics.finger_axis_in_root(by_name)
+    fixed_pad_normal = kinematics.fixed_jaw_pad_normal_in_root(by_name)
     target = np.asarray(pose.xyz_m)
     position_error = float(np.linalg.norm(xyz - target))
     finger_yaw = _jaw_yaw(finger)
-    yaw_error = abs(wrap_half_turn(finger_yaw - pose.jaw_yaw_rad))
+    yaw_error = (
+        abs(wrap_half_turn(finger_yaw - pose.jaw_yaw_rad))
+        if pose.enforce_finger_yaw
+        else 0.0
+    )
     downward_dot = float(np.clip(-approach[2], -1.0, 1.0))
     approach_tilt = float(math.acos(downward_dot))
+    finger_tilt = float(math.asin(float(np.clip(abs(finger[2]), 0.0, 1.0))))
+    # The finger opening line is undirected, but the fixed-to-moving pad
+    # normal is an arrow. Treating both modulo pi can put the long curved
+    # moving jaw on the wrong side of a folded towel edge.
+    fixed_pad_normal_yaw = _directed_yaw(fixed_pad_normal)
+    fixed_pad_normal_yaw_error = (
+        0.0
+        if pose.fixed_pad_normal_yaw_rad is None
+        else abs(
+            _wrap_full_turn(
+                fixed_pad_normal_yaw - pose.fixed_pad_normal_yaw_rad
+            )
+        )
+    )
+    fixed_pad_normal_tilt = float(
+        math.asin(float(np.clip(abs(fixed_pad_normal[2]), 0.0, 1.0)))
+    )
     margins = np.minimum(q - lower, upper - q)
     minimum_margin = float(np.min(margins))
     passed = (
         position_error <= MAXIMUM_TCP_POSITION_ERROR_M
-        and yaw_error <= MAXIMUM_JAW_YAW_ERROR_RAD
+        and (
+            not pose.enforce_finger_yaw
+            or yaw_error <= MAXIMUM_JAW_YAW_ERROR_RAD
+        )
         and approach_tilt <= pose.maximum_approach_tilt_rad
+        and finger_tilt <= pose.maximum_finger_tilt_rad
+        and (
+            pose.fixed_pad_normal_yaw_rad is None
+            or fixed_pad_normal_yaw_error <= MAXIMUM_JAW_YAW_ERROR_RAD
+        )
+        and fixed_pad_normal_tilt
+        <= pose.maximum_fixed_pad_normal_tilt_rad
         and minimum_margin >= MINIMUM_JOINT_LIMIT_MARGIN_RAD
     )
     return {
@@ -521,7 +603,20 @@ def evaluate_task_pose(
         "approach_tilt_from_down_rad": approach_tilt,
         "approach_tilt_from_down_deg": math.degrees(approach_tilt),
         "finger_axis_workcell": [float(value) for value in finger],
+        "finger_tilt_from_table_rad": finger_tilt,
+        "finger_tilt_from_table_deg": math.degrees(finger_tilt),
+        "fixed_pad_normal_workcell": [
+            float(value) for value in fixed_pad_normal
+        ],
+        "target_fixed_pad_normal_yaw_rad": pose.fixed_pad_normal_yaw_rad,
+        "actual_fixed_pad_normal_yaw_rad": fixed_pad_normal_yaw,
+        "fixed_pad_normal_yaw_error_rad": fixed_pad_normal_yaw_error,
+        "fixed_pad_normal_tilt_from_table_rad": fixed_pad_normal_tilt,
+        "fixed_pad_normal_tilt_from_table_deg": math.degrees(
+            fixed_pad_normal_tilt
+        ),
         "target_jaw_yaw_rad": pose.jaw_yaw_rad,
+        "finger_yaw_constraint_enabled": pose.enforce_finger_yaw,
         "actual_jaw_yaw_rad": finger_yaw,
         "jaw_yaw_error_rad": yaw_error,
         "minimum_joint_limit_margin_rad": minimum_margin,
@@ -555,7 +650,11 @@ def solve_task_pose_branches(
     fallback = np.clip(fallback, lower, upper)
     midpoint = 0.5 * (lower + upper)
     digest = hashlib.sha256(
-        f"{pose.name}|{pose.arm}|{pose.xyz_m}|{pose.jaw_yaw_rad}".encode()
+        (
+            f"{pose.name}|{pose.arm}|{pose.xyz_m}|{pose.jaw_yaw_rad}|"
+            f"{pose.enforce_finger_yaw}|{pose.fixed_pad_normal_yaw_rad}|"
+            f"{pose.maximum_fixed_pad_normal_tilt_rad}"
+        ).encode()
     ).digest()
     rng = np.random.default_rng(int.from_bytes(digest[:8], "little"))
     seeds = [preferred, fallback, midpoint]
@@ -570,21 +669,52 @@ def solve_task_pose_branches(
     target = np.asarray(pose.xyz_m)
     span = upper - lower
     maximum_approach_tilt = pose.maximum_approach_tilt_rad
+    maximum_finger_tilt = pose.maximum_finger_tilt_rad
 
     def residual(q: np.ndarray, continuity_anchor: np.ndarray) -> np.ndarray:
         by_name = dict(zip(kinematics.arm_joints, q, strict=True))
         _, xyz = kinematics.tcp_pose_in_root(by_name)
         finger = kinematics.finger_axis_in_root(by_name)
+        fixed_pad_normal = kinematics.fixed_jaw_pad_normal_in_root(by_name)
         approach = kinematics.approach_axis_in_root(by_name)
-        yaw_error = wrap_half_turn(_jaw_yaw(finger) - pose.jaw_yaw_rad)
+        yaw_error = (
+            wrap_half_turn(_jaw_yaw(finger) - pose.jaw_yaw_rad)
+            if pose.enforce_finger_yaw
+            else 0.0
+        )
         downward_dot = float(np.clip(-approach[2], -1.0, 1.0))
         approach_tilt = math.acos(downward_dot)
+        finger_tilt = math.asin(float(np.clip(abs(finger[2]), 0.0, 1.0)))
         cone_violation = max(0.0, approach_tilt - maximum_approach_tilt)
+        finger_tilt_violation = max(0.0, finger_tilt - maximum_finger_tilt)
+        fixed_pad_normal_yaw_error = (
+            0.0
+            if pose.fixed_pad_normal_yaw_rad is None
+            else _wrap_full_turn(
+                _directed_yaw(fixed_pad_normal)
+                - pose.fixed_pad_normal_yaw_rad
+            )
+        )
+        fixed_pad_normal_tilt = math.asin(
+            float(np.clip(abs(fixed_pad_normal[2]), 0.0, 1.0))
+        )
+        fixed_pad_normal_tilt_violation = max(
+            0.0,
+            fixed_pad_normal_tilt
+            - pose.maximum_fixed_pad_normal_tilt_rad,
+        )
         return np.concatenate(
             (
                 (xyz - target) / IK_POSITION_RESIDUAL_SCALE_M,
                 np.asarray((yaw_error / math.radians(2.0),)),
                 np.asarray((cone_violation / math.radians(2.0),)),
+                np.asarray((finger_tilt_violation / math.radians(2.0),)),
+                np.asarray(
+                    (fixed_pad_normal_yaw_error / math.radians(2.0),)
+                ),
+                np.asarray(
+                    (fixed_pad_normal_tilt_violation / math.radians(2.0),)
+                ),
                 # The arm is underactuated for arbitrary 6D pose control.
                 # Inside the approved downward cone, prefer the continuous
                 # branch instead of inventing a needless vertical-wrist
@@ -698,6 +828,13 @@ def validate_phase_contract(phases: Iterable[PhaseSpec]) -> None:
             ):
                 raise TowelPlanningError(
                     f"invalid approach cone for target: {target.name}"
+                )
+            if (
+                not math.isfinite(target.maximum_finger_tilt_rad)
+                or not 0.0 <= target.maximum_finger_tilt_rad <= math.pi / 2.0
+            ):
+                raise TowelPlanningError(
+                    f"invalid finger tilt cone for target: {target.name}"
                 )
         event = phase.attachment_event or ""
         if event.startswith("attach"):

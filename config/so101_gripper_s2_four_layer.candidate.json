@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "record_kind": "so101_gripper_s2_four_layer_candidate",
+  "status": "R2_S2_FOUR_LAYER_CONTACT_TARGET_MEASURED_AND_PHYSICALLY_REVALIDATED",
+  "simulation_only": true,
+  "motion_authorized": false,
+  "base_gripper_geometry": {
+    "path": "config/so101_gripper_geometry.candidate.json",
+    "sha256": "dc2b8e11b0303e93485965d3683552ee2448cb03283dcc6cb08e6585d8899e5c"
+  },
+  "measured_body_thickness_mm": {
+    "one_layer": 3.0,
+    "two_layer_flat_bundle": 7.0,
+    "four_layer_pinched_bundle": 13.0
+  },
+  "four_layer_project_contact_target_rad": {
+    "left": 0.210155,
+    "right": 0.128854
+  },
+  "four_layer_model_contact_target_rad": {
+    "left": -0.023567,
+    "right": 0.057734
+  },
+  "derivation": "directly reuse the physically retained four-layer anchors from the base gripper geometry; a top-down U-pinch of the already two-layer S1 bundle places four cloth layers between the jaws",
+  "control_contract": {
+    "command_is_force_claim": false,
+    "retention_only_after_four_layer_contact_gate": true,
+    "achieved_position_is_contact_limited": true,
+    "collision_validation_uses_exact_four_layer_target": true,
+    "both_arms_used_for_nominal_second_fold": true,
+    "simultaneous_release_after_dual_laydown_gate": true,
+    "right_reserved_for_post_release_correction": false
+  },
+  "limitations": [
+    "the command is a measured static-retention anchor, not a motor-force calibration",
+    "the candidate may be used in Isaac contact trials but does not authorize physical robot motion"
+  ]
+}

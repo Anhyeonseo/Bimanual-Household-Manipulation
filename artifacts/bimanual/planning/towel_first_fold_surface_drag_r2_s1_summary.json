@@ -29,6 +29,34 @@
     "maximum_repeat_p95_node_distance_m": 0.000009199,
     "maximum_repeat_node_distance_limit_m": 0.001
   },
+  "actual_contact_high_resolution_extension": {
+    "recorded_at": "2026-09-05",
+    "completed_runs": 2,
+    "cloth_resolution": [
+      63,
+      63
+    ],
+    "node_count": 4096,
+    "actual_jaw_mesh_contact": true,
+    "surface_distributed_contact_retention": true,
+    "progressive_contact_release": true,
+    "lateral_release_withdrawal_m": 0.04,
+    "open_jaw_fixed_pad_friction": 0.0,
+    "collision_disabled_during_release": false,
+    "worst_case_metrics": {
+      "maximum_layer_fraction": 0.5239050399570442,
+      "maximum_layer_fraction_limit": 0.55,
+      "maximum_p95_paired_vertex_xy_error_m": 0.017252573743462563,
+      "maximum_p95_paired_vertex_xy_error_limit_m": 0.03,
+      "maximum_final_cloth_height_m": 0.02487485483288765,
+      "maximum_final_cloth_height_limit_m": 0.03,
+      "maximum_first_fold_footprint_width_m": 0.15296122431755066,
+      "maximum_first_fold_footprint_width_limit_m": 0.18,
+      "maximum_gripper_opening_residual_rad": 1.2874603271484375e-05,
+      "maximum_release_patch_lift_m": 1.147598959505558e-05,
+      "minimum_release_patch_to_jaw_distance_m": 0.20046040415763855
+    }
+  },
   "sources": {
     "material_config_sha256": "c1deb5f6f27794623c89d01d422ea29e0f872d8e20f9ff528c7d950e14f66f12",
     "gripper_config_sha256": "1d7601a725ac0079927692f21efc77473b2920b37a3abbeee1d0bbc8d16a6df0",
@@ -37,7 +65,9 @@
     "full_fk_sha256": "d23658f16f5c2b394074d28f1b2c858835f154f0aed49b1645449132b2b7715c",
     "headless_result_sha256": "6b1d4cf1649e455abb6d236dfff6a488c374dd3437564c091d8c4c7054909e21",
     "gui_result_sha256": "8225ad5d9275b37bb3567331560cf8ae69baf1c2b7ab1a631631eedb2b349439",
-    "gui_replay_result_sha256": "f554b68bd2d619aecab07ac1966917afc059efc27bc628c74a276d8557bd3caa"
+    "gui_replay_result_sha256": "f554b68bd2d619aecab07ac1966917afc059efc27bc628c74a276d8557bd3caa",
+    "actual_contact_r63_headless_result_sha256": "2c5edcd390a3f9d75e06e673ef577a2c600982bd4722f8407397c36ef55fc5f0",
+    "actual_contact_r63_gui_result_sha256": "f6b0bae0800344cc897980010aea2d98f38e41884fd9e0066abaa45ec79b03e6"
   },
   "rejected_refinement": {
     "surface_drag_half_fold_compensation_m": 0.0113,

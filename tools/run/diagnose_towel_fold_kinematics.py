@@ -95,9 +95,14 @@ def solve_phases(
     clear: tuple[float, ...],
     kinematics: dict[str, GraspYawKinematics],
     bounds: dict[str, tuple[object, object]],
+    *,
+    prefer_continuous_seed: bool = False,
+    initial_joint_positions: tuple[float, ...] | None = None,
 ) -> list[dict[str, object]]:
     validate_phase_contract(phases)
-    current = clear
+    current = clear if initial_joint_positions is None else initial_joint_positions
+    if len(current) != len(clear) or not all(math.isfinite(value) for value in current):
+        raise TowelPlanningError("initial joint positions must match the clear state")
     records: list[dict[str, object]] = []
     for phase in phases:
         record = phase_to_dict(phase)
@@ -114,6 +119,9 @@ def solve_phases(
             target = current
             for task_target in phase.targets:
                 lower, upper = bounds[task_target.arm]
+                solver_options = (
+                    {"random_seed_count": 0} if prefer_continuous_seed else {}
+                )
                 branches = solve_task_pose_branches(
                     kinematics[task_target.arm],
                     task_target,
@@ -121,7 +129,17 @@ def solve_phases(
                     upper,
                     arm_values(target, task_target.arm),
                     arm_values(clear, task_target.arm),
+                    **solver_options,
                 )
+                if not branches and prefer_continuous_seed:
+                    branches = solve_task_pose_branches(
+                        kinematics[task_target.arm],
+                        task_target,
+                        lower,
+                        upper,
+                        arm_values(target, task_target.arm),
+                        arm_values(clear, task_target.arm),
+                    )
                 if not branches:
                     raise TowelPlanningError(
                         f"{phase.name}: no full-FK task-pose branch for "
@@ -171,12 +189,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--worktable", type=Path, default=DEFAULT_WORKTABLE)
     parser.add_argument("--urdf", type=Path, default=DEFAULT_URDF)
     parser.add_argument(
-        "--second-arm", choices=("right", "left"), default="right"
+        "--second-arm", choices=("right", "left"), default="left"
     )
     parser.add_argument(
         "--second-direction",
         choices=("right_to_left", "left_to_right"),
-        default="right_to_left",
+        default="left_to_right",
     )
     parser.add_argument("--skip-corrections", action="store_true")
     parser.add_argument("--output", type=Path, required=True)

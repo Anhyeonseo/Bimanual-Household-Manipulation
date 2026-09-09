@@ -452,14 +452,35 @@ def build_suspended_gravity_first_fold(
 
     retreat_z = contact_z + PREGRASP_CLEARANCE_M
     clearance_z = table_z_m + POST_RELEASE_CLEARANCE_Z_OFFSET_M
-    # Once the jaws are open, leave the towel footprint by moving straight up.
-    # The former sideways sweep crossed the newly folded edge and visibly
-    # disturbed it despite a successful release.
+    # The fixed rubber face sits below the cloth in the vertical pinch.  Once
+    # the opposing jaw opens, lifting immediately would scoop the released
+    # edge from below.  Withdraw each hand through its nearest lateral towel
+    # edge at the existing release height before lifting.  This is along Y,
+    # not across the folded panel in X.
+    withdrawn_y_by_arm = {
+        "left": y_by_arm["left"] + RELEASE_SIDE_WITHDRAWAL_M,
+        "right": y_by_arm["right"] - RELEASE_SIDE_WITHDRAWAL_M,
+    }
+    for index in range(1, RELEASE_SIDE_WITHDRAWAL_SAMPLE_COUNT + 1):
+        progress = index / RELEASE_SIDE_WITHDRAWAL_SAMPLE_COUNT
+        phases.append(
+            _bimanual_phase(
+                f"first_gravity_release_sideways_{index:02d}",
+                x_m=final_grasp_x,
+                y_by_arm_m={
+                    arm: y_by_arm[arm]
+                    + progress * (withdrawn_y_by_arm[arm] - y_by_arm[arm])
+                    for arm in ("left", "right")
+                },
+                z_m=release_z,
+                semantic="released_retreat",
+            )
+        )
     phases.append(
         _bimanual_phase(
             "first_gravity_retreat",
             x_m=final_grasp_x,
-            y_by_arm_m=y_by_arm,
+            y_by_arm_m=withdrawn_y_by_arm,
             z_m=retreat_z,
             semantic="released_retreat",
         )
@@ -470,7 +491,7 @@ def build_suspended_gravity_first_fold(
             _bimanual_phase(
                 f"first_gravity_clearance_lift_{index:02d}",
                 x_m=final_grasp_x,
-                y_by_arm_m=y_by_arm,
+                y_by_arm_m=withdrawn_y_by_arm,
                 z_m=retreat_z + progress * (clearance_z - retreat_z),
                 semantic="released_retreat",
             )
@@ -485,7 +506,7 @@ def build_suspended_gravity_first_fold(
                 f"first_gravity_clearance_outboard_{index:02d}",
                 x_m=final_grasp_x
                 + progress * (outboard_target_x - final_grasp_x),
-                y_by_arm_m=y_by_arm,
+                y_by_arm_m=withdrawn_y_by_arm,
                 z_m=clearance_z,
                 semantic="released_retreat",
             )
