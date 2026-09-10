@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>home_robot_tasks</name>
+  <version>0.1.0</version>
+  <description>Hardware-independent household task requests and planning.</description>
+  <maintainer email="noreply@github.com">dasom</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <test_depend>python3-pytest</test_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>

@@ -1,1 +1,1 @@
-"""Reusable desk-task, motion, and protocol helpers."""
+"""Hardware commissioning and protocol helpers."""

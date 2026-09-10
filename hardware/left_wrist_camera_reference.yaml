@@ -1,0 +1,8 @@
+# Historical left wrist calibration; invalidated if camera, lens or mount changes.
+status: reference_only
+source_repository: https://github.com/Anhyeonseo/SO101-Towel-Folding
+source_commit: 5b16fff82e400e4cca8cdcff96a6d1548058ef80
+parent_frame: left_wrist_camera_mount_center_link
+camera_xyz_m: [0.01437087, -0.00675864, 0.01616744]
+optical_rpy_rad: [-0.02242196, 0.03092788, 3.02135163]
+automatically_loaded: false

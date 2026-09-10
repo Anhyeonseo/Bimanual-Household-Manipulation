@@ -2,17 +2,15 @@
 <package format="3">
   <name>so101_description</name>
   <version>0.1.0</version>
-  <description>Parameterized SO-101 robot description for left-arm-first MoveIt and Isaac Sim integration.</description>
+  <description>Reusable SO101 arm geometry and standalone reference model.</description>
   <maintainer email="noreply@github.com">dasom</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <exec_depend>joint_state_publisher_gui</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
-  <exec_depend>rviz2</exec_depend>
   <exec_depend>urdf</exec_depend>
   <exec_depend>xacro</exec_depend>
 

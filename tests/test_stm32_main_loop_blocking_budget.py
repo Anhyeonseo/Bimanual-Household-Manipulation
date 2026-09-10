@@ -146,32 +146,3 @@ def test_buffered_hot_path_write_is_transmit_only() -> None:
         "HAL_Delay(",
     ):
         assert blocking_call not in body
-
-
-def test_host_budget_stays_under_the_mcu_watchdog() -> None:
-    """
-    host 가 MCU 보다 먼저 포기하면 안 된다.
-
-    MCU watchdog 은 heartbeat 를 처리할 때 먹으므로, 응답이 늦는 상황은
-    watchdog 이 이미 흐르고 있는 상황과 같다. host 예산이 그보다 짧으면
-    바쁜 링크를 죽은 링크로 오판한다.
-    """
-    transport = (
-        ROOT / "ros2_ws/src/single_arm_bridge/single_arm_bridge/transport.py"
-    ).read_text(encoding="utf-8")
-    host_budget_s = float(
-        re.search(r"HEARTBEAT_RESPONSE_TIMEOUT_S = ([0-9.]+)", transport).group(1)
-    )
-    declared_mcu_s = float(
-        re.search(
-            r"MCU_HEARTBEAT_WATCHDOG_TIMEOUT_S = ([0-9.]+)", transport
-        ).group(1)
-    )
-    firmware_ms = constant(CONFIG, "HOST_BINARY_HEARTBEAT_TIMEOUT_MS")
-
-    # host 가 적어둔 MCU 한계가 실제 firmware 값과 같아야 한다.
-    assert declared_mcu_s * 1000.0 == firmware_ms
-    # 그리고 host 예산은 그 아래에 있어야 한다.
-    assert host_budget_s < declared_mcu_s
-    # 다음 heartbeat 송신 여유도 남겨야 한다. timer 주기는 100 ms 다.
-    assert host_budget_s + 0.1 <= declared_mcu_s

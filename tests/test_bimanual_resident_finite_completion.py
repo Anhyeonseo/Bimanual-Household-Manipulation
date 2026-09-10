@@ -99,7 +99,7 @@ def test_f89_gripper_contact_tracking_cap_is_axis_specific() -> None:
 def test_resident_completion_does_not_disable_torque_to_reanchor() -> None:
     adapter = text(
         ROOT
-        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
+        / "ros2_ws/src/so101_arm_bridge/so101_arm_bridge/"
         "bimanual_stream_adapter.py"
     )
     poll = adapter[adapter.index("    def poll("):adapter.index("    def stop(")]
@@ -107,71 +107,17 @@ def test_resident_completion_does_not_disable_torque_to_reanchor() -> None:
     assert "prepare_shadow" not in poll
 
 
-def test_resident_host_contract_requires_finite_completion_firmware() -> None:
-    adapter = text(
-        ROOT
-        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
-        "bimanual_stream_adapter.py"
-    )
-    node = text(
-        ROOT
-        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
-        "bimanual_stream_node.py"
-    )
-    no_motion = text(
-        ROOT / "tools/setup/resident_gate/validate_resident_bimanual_adapter_no_motion.py"
-    )
-    hold = text(
-        ROOT / "tools/setup/resident_gate/execute_resident_bimanual_current_pose_hold_twice.py"
-    )
-    roundtrip = text(
-        ROOT
-        / "tools/setup/resident_gate/execute_resident_bimanual_base_small_roundtrip_once.py"
-    )
-    rolling = text(
-        ROOT
-        / "tools/setup/resident_gate/execute_resident_bimanual_rolling_horizon_no_motion_once.py"
-    )
-    rolling_motion = text(
-        ROOT
-        / "tools/setup/resident_gate/"
-        "execute_resident_bimanual_rolling_base_small_roundtrip_once.py"
-    )
-    assert "F8_FIRMWARE_VERSION = 0x00024809" in adapter
-    assert "F8_FIRMWARE_VERSION" in node
-    for source in (no_motion, hold, roundtrip, rolling, rolling_motion):
-        assert "0x00024809" in source
-    assert '"~/refresh_anchor"' in node
-    assert "refresh_unarmed_anchor" in node
-    assert "prepared_positions_rad" in node
-    assert "prepared_epoch" in node
-    assert "torque_hold_active" in node
-    assert "prepared = adapter.prepared_state" in node
-    assert "BASE_DELTA_RAD = 0.03" in roundtrip
-    assert "BASE_INDICES = (0, 6)" in roundtrip
-    assert "leg_routes" in roundtrip
-    assert "BimanualStreamCommand.Request.STOP" in roundtrip
-    for operation in ("START_OPEN", "APPEND", "SPLICE", "STOP"):
-        assert operation in rolling
-        assert operation in rolling_motion
-    assert "KEEPALIVE_COUNT = 3" in rolling
-    assert "ready_soak_s" in hold
-    assert "time.sleep(args.ready_soak_s)" in hold
-    assert 'ready_soak_status.get("torque_hold_active") is not True' in hold
-    assert "BASE_DELTA_RAD = 0.03" in rolling_motion
-    assert "BASE_INDICES = (0, 6)" in rolling_motion
-    assert "splice_offset_ms=splice_offset_ms" in rolling_motion
 
 
 def test_resident_node_owns_an_independent_armed_keepalive() -> None:
     node = text(
         ROOT
-        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
+        / "ros2_ws/src/so101_arm_bridge/so101_arm_bridge/"
         "bimanual_stream_node.py"
     )
     adapter = text(
         ROOT
-        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
+        / "ros2_ws/src/so101_arm_bridge/so101_arm_bridge/"
         "bimanual_stream_adapter.py"
     )
     assert 'self.declare_parameter("heartbeat_period_s", 0.1)' in node
@@ -198,7 +144,7 @@ def test_resident_node_owns_an_independent_armed_keepalive() -> None:
 def test_resident_node_prioritizes_armed_heartbeat_over_feedback() -> None:
     node = text(
         ROOT
-        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
+        / "ros2_ws/src/so101_arm_bridge/so101_arm_bridge/"
         "bimanual_stream_node.py"
     )
     feedback = node[
@@ -218,12 +164,12 @@ def test_resident_splice_api_synthesizes_continuity_in_adapter() -> None:
     )
     adapter = text(
         ROOT
-        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
+        / "ros2_ws/src/so101_arm_bridge/so101_arm_bridge/"
         "bimanual_stream_adapter.py"
     )
     node = text(
         ROOT
-        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
+        / "ros2_ws/src/so101_arm_bridge/so101_arm_bridge/"
         "bimanual_stream_node.py"
     )
     class_start = adapter.index("class ResidentBimanualStreamAdapter")

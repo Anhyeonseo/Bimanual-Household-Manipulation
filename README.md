@@ -1,143 +1,80 @@
-# 양팔 정사각형 수건 접기 시스템
+# ALOHA Mini Home Robot
 
-Raspberry Pi 5, ROS 2 Jazzy, STM32G474, SO-ARM101 두 대와 상단·손목
-카메라를 이용해 **구겨진 300×300 mm 정사각형 수건 한 장을 펼치고 두 번
-접는** 양팔 가정용 조작 시스템이다.
+ALOHA Mini 1 기반의 자취방·소형 주거공간용 모바일 매니퓰레이터다. 첫 목표는 **“거실 소파에서 리모컨을 찾아 침대에 내려놓기”**를 반복해서 수행하는 것이다.
 
-이 저장소의 최종 목표는 임의로 구겨져 놓인 수건을 양팔로 평탄화한 뒤,
-서로 직교하는 두 중심선을 따라 접어 원래 넓이의 1/4인 정사각형으로 만드는
-것이다. 이전 펜 연속 동작과 단일 팔 데모는
-[Bimanual-Pick-And-Place](https://github.com/Anhyeonseo/Bimanual-Pick-And-Place)에
-동결돼 있으며 이 저장소의 개발 범위가 아니다.
+기존 [Bimanual-Pick-And-Place](https://github.com/Anhyeonseo/Bimanual-Pick-And-Place)의 Classical P&P를 재사용한다. 해당 기반은 상단 카메라 인식부터 왼팔 집기, 오른팔 전달, 내려놓기까지 실기 완료한 시스템이다. 모바일 베이스와 리프트로 팔이 작업하기 좋은 상대 위치·높이를 재현하고, 새 장착 조건에 맞춰 통합한다.
 
-## 최종 동작
+## 개발 방향
+
+- **우선 Classical 완성:** Nav2 이동, RGB-D 인식·미세 정렬, 리프트, 기존 P&P, 작업 상태 머신을 단계적으로 연결한다.
+- **이후 VLA 확장·비교:** 리더암 시연으로 영상·관절 상태·동작 데이터를 수집하고 VLA를 모방학습한다. 같은 작업 조건에서 Classical과 성능을 비교한다.
+- 초기 VLA의 제어 범위는 정지한 베이스·리프트 위의 팔과 그리퍼다. 주행과 리프트는 공통 실행 계층에 남긴다.
+- 알려진 평탄한 실내와 가벼운 강체부터 시작한다. 여러 가사 작업과 변형체는 후속 확장이다.
+
+## 대표 동작
 
 ```text
-초기 관측
-  → 구김 상태와 노출 grasp 후보 추정
-  → 들어 올리기·장력 펼치기·제한된 털기·모서리 당기기
-  → 네 모서리와 평탄도 검증
-  → 작업대 축 정렬
-  → 첫 번째 반 접기
-  → 중간 형상 검증
-  → 직교 방향 두 번째 반 접기
-  → 최종 정사각형 검증
+요청 → 소파 근처 주행 → 정지·리모컨 인식 → 베이스 미세 정렬·정지
+     → 리프트 조절·정지·재인식 → 집기·집기 확인 → 운반 자세
+     → 침대 근처 주행 → 정지·놓을 면 확인 → 필요 시 미세 정렬·정지
+     → 리프트 조절·정지·재인식 → 놓기·배달 확인
 ```
 
-수건은 변형체이므로 한 번 계산한 pose를 끝까지 사용하지 않는다. 각 조작
-primitive가 끝날 때마다 상단·손목 카메라로 상태를 다시 추정하고, 신뢰도나
-기하 조건이 부족하면 다음 동작을 승인하지 않는다.
-
-## 목표 범위
-
-- nominal 300×300 mm인 목표 정사각형 수건 한 장
-- 작업대 안에 완전히 들어온 임의의 구김 상태
-- 구김 해소, 네 모서리 복원, 평탄화와 축 정렬
-- 서로 직교하는 중심선을 따른 두 번의 반 접기
-- 단계별 관측 검증과 횟수가 제한된 복구
-- perception, 계획, 명령, measured feedback, 결과 artifact 저장
-
-매듭이 생긴 수건, 다른 물체 아래에 깔린 수건, 여러 장이 겹친 상태와 작업대
-밖에서 시작한 상태는 초기 버전의 범위 밖이다. 자세한 계약은
-[프로젝트 범위](docs/SCOPE.md)와 [수건 접기 설계](docs/TOWEL_FOLDING.md)를
-따른다.
+Nav2 도착만으로 집기를 시작하지 않는다. 베이스·리프트·팔 조작은 순차 실행하며, 주행 중에는 팔과 리프트를 검증된 운반 상태로 유지한다. 양팔 플랫폼이지만 모든 물건을 양팔로 집거나 손 사이에서 전달할 필요는 없다.
 
 ## 현재 상태
 
-양팔 resident 제어, protocol v2, operational limits, URDF/MoveIt, 멀티카메라
-수집과 보정 도구는 구현돼 있다. 캔 OBB와 파지 계획 코드는 강체 물체 단계에서
-만든 선행 실험으로 유지하지만 최종 태스크는 아니다.
+현재 저장소에는 STM32 팔 펌웨어, `so101_arm_bridge`, 팔 참조 모델, `home_robot_tasks`의 요청 검증·7단계 계획 출력이 있다. 기존 P&P 기반은 별도 저장소에 있으며 모바일 환경으로의 이식은 아직 진행 전이다. 베이스·Nav2·RGB-D·리프트·전체 실행기는 아직 연결되지 않았다.
 
-실제 영상 segmentation과 모서리 복원, 펼치기 primitive, 두 단계 fold
-executor는 아직 구현되지 않았다. 다만 annotation→metric observation 변환,
-구김 상태 추정, 유한 상태기계, 직교 2회 접기 기하·반원 arc와 offline replay는
-구현됐다. 현재 상태는 `SOFTWARE_FOUNDATION`이며 수건 동작은 승인되지 않았다.
+플랫폼 기준은 ALOHA Mini 1의 3륜 옴니 베이스와 수직 리프트다. 실제 바퀴·리프트 프로토콜, 피드백, 장착 치수는 확인이 필요하다. 센서는 작업용 RGB-D, 주행용 2D LiDAR와 IMU를 구성 방향으로 두고 제품·설치 위치·컴퓨팅 배치를 선정한다. 현재 최우선은 **베이스 저수준 제어·피드백 확인과 ROS 2/Nav2 연결 가능성 검증**이다.
 
-정확한 구현 상태는 [현재 상태](docs/CURRENT_STATUS.md), 개발 순서는
-[최종 로드맵](docs/ROADMAP.md), 승인 기준은
-[검증 매트릭스](docs/VERIFICATION_MATRIX.md)를 따른다.
+## 하드웨어 없는 확인
 
-## 빠른 확인
+저장소 루트에서 실행한다. 아래 명령은 모터나 시뮬레이션을 실행하지 않는다.
 
-```powershell
-py -3.11 -m venv .venv-host
-.\.venv-host\Scripts\Activate.ps1
+```bash
+python3 -m venv .venv-host
+source .venv-host/bin/activate
 python -m pip install -r requirements/host.txt
-python -m pytest -c config/pytest.ini --rootdir=. -q `
-  tests/test_towel_geometry.py `
-  tests/test_towel_fold_path.py `
-  tests/test_towel_fake_reachability.py `
-  tests/test_towel_dataset.py `
-  tests/test_towel_perception.py `
-  tests/test_towel_task_runtime.py `
-  tests/test_towel_task_planning.py `
-  tests/test_towel_task_replay.py `
-  tests/test_towel_schemas.py `
-  tests/test_desk_task_runtime.py `
-  tests/test_can_grasp_roll_branches.py `
-  tests/test_can_pick_application.py
-python tools\run\validate_protocol_manifest.py
-python tools\run\validate_camera_schedule.py
-python tools\run\validate_towel_contract.py
-python tools\run\validate_towel_schemas.py
-python tools\run\select_towel_fake_reachability.py `
-  config/towel_fake_reachability.example.json `
-  --output tmp/towel_fake_reachability.json
-python tools\run\validate_towel_dataset.py `
-  config/towel_annotation.example.json `
-  --output tmp/towel_dataset_manifest.json
-python tools\run\plan_towel_task_once.py `
-  config/towel_observation.example.json `
-  --output tmp/towel_plan_example.json
-python tools\run\replay_towel_task.py `
-  config/towel_replay.example.json `
-  --output tmp/towel_replay_example.json
+python -m pytest -c config/pytest.ini --rootdir=. -q
+python tools/run/validate_protocol_manifest.py
+python tools/setup/firmware/generate_protocol_header.py --check
 ```
 
-위 시험은 현재 공통 기반, 수건 순수 기하·상태·plan-only 계약과 선행 기하
-코드의 회귀 확인이다. 전체 firmware/ROS/MoveIt 연동 시험은 ROS 2 Jazzy,
-OpenCV, xacro, ARM toolchain과 workspace overlay가 준비된 Linux/Pi 환경에서
-실행한다.
+예제 요청의 계획 출력:
 
-## 저장소 구조
-
-```text
-config/                         # 운용 한계, 카메라와 motion-locked 수건 task 계약
-docs/                           # 범위, 설계, 현재 상태, 로드맵, 검증 기준
-firmware/                       # STM32 12축 resident 제어 기반
-hardware/                       # 배선과 하드웨어 자료
-isaac_sim/                      # 양팔 workcell과 simulation 자산
-protocol/                       # Pi↔STM32 protocol v2
-requirements/                   # host와 Pi perception Python 의존성
-ros2_ws/src/
-  manipulation_camera_manager/ # 상단·손목 카메라 수집과 scheduling
-  so101_top_perception/         # 상단 관측과 fail-closed gate
-  single_arm_bridge/            # legacy 이름; 양팔 resident adapter 포함
-  so101_description/            # 양팔 URDF/Xacro
-  so101_moveit_config/          # 양팔 planning 설정
-tests/                          # 공통 기반과 태스크 계약 회귀 시험
-tools/                          # run/lib/setup/diagnostics/contract_evidence
+```bash
+PYTHONPATH=ros2_ws/src/home_robot_tasks python -m home_robot_tasks.cli \
+  --world config/home.example.json \
+  --request config/fetch_remote.example.json
 ```
 
-`single_arm_bridge`와 `stm32_g474_single_arm` 이름은 배포·linked-resource
-호환성을 위해 유지한다. 실제 태스크 motion의 승인 경로는 resident 양팔
-adapter 하나로 제한한다.
+결과는 `plan_only`, `executable=false`다. 예제는 소파 탐색과 침대의 지정 영역을 의미 이름으로 표현한다. 실제 지도 좌표가 없고, 현재 7단계 출력에는 미세 정렬·리프트·재인식 상태가 아직 분리되어 있지 않다. 손에 든 채 운반하는 대표 경로의 자세·적재 한계는 실물 검증이 필요하다.
 
-## 핵심 문서
+펌웨어 공통 코어 시험:
 
-- [수건 접기 최종 설계](docs/TOWEL_FOLDING.md)
-- [하드웨어 없는 개발 백로그](docs/HARDWARE_FREE_BACKLOG.md)
-- [프로젝트 범위](docs/SCOPE.md)
-- [시스템 구조](docs/ARCHITECTURE.md)
-- [현재 상태](docs/CURRENT_STATUS.md)
-- [최종 로드맵](docs/ROADMAP.md)
-- [검증 매트릭스](docs/VERIFICATION_MATRIX.md)
-- [선행 캔 파지 파이프라인](docs/CAN_TO_BIN.md)
-- [도구 구조와 진입점](tools/README.md)
-- [제3자 고지](docs/THIRD_PARTY_NOTICES.md)
+```bash
+cmake -S firmware/stm32_actuator -B build/stm32_actuator-host
+cmake --build build/stm32_actuator-host
+ctest --test-dir build/stm32_actuator-host --output-on-failure
+```
+
+## 구성과 문서
+
+| 경로 | 역할 |
+|---|---|
+| `firmware/` | 기존 STM32 제어기와 독립 C 코어 |
+| `ros2_ws/src/so101_arm_bridge/` | 팔 명령·피드백·정지 브릿지 |
+| `ros2_ws/src/so101_interfaces/` | 양팔 명령·피드백 ROS 메시지 |
+| `ros2_ws/src/so101_description/` | SO101 팔 기구학과 형상 |
+| `ros2_ws/src/home_robot_tasks/` | 가사 작업 요청과 계획 |
+| `config/`, `hardware/` | 관절 한계, 예제 요청, 하드웨어 참조 |
+| `protocol/`, `tools/`, `tests/` | 통신 규격, 검증 도구, 회귀 시험 |
+
+[현재 상태](docs/CURRENT_STATUS.md) · [로드맵](docs/ROADMAP.md) · [시스템 구조](docs/ARCHITECTURE.md) · [팔 브릿지 사용](ros2_ws/src/so101_arm_bridge/README.md)
+
+이전 수건 접기 개발은 [SO101-Towel-Folding](https://github.com/Anhyeonseo/SO101-Towel-Folding/tree/5b16fff82e400e4cca8cdcff96a6d1548058ef80)에 보관한다.
 
 ## License
 
-자체 작성 코드는 [Apache License 2.0](LICENSE)으로 공개한다. STM32 HAL,
-CMSIS와 BSP는 각 원본 파일 및
-[제3자 고지](docs/THIRD_PARTY_NOTICES.md)의 조건을 따른다.
+자체 작성 코드와 문서는 [Apache License 2.0](LICENSE)을 따른다. 로봇 모델과 STM32 구성 요소의 조건은 [제3자 고지](docs/THIRD_PARTY_NOTICES.md)에 정리했다.

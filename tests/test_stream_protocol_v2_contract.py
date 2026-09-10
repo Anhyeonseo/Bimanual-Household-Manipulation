@@ -3,7 +3,7 @@ import struct
 
 import pytest
 
-from single_arm_bridge.stream_protocol_v2 import (
+from so101_arm_bridge.stream_protocol_v2 import (
     ARM_MASK_BOTH,
     ARM_MASK_LEFT,
     ARM_MASK_RIGHT,

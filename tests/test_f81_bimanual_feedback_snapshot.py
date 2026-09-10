@@ -1,7 +1,7 @@
 from pathlib import Path
 import subprocess
 
-from single_arm_bridge.stream_protocol_v2 import (
+from so101_arm_bridge.stream_protocol_v2 import (
     FEEDBACK_SNAPSHOT_V2,
     StreamMessageTypeV2,
     parse_feedback_snapshot_v2,
@@ -140,12 +140,12 @@ def test_f81_ros_contract_publishes_standard_and_fresh_feedback() -> None:
     )
     node = text(
         ROOT
-        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
+        / "ros2_ws/src/so101_arm_bridge/so101_arm_bridge/"
         "bimanual_stream_node.py"
     )
     adapter = text(
         ROOT
-        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
+        / "ros2_ws/src/so101_arm_bridge/so101_arm_bridge/"
         "bimanual_stream_adapter.py"
     )
     assert "float64[12] positions" in interface
@@ -155,34 +155,3 @@ def test_f81_ros_contract_publishes_standard_and_fresh_feedback() -> None:
     assert "snapshot.sample_age_ms" in node
     assert "F8_FIRMWARE_VERSION = 0x00024809" in adapter
     assert "def feedback_snapshot" in adapter
-    rolling = text(
-        ROOT
-        / "tools/setup/resident_gate/execute_resident_bimanual_rolling_base_small_roundtrip_once.py"
-    )
-    assert "feedback_maximum_sample_age_ms" in rolling
-    assert "maximum_observed_base_delta_rad" in rolling
-
-
-def test_unarmed_rolling_feedback_is_explicit_no_motion_and_age_honest() -> None:
-    node = text(
-        ROOT
-        / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
-        "bimanual_stream_node.py"
-    )
-    launch = text(
-        ROOT
-        / "ros2_ws/src/single_arm_bridge/launch/"
-        "bimanual_stream.launch.py"
-    )
-    config = text(
-        ROOT
-        / "ros2_ws/src/single_arm_bridge/config/"
-        "bimanual_stream.yaml"
-    )
-    assert 'declare_parameter("unarmed_feedback_refresh_period_s", 0.0)' in node
-    assert "unarmed feedback refresh requires motion_authorized=false" in node
-    assert "adapter.refresh_unarmed_anchor()" in node
-    assert "maximum_sample_age_ms = max(snapshot.sample_age_ms)" in node
-    assert "Duration(nanoseconds=maximum_sample_age_ms * 1_000_000)" in node
-    assert '"unarmed_feedback_refresh_period_s"' in launch
-    assert "unarmed_feedback_refresh_period_s: 0.0" in config

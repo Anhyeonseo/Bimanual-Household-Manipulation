@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from single_arm_bridge.bimanual_stream_adapter import (
+from so101_arm_bridge.bimanual_stream_adapter import (
     AdapterState,
     BimanualTransientFeedbackError,
     BimanualStreamContractError,
@@ -18,11 +18,11 @@ from single_arm_bridge.bimanual_stream_adapter import (
     load_operational_limits,
     normalize_joint_positions,
 )
-from single_arm_bridge.stream_transport_v2 import (
+from so101_arm_bridge.stream_transport_v2 import (
     StreamResponseTimeoutError,
     StreamTransportV2Error,
 )
-from single_arm_bridge.stream_protocol_v2 import (
+from so101_arm_bridge.stream_protocol_v2 import (
     ARM_MASK_BOTH,
     StreamContractResultV2,
     StreamExecutorStateV2,

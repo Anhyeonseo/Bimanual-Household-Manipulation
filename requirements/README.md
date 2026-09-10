@@ -1,7 +1,3 @@
-# Requirements
+# Python 의존성
 
-- `host.txt`: 로컬 계약 시험과 보정 도구용 Python 의존성
-- `top-perception-runtime.txt`: ROS 2 system package 위에 구성하는 Pi perception runtime
-
-ROS 2, MoveIt, STM32 toolchain은 운영체제·workspace 설치 항목이므로 이 폴더의
-pip 목록에 포함하지 않는다.
+`host.txt`는 하드웨어 없는 Python 시험과 설정 검사에 사용한다. ROS 2 Jazzy, colcon, CMake와 ARM 컴파일러는 운영체제에서 별도로 설치한다. RGB-D·LiDAR·모델 런타임 의존성은 하드웨어와 구현을 선정한 뒤 추가한다.

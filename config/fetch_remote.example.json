@@ -1,0 +1,6 @@
+{
+  "task": "fetch_object",
+  "object_id": "remote_control",
+  "source_room": "living_room",
+  "destination_place": "bedroom_drop_zone"
+}

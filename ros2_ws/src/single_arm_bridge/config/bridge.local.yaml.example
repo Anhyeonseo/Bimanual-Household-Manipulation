@@ -1,5 +1,0 @@
-# Copy this file to bridge.local.yaml and replace <SERIAL> when more than one
-# compatible ST-LINK is connected. bridge.local.yaml is intentionally ignored.
-single_arm_bridge:
-  ros__parameters:
-    serial_device: "/dev/serial/by-id/usb-STMicroelectronics_STLINK-V3_<SERIAL>-if02"

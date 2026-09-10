@@ -19,12 +19,12 @@ BINARY = (
 ).read_text()
 ADAPTER = (
     ROOT
-    / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
+    / "ros2_ws/src/so101_arm_bridge/so101_arm_bridge/"
     "bimanual_stream_adapter.py"
 ).read_text()
 TRANSPORT = (
     ROOT
-    / "ros2_ws/src/single_arm_bridge/single_arm_bridge/"
+    / "ros2_ws/src/so101_arm_bridge/so101_arm_bridge/"
     "stream_transport_v2.py"
 ).read_text()
 SERVO = (

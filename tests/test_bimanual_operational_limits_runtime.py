@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "config/bimanual_operational_limits.json"
 INSTALLED_MANIFEST = (
     ROOT
-    / "ros2_ws/src/single_arm_bridge/config/bimanual_operational_limits.json"
+    / "ros2_ws/src/so101_arm_bridge/config/bimanual_operational_limits.json"
 )
 LIMIT_SOURCE = (
     ROOT
@@ -24,13 +24,6 @@ ACTUATOR_INCLUDE = ROOT / "firmware/stm32_actuator/include"
 CMAKE = (ROOT / "firmware/stm32_g474_single_arm/CMakeLists.txt").read_text()
 CONFIG = (
     ROOT / "firmware/stm32_g474_single_arm/Core/Inc/single_arm_config.h"
-).read_text()
-IDENTITY = (
-    ROOT
-    / "ros2_ws/src/single_arm_bridge/single_arm_bridge/hardware_identity.py"
-).read_text()
-BRIDGE = (
-    ROOT / "ros2_ws/src/single_arm_bridge/single_arm_bridge/bridge_node.py"
 ).read_text()
 
 EXPECTED_SHA256 = (
@@ -177,37 +170,3 @@ int main(void)
     assert compile_result.returncode == 0, compile_result.stderr
     run_result = subprocess.run([str(executable)], check=False)
     assert run_result.returncode == 0
-
-
-def test_candidate_and_bridge_use_one_general_identity() -> None:
-    assert "BIMANUAL_OPERATIONAL_LIMITS_CANDIDATE" in CMAKE
-    assert "BIMANUAL_DISPATCH_REFACTOR_CANDIDATE" in CMAKE
-    assert "HOST_BINARY_FIRMWARE_VERSION=0x00024400UL" in CMAKE
-    assert "HOST_BINARY_FIRMWARE_VERSION=0x00024500UL" in CMAKE
-    assert "HOST_BINARY_CAPABILITIES=0x607FFFFFUL" in CMAKE
-    assert "HOST_BIMANUAL_DISPATCH_REFACTOR_BUILD=1U" in CMAKE
-    assert "HOST_BINARY_CAPABILITIES=0x207FFFFFUL" in CMAKE
-    assert "HOST_BIMANUAL_OPERATIONAL_LIMITS_BUILD=1U" in CMAKE
-    assert "HOST_BINARY_FIRMWARE_VERSION UINT32_C(0x00023B00)" in CONFIG
-    assert "BIMANUAL_OPERATIONAL_LIMITS_FIRMWARE_VERSION = 0x00024400" in IDENTITY
-    assert "BIMANUAL_DISPATCH_REFACTOR_FIRMWARE_VERSION = 0x00024500" in IDENTITY
-    assert "BIMANUAL_OPERATIONAL_LIMITS_CAPABILITY = 0x20000000" in IDENTITY
-    assert "BIMANUAL_DISPATCH_REFACTOR_CAPABILITY = 0x40000000" in IDENTITY
-    assert "BIMANUAL_READ_ONLY_DISPATCH_REFACTOR" in BRIDGE
-    assert 'self.declare_parameter("require_bimanual_operational_limits", False)' in BRIDGE
-    assert '"bimanual_operational_limits_identity"' in BRIDGE
-    assert EXPECTED_SHA256 in BRIDGE
-    assert "firmware=0x00024400/0x00024500 requires" in BRIDGE
-    assert "does not authorize " in BRIDGE
-
-
-def test_temporary_elbow_recovery_branch_is_gone() -> None:
-    combined = "\n".join((CMAKE, CONFIG, IDENTITY, BRIDGE, LIMIT_SOURCE.read_text()))
-    for forbidden in (
-        "J2_ELBOW_RECOVERY",
-        "J2-R",
-        "j2r_elbow",
-        "right_arm_command_limits",
-        "inward-only",
-    ):
-        assert forbidden not in combined

@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<robot name="so101_arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="arm_slot" default="left"/>
+  <xacro:arg name="mount_xyz" default="0 0 0"/>
+  <xacro:arg name="mount_rpy" default="0 0 0"/>
+  <xacro:arg name="use_wrist_camera_mount" default="true"/>
+  <xacro:include filename="so101_arm_macro.xacro"/>
+  <material name="3d_printed"><color rgba="1.0 0.82 0.12 1.0"/></material>
+  <material name="sts3215"><color rgba="0.1 0.1 0.1 1.0"/></material>
+  <!-- Standalone arm reference; the mobile base and its measured mounts are not defined yet. -->
+  <link name="arm_mount_frame"/>
+  <xacro:so101_arm prefix="$(arg arm_slot)_" parent="arm_mount_frame"
+    mount_xyz="$(arg mount_xyz)" mount_rpy="$(arg mount_rpy)"
+    use_wrist_camera_mount="$(arg use_wrist_camera_mount)"/>
+</robot>

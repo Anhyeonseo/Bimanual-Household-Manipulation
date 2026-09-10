@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "description": "Plan-only sofa-to-bed example for ALOHA Mini 1; no measured poses, lift control or fine alignment.",
+  "transport_mode": "carry_in_gripper",
+  "rooms": {
+    "living_room": {
+      "search_locations": [
+        "sofa"
+      ]
+    },
+    "bedroom": {
+      "search_locations": [
+        "bedroom_drop_zone"
+      ]
+    }
+  },
+  "places": {
+    "coffee_table": {
+      "room": "living_room"
+    },
+    "sofa_side_table": {
+      "room": "living_room"
+    },
+    "bedroom_drop_zone": {
+      "room": "bedroom",
+      "label": "침대 위 지정 영역"
+    },
+    "sofa": {
+      "room": "living_room",
+      "label": "소파"
+    }
+  },
+  "objects": {
+    "remote_control": {
+      "label": "리모컨"
+    }
+  }
+}
